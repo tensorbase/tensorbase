@@ -1,0 +1,22 @@
+[package]
+name = "base_shell"
+version = "0.1.0"
+authors = ["Jin Mingjian"]
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+rustyline = "6.1.2"
+colored = "2"
+base = { path = "../base" }
+ir = { path = "../ir" }
+runtime = { path = "../runtime" }
+# clap = "2.33.1"
+
+[build-dependencies]
+base = { path = "../base" }
+
+[[bin]]
+name = "baseshell"
+path = "src/baseshell.rs"

@@ -1,0 +1,349 @@
+== Abstract Syntax Tree ==
+LogicalSort(fetch=[100])
++- LogicalProject(B1_LP=[$0], B1_CNT=[$1], B1_CNTD=[$2], B2_LP=[$3], B2_CNT=[$4], B2_CNTD=[$5], B3_LP=[$6], B3_CNT=[$7], B3_CNTD=[$8], B4_LP=[$9], B4_CNT=[$10], B4_CNTD=[$11], B5_LP=[$12], B5_CNT=[$13], B5_CNTD=[$14], B6_LP=[$15], B6_CNT=[$16], B6_CNTD=[$17])
+   +- LogicalJoin(condition=[true], joinType=[inner])
+      :- LogicalJoin(condition=[true], joinType=[inner])
+      :  :- LogicalJoin(condition=[true], joinType=[inner])
+      :  :  :- LogicalJoin(condition=[true], joinType=[inner])
+      :  :  :  :- LogicalJoin(condition=[true], joinType=[inner])
+      :  :  :  :  :- LogicalAggregate(group=[{}], B1_LP=[AVG($0)], B1_CNT=[COUNT($0)], B1_CNTD=[COUNT(DISTINCT $0)])
+      :  :  :  :  :  +- LogicalProject(ss_list_price=[$12])
+      :  :  :  :  :     +- LogicalFilter(condition=[AND(>=($10, 0), <=($10, 5), OR(AND(>=($12, 0), <=($12, +(0, 10))), AND(>=($19, 0), <=($19, +(0, 1000))), AND(>=($11, 0), <=($11, +(0, 20)))))])
+      :  :  :  :  :        +- LogicalTableScan(table=[[default_catalog, default_database, store_sales, source: [ParquetTableSource(ss_sold_date_sk, ss_sold_time_sk, ss_item_sk, ss_customer_sk, ss_cdemo_sk, ss_hdemo_sk, ss_addr_sk, ss_store_sk, ss_promo_sk, ss_ticket_number, ss_quantity, ss_wholesale_cost, ss_list_price, ss_sales_price, ss_ext_discount_amt, ss_ext_sales_price, ss_ext_wholesale_cost, ss_ext_list_price, ss_ext_tax, ss_coupon_amt, ss_net_paid, ss_net_paid_inc_tax, ss_net_profit)]]])
+      :  :  :  :  +- LogicalAggregate(group=[{}], B2_LP=[AVG($0)], B2_CNT=[COUNT($0)], B2_CNTD=[COUNT(DISTINCT $0)])
+      :  :  :  :     +- LogicalProject(ss_list_price=[$12])
+      :  :  :  :        +- LogicalFilter(condition=[AND(>=($10, 6), <=($10, 10), OR(AND(>=($12, 1), <=($12, +(1, 10))), AND(>=($19, 1), <=($19, +(1, 1000))), AND(>=($11, 1), <=($11, +(1, 20)))))])
+      :  :  :  :           +- LogicalTableScan(table=[[default_catalog, default_database, store_sales, source: [ParquetTableSource(ss_sold_date_sk, ss_sold_time_sk, ss_item_sk, ss_customer_sk, ss_cdemo_sk, ss_hdemo_sk, ss_addr_sk, ss_store_sk, ss_promo_sk, ss_ticket_number, ss_quantity, ss_wholesale_cost, ss_list_price, ss_sales_price, ss_ext_discount_amt, ss_ext_sales_price, ss_ext_wholesale_cost, ss_ext_list_price, ss_ext_tax, ss_coupon_amt, ss_net_paid, ss_net_paid_inc_tax, ss_net_profit)]]])
+      :  :  :  +- LogicalAggregate(group=[{}], B3_LP=[AVG($0)], B3_CNT=[COUNT($0)], B3_CNTD=[COUNT(DISTINCT $0)])
+      :  :  :     +- LogicalProject(ss_list_price=[$12])
+      :  :  :        +- LogicalFilter(condition=[AND(>=($10, 11), <=($10, 15), OR(AND(>=($12, 2), <=($12, +(2, 10))), AND(>=($19, 2), <=($19, +(2, 1000))), AND(>=($11, 2), <=($11, +(2, 20)))))])
+      :  :  :           +- LogicalTableScan(table=[[default_catalog, default_database, store_sales, source: [ParquetTableSource(ss_sold_date_sk, ss_sold_time_sk, ss_item_sk, ss_customer_sk, ss_cdemo_sk, ss_hdemo_sk, ss_addr_sk, ss_store_sk, ss_promo_sk, ss_ticket_number, ss_quantity, ss_wholesale_cost, ss_list_price, ss_sales_price, ss_ext_discount_amt, ss_ext_sales_price, ss_ext_wholesale_cost, ss_ext_list_price, ss_ext_tax, ss_coupon_amt, ss_net_paid, ss_net_paid_inc_tax, ss_net_profit)]]])
+      :  :  +- LogicalAggregate(group=[{}], B4_LP=[AVG($0)], B4_CNT=[COUNT($0)], B4_CNTD=[COUNT(DISTINCT $0)])
+      :  :     +- LogicalProject(ss_list_price=[$12])
+      :  :        +- LogicalFilter(condition=[AND(>=($10, 16), <=($10, 20), OR(AND(>=($12, 3), <=($12, +(3, 10))), AND(>=($19, 3), <=($19, +(3, 1000))), AND(>=($11, 3), <=($11, +(3, 20)))))])
+      :  :           +- LogicalTableScan(table=[[default_catalog, default_database, store_sales, source: [ParquetTableSource(ss_sold_date_sk, ss_sold_time_sk, ss_item_sk, ss_customer_sk, ss_cdemo_sk, ss_hdemo_sk, ss_addr_sk, ss_store_sk, ss_promo_sk, ss_ticket_number, ss_quantity, ss_wholesale_cost, ss_list_price, ss_sales_price, ss_ext_discount_amt, ss_ext_sales_price, ss_ext_wholesale_cost, ss_ext_list_price, ss_ext_tax, ss_coupon_amt, ss_net_paid, ss_net_paid_inc_tax, ss_net_profit)]]])
+      :  +- LogicalAggregate(group=[{}], B5_LP=[AVG($0)], B5_CNT=[COUNT($0)], B5_CNTD=[COUNT(DISTINCT $0)])
+      :     +- LogicalProject(ss_list_price=[$12])
+      :        +- LogicalFilter(condition=[AND(>=($10, 21), <=($10, 25), OR(AND(>=($12, 4), <=($12, +(4, 10))), AND(>=($19, 4), <=($19, +(4, 1000))), AND(>=($11, 4), <=($11, +(4, 20)))))])
+      :           +- LogicalTableScan(table=[[default_catalog, default_database, store_sales, source: [ParquetTableSource(ss_sold_date_sk, ss_sold_time_sk, ss_item_sk, ss_customer_sk, ss_cdemo_sk, ss_hdemo_sk, ss_addr_sk, ss_store_sk, ss_promo_sk, ss_ticket_number, ss_quantity, ss_wholesale_cost, ss_list_price, ss_sales_price, ss_ext_discount_amt, ss_ext_sales_price, ss_ext_wholesale_cost, ss_ext_list_price, ss_ext_tax, ss_coupon_amt, ss_net_paid, ss_net_paid_inc_tax, ss_net_profit)]]])
+      +- LogicalAggregate(group=[{}], B6_LP=[AVG($0)], B6_CNT=[COUNT($0)], B6_CNTD=[COUNT(DISTINCT $0)])
+         +- LogicalProject(ss_list_price=[$12])
+            +- LogicalFilter(condition=[AND(>=($10, 26), <=($10, 30), OR(AND(>=($12, 5), <=($12, +(5, 10))), AND(>=($19, 5), <=($19, +(5, 1000))), AND(>=($11, 5), <=($11, +(5, 20)))))])
+               +- LogicalTableScan(table=[[default_catalog, default_database, store_sales, source: [ParquetTableSource(ss_sold_date_sk, ss_sold_time_sk, ss_item_sk, ss_customer_sk, ss_cdemo_sk, ss_hdemo_sk, ss_addr_sk, ss_store_sk, ss_promo_sk, ss_ticket_number, ss_quantity, ss_wholesale_cost, ss_list_price, ss_sales_price, ss_ext_discount_amt, ss_ext_sales_price, ss_ext_wholesale_cost, ss_ext_list_price, ss_ext_tax, ss_coupon_amt, ss_net_paid, ss_net_paid_inc_tax, ss_net_profit)]]])
+
+== Optimized Logical Plan ==
+Calc(select=[B1_LP, B1_CNT, B1_CNTD, B2_LP, B2_CNT, B2_CNTD, B3_LP, B3_CNT, B3_CNTD, B4_LP, B4_CNT, B4_CNTD, B5_LP, B5_CNT, B5_CNTD, B6_LP, B6_CNT, B6_CNTD]): rowcount = 1.0, cumulative cost = {1.79356825388022E9 rows, 1.9387399487260203E9 cpu, 7.6032290136E10 io, 4.4236124E7 network, 7.8040336E7 memory}
++- Limit(offset=[0], fetch=[100], global=[true]): rowcount = 1.0, cumulative cost = {1.79356825288022E9 rows, 1.9387399487260203E9 cpu, 7.6032290136E10 io, 4.4236124E7 network, 7.8040336E7 memory}
+   +- Exchange(distribution=[single]): rowcount = 1.0, cumulative cost = {1.79356825188022E9 rows, 1.9387399447260203E9 cpu, 7.6032290136E10 io, 4.4236124E7 network, 7.8040336E7 memory}
+      +- Limit(offset=[0], fetch=[100], global=[false]): rowcount = 1.0, cumulative cost = {1.79356825088022E9 rows, 1.9387397837260203E9 cpu, 7.6032290136E10 io, 4.4235956E7 network, 7.8040336E7 memory}
+         +- NestedLoopJoin(joinType=[InnerJoin], where=[true], select=[B1_LP, B1_CNT, B1_CNTD, B6_LP, B6_CNT, B6_CNTD, B5_LP, B5_CNT, B5_CNTD, B4_LP, B4_CNT, B4_CNTD, B3_LP, B3_CNT, B3_CNTD, B2_LP, B2_CNT, B2_CNTD], build=[right], singleRowJoin=[true]): rowcount = 1.0, cumulative cost = {1.79356824988022E9 rows, 1.9387397797260203E9 cpu, 7.6032290136E10 io, 4.4235956E7 network, 7.8040336E7 memory}
+            :- NestedLoopJoin(joinType=[InnerJoin], where=[true], select=[B1_LP, B1_CNT, B1_CNTD, B6_LP, B6_CNT, B6_CNTD, B5_LP, B5_CNT, B5_CNTD, B4_LP, B4_CNT, B4_CNTD, B3_LP, B3_CNT, B3_CNTD], build=[right], singleRowJoin=[true]): rowcount = 1.0, cumulative cost = {1.494546126323726E9 rows, 1.6125176558485155E9 cpu, 6.336024178E10 io, 3.6706428E7 network, 6.478524E7 memory}
+            :  :- NestedLoopJoin(joinType=[InnerJoin], where=[true], select=[B1_LP, B1_CNT, B1_CNTD, B6_LP, B6_CNT, B6_CNTD, B5_LP, B5_CNT, B5_CNTD, B4_LP, B4_CNT, B4_CNTD], build=[right], singleRowJoin=[true]): rowcount = 1.0, cumulative cost = {1.195524002767232E9 rows, 1.2862955319710107E9 cpu, 5.0688193424E10 io, 2.91769E7 network, 5.1530144E7 memory}
+            :  :  :- NestedLoopJoin(joinType=[InnerJoin], where=[true], select=[B1_LP, B1_CNT, B1_CNTD, B6_LP, B6_CNT, B6_CNTD, B5_LP, B5_CNT, B5_CNTD], build=[right], singleRowJoin=[true]): rowcount = 1.0, cumulative cost = {8.96501879210738E8 rows, 9.600734080935057E8 cpu, 3.8016145068E10 io, 2.1647372E7 network, 3.8275048E7 memory}
+            :  :  :  :- NestedLoopJoin(joinType=[InnerJoin], where=[true], select=[B1_LP, B1_CNT, B1_CNTD, B6_LP, B6_CNT, B6_CNTD], build=[left], singleRowJoin=[true]): rowcount = 1.0, cumulative cost = {5.97479755654244E8 rows, 6.338512842160008E8 cpu, 2.5344096712E10 io, 1.4117844E7 network, 2.5019952E7 memory}
+            :  :  :  :  :- Exchange(distribution=[broadcast]): rowcount = 1.0, cumulative cost = {2.984576330977498E8 rows, 3.076293203384958E8 cpu, 1.2672048356E10 io, 6588344.0 network, 1.1764856E7 memory}
+            :  :  :  :  :  +- Calc(select=[B1_LP, CAST(CASE(IS NOT NULL(B1_CNT), B1_CNT, 0)) AS B1_CNT, B1_CNTD]): rowcount = 1.0, cumulative cost = {2.984576320977498E8 rows, 3.076291603384958E8 cpu, 1.2672048356E10 io, 6588316.0 network, 1.1764856E7 memory}
+            :  :  :  :  :     +- HashAggregate(isMerge=[true], select=[Final_MIN(min$0) AS B1_LP, Final_MIN(min$1) AS B1_CNT, Final_COUNT(count$2) AS B1_CNTD]): rowcount = 1.0, cumulative cost = {2.984576310977498E8 rows, 3.076291603384958E8 cpu, 1.2672048356E10 io, 6588316.0 network, 1.1764856E7 memory}
+            :  :  :  :  :        +- Exchange(distribution=[single]): rowcount = 1.0, cumulative cost = {2.984576300977498E8 rows, 3.076291243384958E8 cpu, 1.2672048356E10 io, 6588316.0 network, 1.1764828E7 memory}
+            :  :  :  :  :           +- LocalHashAggregate(select=[Partial_MIN(B1_LP) FILTER $g_1 AS min$0, Partial_MIN(B1_CNT) FILTER $g_1 AS min$1, Partial_COUNT(ss_list_price) FILTER $g_0 AS count$2]): rowcount = 1.0, cumulative cost = {2.984576290977498E8 rows, 3.076289633384958E8 cpu, 1.2672048356E10 io, 6588288.0 network, 1.1764828E7 memory}
+            :  :  :  :  :              +- Calc(select=[ss_list_price, B1_LP, B1_CNT, =(CASE(=($e, 0:BIGINT), 0:BIGINT, 1:BIGINT), 0) AS $g_0, =(CASE(=($e, 0:BIGINT), 0:BIGINT, 1:BIGINT), 1) AS $g_1]): rowcount = 19608.0, cumulative cost = {2.984576280977498E8 rows, 3.069230753384958E8 cpu, 1.2672048356E10 io, 6588288.0 network, 1.17648E7 memory}
+            :  :  :  :  :                 +- HashAggregate(isMerge=[true], groupBy=[ss_list_price, $e], select=[ss_list_price, $e, Final_AVG(sum$0, count$1) AS B1_LP, Final_COUNT(count$2) AS B1_CNT]): rowcount = 19608.0, cumulative cost = {2.984380200977498E8 rows, 3.068838593384958E8 cpu, 1.2672048356E10 io, 6588288.0 network, 1.17648E7 memory}
+            :  :  :  :  :                    +- Exchange(distribution=[hash[ss_list_price, $e]]): rowcount = 137256.0, cumulative cost = {2.984184120977498E8 rows, 3.013936193384958E8 cpu, 1.2672048356E10 io, 6588288.0 network, 1.0431456E7 memory}
+            :  :  :  :  :                       +- LocalHashAggregate(groupBy=[ss_list_price, $e], select=[ss_list_price, $e, Partial_AVG(ss_list_price_0) AS (sum$0, count$1), Partial_COUNT(ss_list_price_0) AS count$2]): rowcount = 137256.0, cumulative cost = {2.982811560977498E8 rows, 2.772365633384958E8 cpu, 1.2672048356E10 io, 0.0 network, 1.0431456E7 memory}
+            :  :  :  :  :                          +- Expand(projects=[{ss_list_price=[$0], $e=[0], ss_list_price_0=[$0]}, {ss_list_price=[null], $e=[1], ss_list_price_0=[$0]}], projects=[{ss_list_price, 0 AS $e, ss_list_price AS ss_list_price_0}, {null AS ss_list_price, 1 AS $e, ss_list_price AS ss_list_price_0}]): rowcount = 6761867.398499898, cumulative cost = {2.981439000977498E8 rows, 6761867.398499898 cpu, 1.2672048356E10 io, 0.0 network, 0.0 memory}
+            :  :  :  :  :                             +- Calc(select=[ss_list_price], where=[AND(>=(ss_quantity, 0), <=(ss_quantity, 5), OR(AND(>=(ss_list_price, 0), <=(ss_list_price, 10)), AND(>=(ss_coupon_amt, 0), <=(ss_coupon_amt, 1000)), AND(>=(ss_wholesale_cost, 0), <=(ss_wholesale_cost, 20))))]): rowcount = 3380933.699249949, cumulative cost = {2.913820326992499E8 rows, 0.0 cpu, 1.2672048356E10 io, 0.0 network, 0.0 memory}
+            :  :  :  :  :                                +- TableSourceScan(table=[[default_catalog, default_database, store_sales, source: [ParquetTableSource(ss_sold_date_sk, ss_sold_time_sk, ss_item_sk, ss_customer_sk, ss_cdemo_sk, ss_hdemo_sk, ss_addr_sk, ss_store_sk, ss_promo_sk, ss_ticket_number, ss_quantity, ss_wholesale_cost, ss_list_price, ss_sales_price, ss_ext_discount_amt, ss_ext_sales_price, ss_ext_wholesale_cost, ss_ext_list_price, ss_ext_tax, ss_coupon_amt, ss_net_paid, ss_net_paid_inc_tax, ss_net_profit)]]], fields=[ss_quantity, ss_wholesale_cost, ss_list_price, ss_coupon_amt], reuse_id=[1]): rowcount = 2.88001099E8, cumulative cost = {2.88001099E8 rows, 0.0 cpu, 1.2672048356E10 io, 0.0 network, 0.0 memory}
+            :  :  :  :  +- Calc(select=[B6_LP, CAST(CASE(IS NOT NULL(B6_CNT), B6_CNT, 0)) AS B6_CNT, B6_CNTD]): rowcount = 1.0, cumulative cost = {2.9902212155649406E8 rows, 3.2622196287750494E8 cpu, 1.2672048356E10 io, 7529500.0 network, 1.3255064E7 memory}
+            :  :  :  :     +- HashAggregate(isMerge=[true], select=[Final_MIN(min$0) AS B6_LP, Final_MIN(min$1) AS B6_CNT, Final_COUNT(count$2) AS B6_CNTD]): rowcount = 1.0, cumulative cost = {2.9902212055649406E8 rows, 3.2622196287750494E8 cpu, 1.2672048356E10 io, 7529500.0 network, 1.3255064E7 memory}
+            :  :  :  :        +- Exchange(distribution=[single]): rowcount = 1.0, cumulative cost = {2.9902211955649406E8 rows, 3.2622192687750494E8 cpu, 1.2672048356E10 io, 7529500.0 network, 1.3255036E7 memory}
+            :  :  :  :           +- LocalHashAggregate(select=[Partial_MIN(B6_LP) FILTER $g_1 AS min$0, Partial_MIN(B6_CNT) FILTER $g_1 AS min$1, Partial_COUNT(ss_list_price) FILTER $g_0 AS count$2]): rowcount = 1.0, cumulative cost = {2.9902211855649406E8 rows, 3.2622176587750494E8 cpu, 1.2672048356E10 io, 7529472.0 network, 1.3255036E7 memory}
+            :  :  :  :              +- Calc(select=[ss_list_price, B6_LP, B6_CNT, =(CASE(=($e, 0:BIGINT), 0:BIGINT, 1:BIGINT), 0) AS $g_0, =(CASE(=($e, 0:BIGINT), 0:BIGINT, 1:BIGINT), 1) AS $g_1]): rowcount = 19608.0, cumulative cost = {2.9902211755649406E8 rows, 3.2551587787750494E8 cpu, 1.2672048356E10 io, 7529472.0 network, 1.3255008E7 memory}
+            :  :  :  :                 +- HashAggregate(isMerge=[true], groupBy=[ss_list_price, $e], select=[ss_list_price, $e, Final_AVG(sum$0, count$1) AS B6_LP, Final_COUNT(count$2) AS B6_CNT]): rowcount = 19608.0, cumulative cost = {2.9900250955649406E8 rows, 3.2547666187750494E8 cpu, 1.2672048356E10 io, 7529472.0 network, 1.3255008E7 memory}
+            :  :  :  :                    +- Exchange(distribution=[hash[ss_list_price, $e]]): rowcount = 156864.0, cumulative cost = {2.9898290155649406E8 rows, 3.1920210187750494E8 cpu, 1.2672048356E10 io, 7529472.0 network, 1.1921664E7 memory}
+            :  :  :  :                       +- LocalHashAggregate(groupBy=[ss_list_price, $e], select=[ss_list_price, $e, Partial_AVG(ss_list_price_0) AS (sum$0, count$1), Partial_COUNT(ss_list_price_0) AS count$2]): rowcount = 156864.0, cumulative cost = {2.9882603755649406E8 rows, 2.9159403787750494E8 cpu, 1.2672048356E10 io, 0.0 network, 1.1921664E7 memory}
+            :  :  :  :                          +- Expand(projects=[{ss_list_price=[$0], $e=[0], ss_list_price_0=[$0]}, {ss_list_price=[null], $e=[1], ss_list_price_0=[$0]}], projects=[{ss_list_price, 0 AS $e, ss_list_price AS ss_list_price_0}, {null AS ss_list_price, 1 AS $e, ss_list_price AS ss_list_price_0}]): rowcount = 7112049.70432939, cumulative cost = {2.9866917355649406E8 rows, 7112049.70432939 cpu, 1.2672048356E10 io, 0.0 network, 0.0 memory}
+            :  :  :  :                             +- Calc(select=[ss_list_price], where=[AND(>=(ss_quantity, 26), <=(ss_quantity, 30), OR(AND(>=(ss_list_price, 5), <=(ss_list_price, 15)), AND(>=(ss_coupon_amt, 5), <=(ss_coupon_amt, 1005)), AND(>=(ss_wholesale_cost, 5), <=(ss_wholesale_cost, 25))))]): rowcount = 3556024.852164695, cumulative cost = {2.915571238521647E8 rows, 0.0 cpu, 1.2672048356E10 io, 0.0 network, 0.0 memory}
+            :  :  :  :                                +- Reused(reference_id=[1])
+            :  :  :  +- Exchange(distribution=[broadcast]): rowcount = 1.0, cumulative cost = {2.9902212255649406E8 rows, 3.2622212287750494E8 cpu, 1.2672048356E10 io, 7529528.0 network, 1.3255064E7 memory}
+            :  :  :     +- Calc(select=[B5_LP, CAST(CASE(IS NOT NULL(B5_CNT), B5_CNT, 0)) AS B5_CNT, B5_CNTD]): rowcount = 1.0, cumulative cost = {2.9902212155649406E8 rows, 3.2622196287750494E8 cpu, 1.2672048356E10 io, 7529500.0 network, 1.3255064E7 memory}
+            :  :  :        +- HashAggregate(isMerge=[true], select=[Final_MIN(min$0) AS B5_LP, Final_MIN(min$1) AS B5_CNT, Final_COUNT(count$2) AS B5_CNTD]): rowcount = 1.0, cumulative cost = {2.9902212055649406E8 rows, 3.2622196287750494E8 cpu, 1.2672048356E10 io, 7529500.0 network, 1.3255064E7 memory}
+            :  :  :           +- Exchange(distribution=[single]): rowcount = 1.0, cumulative cost = {2.9902211955649406E8 rows, 3.2622192687750494E8 cpu, 1.2672048356E10 io, 7529500.0 network, 1.3255036E7 memory}
+            :  :  :              +- LocalHashAggregate(select=[Partial_MIN(B5_LP) FILTER $g_1 AS min$0, Partial_MIN(B5_CNT) FILTER $g_1 AS min$1, Partial_COUNT(ss_list_price) FILTER $g_0 AS count$2]): rowcount = 1.0, cumulative cost = {2.9902211855649406E8 rows, 3.2622176587750494E8 cpu, 1.2672048356E10 io, 7529472.0 network, 1.3255036E7 memory}
+            :  :  :                 +- Calc(select=[ss_list_price, B5_LP, B5_CNT, =(CASE(=($e, 0:BIGINT), 0:BIGINT, 1:BIGINT), 0) AS $g_0, =(CASE(=($e, 0:BIGINT), 0:BIGINT, 1:BIGINT), 1) AS $g_1]): rowcount = 19608.0, cumulative cost = {2.9902211755649406E8 rows, 3.2551587787750494E8 cpu, 1.2672048356E10 io, 7529472.0 network, 1.3255008E7 memory}
+            :  :  :                    +- HashAggregate(isMerge=[true], groupBy=[ss_list_price, $e], select=[ss_list_price, $e, Final_AVG(sum$0, count$1) AS B5_LP, Final_COUNT(count$2) AS B5_CNT]): rowcount = 19608.0, cumulative cost = {2.9900250955649406E8 rows, 3.2547666187750494E8 cpu, 1.2672048356E10 io, 7529472.0 network, 1.3255008E7 memory}
+            :  :  :                       +- Exchange(distribution=[hash[ss_list_price, $e]]): rowcount = 156864.0, cumulative cost = {2.9898290155649406E8 rows, 3.1920210187750494E8 cpu, 1.2672048356E10 io, 7529472.0 network, 1.1921664E7 memory}
+            :  :  :                          +- LocalHashAggregate(groupBy=[ss_list_price, $e], select=[ss_list_price, $e, Partial_AVG(ss_list_price_0) AS (sum$0, count$1), Partial_COUNT(ss_list_price_0) AS count$2]): rowcount = 156864.0, cumulative cost = {2.9882603755649406E8 rows, 2.9159403787750494E8 cpu, 1.2672048356E10 io, 0.0 network, 1.1921664E7 memory}
+            :  :  :                             +- Expand(projects=[{ss_list_price=[$0], $e=[0], ss_list_price_0=[$0]}, {ss_list_price=[null], $e=[1], ss_list_price_0=[$0]}], projects=[{ss_list_price, 0 AS $e, ss_list_price AS ss_list_price_0}, {null AS ss_list_price, 1 AS $e, ss_list_price AS ss_list_price_0}]): rowcount = 7112049.70432939, cumulative cost = {2.9866917355649406E8 rows, 7112049.70432939 cpu, 1.2672048356E10 io, 0.0 network, 0.0 memory}
+            :  :  :                                +- Calc(select=[ss_list_price], where=[AND(>=(ss_quantity, 21), <=(ss_quantity, 25), OR(AND(>=(ss_list_price, 4), <=(ss_list_price, 14)), AND(>=(ss_coupon_amt, 4), <=(ss_coupon_amt, 1004)), AND(>=(ss_wholesale_cost, 4), <=(ss_wholesale_cost, 24))))]): rowcount = 3556024.852164695, cumulative cost = {2.915571238521647E8 rows, 0.0 cpu, 1.2672048356E10 io, 0.0 network, 0.0 memory}
+            :  :  :                                   +- Reused(reference_id=[1])
+            :  :  +- Exchange(distribution=[broadcast]): rowcount = 1.0, cumulative cost = {2.9902212255649406E8 rows, 3.2622212287750494E8 cpu, 1.2672048356E10 io, 7529528.0 network, 1.3255064E7 memory}
+            :  :     +- Calc(select=[B4_LP, CAST(CASE(IS NOT NULL(B4_CNT), B4_CNT, 0)) AS B4_CNT, B4_CNTD]): rowcount = 1.0, cumulative cost = {2.9902212155649406E8 rows, 3.2622196287750494E8 cpu, 1.2672048356E10 io, 7529500.0 network, 1.3255064E7 memory}
+            :  :        +- SortAggregate(isMerge=[true], select=[Final_MIN(min$0) AS B4_LP, Final_MIN(min$1) AS B4_CNT, Final_COUNT(count$2) AS B4_CNTD]): rowcount = 1.0, cumulative cost = {2.9902212055649406E8 rows, 3.2622196287750494E8 cpu, 1.2672048356E10 io, 7529500.0 network, 1.3255064E7 memory}
+            :  :           +- Exchange(distribution=[single]): rowcount = 1.0, cumulative cost = {2.9902211955649406E8 rows, 3.2622192687750494E8 cpu, 1.2672048356E10 io, 7529500.0 network, 1.3255036E7 memory}
+            :  :              +- LocalSortAggregate(select=[Partial_MIN(B4_LP) FILTER $g_1 AS min$0, Partial_MIN(B4_CNT) FILTER $g_1 AS min$1, Partial_COUNT(ss_list_price) FILTER $g_0 AS count$2]): rowcount = 1.0, cumulative cost = {2.9902211855649406E8 rows, 3.2622176587750494E8 cpu, 1.2672048356E10 io, 7529472.0 network, 1.3255036E7 memory}
+            :  :                 +- Calc(select=[ss_list_price, B4_LP, B4_CNT, =(CASE(=($e, 0:BIGINT), 0:BIGINT, 1:BIGINT), 0) AS $g_0, =(CASE(=($e, 0:BIGINT), 0:BIGINT, 1:BIGINT), 1) AS $g_1]): rowcount = 19608.0, cumulative cost = {2.9902211755649406E8 rows, 3.2551587787750494E8 cpu, 1.2672048356E10 io, 7529472.0 network, 1.3255008E7 memory}
+            :  :                    +- HashAggregate(isMerge=[true], groupBy=[ss_list_price, $e], select=[ss_list_price, $e, Final_AVG(sum$0, count$1) AS B4_LP, Final_COUNT(count$2) AS B4_CNT]): rowcount = 19608.0, cumulative cost = {2.9900250955649406E8 rows, 3.2547666187750494E8 cpu, 1.2672048356E10 io, 7529472.0 network, 1.3255008E7 memory}
+            :  :                       +- Exchange(distribution=[hash[ss_list_price, $e]]): rowcount = 156864.0, cumulative cost = {2.9898290155649406E8 rows, 3.1920210187750494E8 cpu, 1.2672048356E10 io, 7529472.0 network, 1.1921664E7 memory}
+            :  :                          +- LocalHashAggregate(groupBy=[ss_list_price, $e], select=[ss_list_price, $e, Partial_AVG(ss_list_price_0) AS (sum$0, count$1), Partial_COUNT(ss_list_price_0) AS count$2]): rowcount = 156864.0, cumulative cost = {2.9882603755649406E8 rows, 2.9159403787750494E8 cpu, 1.2672048356E10 io, 0.0 network, 1.1921664E7 memory}
+            :  :                             +- Expand(projects=[{ss_list_price=[$0], $e=[0], ss_list_price_0=[$0]}, {ss_list_price=[null], $e=[1], ss_list_price_0=[$0]}], projects=[{ss_list_price, 0 AS $e, ss_list_price AS ss_list_price_0}, {null AS ss_list_price, 1 AS $e, ss_list_price AS ss_list_price_0}]): rowcount = 7112049.70432939, cumulative cost = {2.9866917355649406E8 rows, 7112049.70432939 cpu, 1.2672048356E10 io, 0.0 network, 0.0 memory}
+            :  :                                +- Calc(select=[ss_list_price], where=[AND(>=(ss_quantity, 16), <=(ss_quantity, 20), OR(AND(>=(ss_list_price, 3), <=(ss_list_price, 13)), AND(>=(ss_coupon_amt, 3), <=(ss_coupon_amt, 1003)), AND(>=(ss_wholesale_cost, 3), <=(ss_wholesale_cost, 23))))]): rowcount = 3556024.852164695, cumulative cost = {2.915571238521647E8 rows, 0.0 cpu, 1.2672048356E10 io, 0.0 network, 0.0 memory}
+            :  :                                   +- Reused(reference_id=[1])
+            :  +- Exchange(distribution=[broadcast]): rowcount = 1.0, cumulative cost = {2.9902212255649406E8 rows, 3.2622212287750494E8 cpu, 1.2672048356E10 io, 7529528.0 network, 1.3255064E7 memory}
+            :     +- Calc(select=[B3_LP, CAST(CASE(IS NOT NULL(B3_CNT), B3_CNT, 0)) AS B3_CNT, B3_CNTD]): rowcount = 1.0, cumulative cost = {2.9902212155649406E8 rows, 3.2622196287750494E8 cpu, 1.2672048356E10 io, 7529500.0 network, 1.3255064E7 memory}
+            :        +- SortAggregate(isMerge=[true], select=[Final_MIN(min$0) AS B3_LP, Final_MIN(min$1) AS B3_CNT, Final_COUNT(count$2) AS B3_CNTD]): rowcount = 1.0, cumulative cost = {2.9902212055649406E8 rows, 3.2622196287750494E8 cpu, 1.2672048356E10 io, 7529500.0 network, 1.3255064E7 memory}
+            :           +- Exchange(distribution=[single]): rowcount = 1.0, cumulative cost = {2.9902211955649406E8 rows, 3.2622192687750494E8 cpu, 1.2672048356E10 io, 7529500.0 network, 1.3255036E7 memory}
+            :              +- LocalSortAggregate(select=[Partial_MIN(B3_LP) FILTER $g_1 AS min$0, Partial_MIN(B3_CNT) FILTER $g_1 AS min$1, Partial_COUNT(ss_list_price) FILTER $g_0 AS count$2]): rowcount = 1.0, cumulative cost = {2.9902211855649406E8 rows, 3.2622176587750494E8 cpu, 1.2672048356E10 io, 7529472.0 network, 1.3255036E7 memory}
+            :                 +- Calc(select=[ss_list_price, B3_LP, B3_CNT, =(CASE(=($e, 0:BIGINT), 0:BIGINT, 1:BIGINT), 0) AS $g_0, =(CASE(=($e, 0:BIGINT), 0:BIGINT, 1:BIGINT), 1) AS $g_1]): rowcount = 19608.0, cumulative cost = {2.9902211755649406E8 rows, 3.2551587787750494E8 cpu, 1.2672048356E10 io, 7529472.0 network, 1.3255008E7 memory}
+            :                    +- HashAggregate(isMerge=[true], groupBy=[ss_list_price, $e], select=[ss_list_price, $e, Final_AVG(sum$0, count$1) AS B3_LP, Final_COUNT(count$2) AS B3_CNT]): rowcount = 19608.0, cumulative cost = {2.9900250955649406E8 rows, 3.2547666187750494E8 cpu, 1.2672048356E10 io, 7529472.0 network, 1.3255008E7 memory}
+            :                       +- Exchange(distribution=[hash[ss_list_price, $e]]): rowcount = 156864.0, cumulative cost = {2.9898290155649406E8 rows, 3.1920210187750494E8 cpu, 1.2672048356E10 io, 7529472.0 network, 1.1921664E7 memory}
+            :                          +- LocalHashAggregate(groupBy=[ss_list_price, $e], select=[ss_list_price, $e, Partial_AVG(ss_list_price_0) AS (sum$0, count$1), Partial_COUNT(ss_list_price_0) AS count$2]): rowcount = 156864.0, cumulative cost = {2.9882603755649406E8 rows, 2.9159403787750494E8 cpu, 1.2672048356E10 io, 0.0 network, 1.1921664E7 memory}
+            :                             +- Expand(projects=[{ss_list_price=[$0], $e=[0], ss_list_price_0=[$0]}, {ss_list_price=[null], $e=[1], ss_list_price_0=[$0]}], projects=[{ss_list_price, 0 AS $e, ss_list_price AS ss_list_price_0}, {null AS ss_list_price, 1 AS $e, ss_list_price AS ss_list_price_0}]): rowcount = 7112049.70432939, cumulative cost = {2.9866917355649406E8 rows, 7112049.70432939 cpu, 1.2672048356E10 io, 0.0 network, 0.0 memory}
+            :                                +- Calc(select=[ss_list_price], where=[AND(>=(ss_quantity, 11), <=(ss_quantity, 15), OR(AND(>=(ss_list_price, 2), <=(ss_list_price, 12)), AND(>=(ss_coupon_amt, 2), <=(ss_coupon_amt, 1002)), AND(>=(ss_wholesale_cost, 2), <=(ss_wholesale_cost, 22))))]): rowcount = 3556024.852164695, cumulative cost = {2.915571238521647E8 rows, 0.0 cpu, 1.2672048356E10 io, 0.0 network, 0.0 memory}
+            :                                   +- Reused(reference_id=[1])
+            +- Exchange(distribution=[broadcast]): rowcount = 1.0, cumulative cost = {2.9902212255649406E8 rows, 3.2622212287750494E8 cpu, 1.2672048356E10 io, 7529528.0 network, 1.3255064E7 memory}
+               +- Calc(select=[B2_LP, CAST(CASE(IS NOT NULL(B2_CNT), B2_CNT, 0)) AS B2_CNT, B2_CNTD]): rowcount = 1.0, cumulative cost = {2.9902212155649406E8 rows, 3.2622196287750494E8 cpu, 1.2672048356E10 io, 7529500.0 network, 1.3255064E7 memory}
+                  +- SortAggregate(isMerge=[true], select=[Final_MIN(min$0) AS B2_LP, Final_MIN(min$1) AS B2_CNT, Final_COUNT(count$2) AS B2_CNTD]): rowcount = 1.0, cumulative cost = {2.9902212055649406E8 rows, 3.2622196287750494E8 cpu, 1.2672048356E10 io, 7529500.0 network, 1.3255064E7 memory}
+                     +- Exchange(distribution=[single]): rowcount = 1.0, cumulative cost = {2.9902211955649406E8 rows, 3.2622192687750494E8 cpu, 1.2672048356E10 io, 7529500.0 network, 1.3255036E7 memory}
+                        +- LocalSortAggregate(select=[Partial_MIN(B2_LP) FILTER $g_1 AS min$0, Partial_MIN(B2_CNT) FILTER $g_1 AS min$1, Partial_COUNT(ss_list_price) FILTER $g_0 AS count$2]): rowcount = 1.0, cumulative cost = {2.9902211855649406E8 rows, 3.2622176587750494E8 cpu, 1.2672048356E10 io, 7529472.0 network, 1.3255036E7 memory}
+                           +- Calc(select=[ss_list_price, B2_LP, B2_CNT, =(CASE(=($e, 0:BIGINT), 0:BIGINT, 1:BIGINT), 0) AS $g_0, =(CASE(=($e, 0:BIGINT), 0:BIGINT, 1:BIGINT), 1) AS $g_1]): rowcount = 19608.0, cumulative cost = {2.9902211755649406E8 rows, 3.2551587787750494E8 cpu, 1.2672048356E10 io, 7529472.0 network, 1.3255008E7 memory}
+                              +- HashAggregate(isMerge=[true], groupBy=[ss_list_price, $e], select=[ss_list_price, $e, Final_AVG(sum$0, count$1) AS B2_LP, Final_COUNT(count$2) AS B2_CNT]): rowcount = 19608.0, cumulative cost = {2.9900250955649406E8 rows, 3.2547666187750494E8 cpu, 1.2672048356E10 io, 7529472.0 network, 1.3255008E7 memory}
+                                 +- Exchange(distribution=[hash[ss_list_price, $e]]): rowcount = 156864.0, cumulative cost = {2.9898290155649406E8 rows, 3.1920210187750494E8 cpu, 1.2672048356E10 io, 7529472.0 network, 1.1921664E7 memory}
+                                    +- LocalHashAggregate(groupBy=[ss_list_price, $e], select=[ss_list_price, $e, Partial_AVG(ss_list_price_0) AS (sum$0, count$1), Partial_COUNT(ss_list_price_0) AS count$2]): rowcount = 156864.0, cumulative cost = {2.9882603755649406E8 rows, 2.9159403787750494E8 cpu, 1.2672048356E10 io, 0.0 network, 1.1921664E7 memory}
+                                       +- Expand(projects=[{ss_list_price=[$0], $e=[0], ss_list_price_0=[$0]}, {ss_list_price=[null], $e=[1], ss_list_price_0=[$0]}], projects=[{ss_list_price, 0 AS $e, ss_list_price AS ss_list_price_0}, {null AS ss_list_price, 1 AS $e, ss_list_price AS ss_list_price_0}]): rowcount = 7112049.70432939, cumulative cost = {2.9866917355649406E8 rows, 7112049.70432939 cpu, 1.2672048356E10 io, 0.0 network, 0.0 memory}
+                                          +- Calc(select=[ss_list_price], where=[AND(>=(ss_quantity, 6), <=(ss_quantity, 10), OR(AND(>=(ss_list_price, 1), <=(ss_list_price, 11)), AND(>=(ss_coupon_amt, 1), <=(ss_coupon_amt, 1001)), AND(>=(ss_wholesale_cost, 1), <=(ss_wholesale_cost, 21))))]): rowcount = 3556024.852164695, cumulative cost = {2.915571238521647E8 rows, 0.0 cpu, 1.2672048356E10 io, 0.0 network, 0.0 memory}
+                                             +- Reused(reference_id=[1])
+
+== Physical Execution Plan ==
+Stage 1 : Data Source
+	content : collect elements with CollectionInputFormat
+
+	Stage 2 : Operator
+		content : ParquetTableSource(ss_sold_date_sk, ss_sold_time_sk, ss_item_sk, ss_customer_sk, ss_cdemo_sk, ss_hdemo_sk, ss_addr_sk, ss_store_sk, ss_promo_sk, ss_ticket_number, ss_quantity, ss_wholesale_cost, ss_list_price, ss_sales_price, ss_ext_discount_amt, ss_ext_sales_price, ss_ext_wholesale_cost, ss_ext_list_price, ss_ext_tax, ss_coupon_amt, ss_net_paid, ss_net_paid_inc_tax, ss_net_profit)
+		ship_strategy : REBALANCE
+
+		Stage 3 : Operator
+			content : Calc(where: ((ss_quantity >= 0) AND (ss_quantity <= 5) AND (((ss_list_price >= 0) AND (ss_list_price <= 10)) OR ((ss_coupon_amt >= 0) AND (ss_coupon_amt <= 1000)) OR ((ss_wholesale_cost >= 0) AND (ss_wholesale_cost <= 20)))), select: (ss_list_price))
+			ship_strategy : FORWARD
+
+			Stage 4 : Operator
+				content : BatchExecExpand: ss_list_price, $e, ss_list_price_0
+				ship_strategy : FORWARD
+
+				Stage 5 : Operator
+					content : LocalHashAggregate(groupBy:(ss_list_price, $e),select:(ss_list_price, $e, Partial_AVG(ss_list_price_0) AS (sum$0, count$1), Partial_COUNT(ss_list_price_0) AS count$2),)
+					ship_strategy : FORWARD
+
+					Stage 7 : Operator
+						content : GlobalHashAggregate(groupBy:(ss_list_price, $e),select:(ss_list_price, $e, Final_AVG(sum$0, count$1) AS B1_LP, Final_COUNT(count$2) AS B1_CNT),)
+						ship_strategy : HASH[ss_list_price, $e]
+
+						Stage 8 : Operator
+							content : Calc(select: (ss_list_price, B1_LP, B1_CNT, ((($e = 0:BIGINT) CASE 0:BIGINT CASE 1:BIGINT) = 0) AS $g_0, ((($e = 0:BIGINT) CASE 0:BIGINT CASE 1:BIGINT) = 1) AS $g_1))
+							ship_strategy : FORWARD
+
+							Stage 9 : Operator
+								content : LocalHashAggregate(select:(Partial_MIN(B1_LP) FILTER $g_1 AS min$0, Partial_MIN(B1_CNT) FILTER $g_1 AS min$1, Partial_COUNT(ss_list_price) FILTER $g_0 AS count$2),)
+								ship_strategy : FORWARD
+
+								Stage 11 : Operator
+									content : GlobalHashAggregate(select:(Final_MIN(min$0) AS B1_LP, Final_MIN(min$1) AS B1_CNT, Final_COUNT(count$2) AS B1_CNTD),)
+									ship_strategy : GLOBAL
+
+									Stage 12 : Operator
+										content : Calc(select: (B1_LP, CAST((B1_CNT IS NOT NULL CASE B1_CNT CASE 0)) AS B1_CNT, B1_CNTD))
+										ship_strategy : FORWARD
+
+										Stage 14 : Operator
+											content : Calc(where: ((ss_quantity >= 26) AND (ss_quantity <= 30) AND (((ss_list_price >= 5) AND (ss_list_price <= 15)) OR ((ss_coupon_amt >= 5) AND (ss_coupon_amt <= 1005)) OR ((ss_wholesale_cost >= 5) AND (ss_wholesale_cost <= 25)))), select: (ss_list_price))
+											ship_strategy : FORWARD
+
+											Stage 15 : Operator
+												content : BatchExecExpand: ss_list_price, $e, ss_list_price_0
+												ship_strategy : FORWARD
+
+												Stage 16 : Operator
+													content : LocalHashAggregate(groupBy:(ss_list_price, $e),select:(ss_list_price, $e, Partial_AVG(ss_list_price_0) AS (sum$0, count$1), Partial_COUNT(ss_list_price_0) AS count$2),)
+													ship_strategy : FORWARD
+
+													Stage 18 : Operator
+														content : GlobalHashAggregate(groupBy:(ss_list_price, $e),select:(ss_list_price, $e, Final_AVG(sum$0, count$1) AS B6_LP, Final_COUNT(count$2) AS B6_CNT),)
+														ship_strategy : HASH[ss_list_price, $e]
+
+														Stage 19 : Operator
+															content : Calc(select: (ss_list_price, B6_LP, B6_CNT, ((($e = 0:BIGINT) CASE 0:BIGINT CASE 1:BIGINT) = 0) AS $g_0, ((($e = 0:BIGINT) CASE 0:BIGINT CASE 1:BIGINT) = 1) AS $g_1))
+															ship_strategy : FORWARD
+
+															Stage 20 : Operator
+																content : LocalHashAggregate(select:(Partial_MIN(B6_LP) FILTER $g_1 AS min$0, Partial_MIN(B6_CNT) FILTER $g_1 AS min$1, Partial_COUNT(ss_list_price) FILTER $g_0 AS count$2),)
+																ship_strategy : FORWARD
+
+																Stage 22 : Operator
+																	content : GlobalHashAggregate(select:(Final_MIN(min$0) AS B6_LP, Final_MIN(min$1) AS B6_CNT, Final_COUNT(count$2) AS B6_CNTD),)
+																	ship_strategy : GLOBAL
+
+																	Stage 23 : Operator
+																		content : Calc(select: (B6_LP, CAST((B6_CNT IS NOT NULL CASE B6_CNT CASE 0)) AS B6_CNT, B6_CNTD))
+																		ship_strategy : FORWARD
+
+																		Stage 24 : Operator
+																			content : NestedLoopJoin(where: true, buildLeft)
+																			ship_strategy : BROADCAST
+
+																			Stage 25 : Operator
+																				content : Calc(where: ((ss_quantity >= 21) AND (ss_quantity <= 25) AND (((ss_list_price >= 4) AND (ss_list_price <= 14)) OR ((ss_coupon_amt >= 4) AND (ss_coupon_amt <= 1004)) OR ((ss_wholesale_cost >= 4) AND (ss_wholesale_cost <= 24)))), select: (ss_list_price))
+																				ship_strategy : FORWARD
+
+																				Stage 26 : Operator
+																					content : BatchExecExpand: ss_list_price, $e, ss_list_price_0
+																					ship_strategy : FORWARD
+
+																					Stage 27 : Operator
+																						content : LocalHashAggregate(groupBy:(ss_list_price, $e),select:(ss_list_price, $e, Partial_AVG(ss_list_price_0) AS (sum$0, count$1), Partial_COUNT(ss_list_price_0) AS count$2),)
+																						ship_strategy : FORWARD
+
+																						Stage 29 : Operator
+																							content : GlobalHashAggregate(groupBy:(ss_list_price, $e),select:(ss_list_price, $e, Final_AVG(sum$0, count$1) AS B5_LP, Final_COUNT(count$2) AS B5_CNT),)
+																							ship_strategy : HASH[ss_list_price, $e]
+
+																							Stage 30 : Operator
+																								content : Calc(select: (ss_list_price, B5_LP, B5_CNT, ((($e = 0:BIGINT) CASE 0:BIGINT CASE 1:BIGINT) = 0) AS $g_0, ((($e = 0:BIGINT) CASE 0:BIGINT CASE 1:BIGINT) = 1) AS $g_1))
+																								ship_strategy : FORWARD
+
+																								Stage 31 : Operator
+																									content : LocalHashAggregate(select:(Partial_MIN(B5_LP) FILTER $g_1 AS min$0, Partial_MIN(B5_CNT) FILTER $g_1 AS min$1, Partial_COUNT(ss_list_price) FILTER $g_0 AS count$2),)
+																									ship_strategy : FORWARD
+
+																									Stage 33 : Operator
+																										content : GlobalHashAggregate(select:(Final_MIN(min$0) AS B5_LP, Final_MIN(min$1) AS B5_CNT, Final_COUNT(count$2) AS B5_CNTD),)
+																										ship_strategy : GLOBAL
+
+																										Stage 34 : Operator
+																											content : Calc(select: (B5_LP, CAST((B5_CNT IS NOT NULL CASE B5_CNT CASE 0)) AS B5_CNT, B5_CNTD))
+																											ship_strategy : FORWARD
+
+																											Stage 36 : Operator
+																												content : NestedLoopJoin(where: true, buildRight)
+																												ship_strategy : FORWARD
+
+																												Stage 37 : Operator
+																													content : Calc(where: ((ss_quantity >= 16) AND (ss_quantity <= 20) AND (((ss_list_price >= 3) AND (ss_list_price <= 13)) OR ((ss_coupon_amt >= 3) AND (ss_coupon_amt <= 1003)) OR ((ss_wholesale_cost >= 3) AND (ss_wholesale_cost <= 23)))), select: (ss_list_price))
+																													ship_strategy : FORWARD
+
+																													Stage 38 : Operator
+																														content : BatchExecExpand: ss_list_price, $e, ss_list_price_0
+																														ship_strategy : FORWARD
+
+																														Stage 39 : Operator
+																															content : LocalHashAggregate(groupBy:(ss_list_price, $e),select:(ss_list_price, $e, Partial_AVG(ss_list_price_0) AS (sum$0, count$1), Partial_COUNT(ss_list_price_0) AS count$2),)
+																															ship_strategy : FORWARD
+
+																															Stage 41 : Operator
+																																content : GlobalHashAggregate(groupBy:(ss_list_price, $e),select:(ss_list_price, $e, Final_AVG(sum$0, count$1) AS B4_LP, Final_COUNT(count$2) AS B4_CNT),)
+																																ship_strategy : HASH[ss_list_price, $e]
+
+																																Stage 42 : Operator
+																																	content : Calc(select: (ss_list_price, B4_LP, B4_CNT, ((($e = 0:BIGINT) CASE 0:BIGINT CASE 1:BIGINT) = 0) AS $g_0, ((($e = 0:BIGINT) CASE 0:BIGINT CASE 1:BIGINT) = 1) AS $g_1))
+																																	ship_strategy : FORWARD
+
+																																	Stage 43 : Operator
+																																		content : LocalSortAggregate(select:(Partial_MIN(B4_LP) FILTER $g_1 AS min$0, Partial_MIN(B4_CNT) FILTER $g_1 AS min$1, Partial_COUNT(ss_list_price) FILTER $g_0 AS count$2),)
+																																		ship_strategy : FORWARD
+
+																																		Stage 45 : Operator
+																																			content : GlobalSortAggregate(select:(Final_MIN(min$0) AS B4_LP, Final_MIN(min$1) AS B4_CNT, Final_COUNT(count$2) AS B4_CNTD),)
+																																			ship_strategy : GLOBAL
+
+																																			Stage 46 : Operator
+																																				content : Calc(select: (B4_LP, CAST((B4_CNT IS NOT NULL CASE B4_CNT CASE 0)) AS B4_CNT, B4_CNTD))
+																																				ship_strategy : FORWARD
+
+																																				Stage 48 : Operator
+																																					content : NestedLoopJoin(where: true, buildRight)
+																																					ship_strategy : FORWARD
+
+																																					Stage 49 : Operator
+																																						content : Calc(where: ((ss_quantity >= 11) AND (ss_quantity <= 15) AND (((ss_list_price >= 2) AND (ss_list_price <= 12)) OR ((ss_coupon_amt >= 2) AND (ss_coupon_amt <= 1002)) OR ((ss_wholesale_cost >= 2) AND (ss_wholesale_cost <= 22)))), select: (ss_list_price))
+																																						ship_strategy : FORWARD
+
+																																						Stage 50 : Operator
+																																							content : BatchExecExpand: ss_list_price, $e, ss_list_price_0
+																																							ship_strategy : FORWARD
+
+																																							Stage 51 : Operator
+																																								content : LocalHashAggregate(groupBy:(ss_list_price, $e),select:(ss_list_price, $e, Partial_AVG(ss_list_price_0) AS (sum$0, count$1), Partial_COUNT(ss_list_price_0) AS count$2),)
+																																								ship_strategy : FORWARD
+
+																																								Stage 53 : Operator
+																																									content : GlobalHashAggregate(groupBy:(ss_list_price, $e),select:(ss_list_price, $e, Final_AVG(sum$0, count$1) AS B3_LP, Final_COUNT(count$2) AS B3_CNT),)
+																																									ship_strategy : HASH[ss_list_price, $e]
+
+																																									Stage 54 : Operator
+																																										content : Calc(select: (ss_list_price, B3_LP, B3_CNT, ((($e = 0:BIGINT) CASE 0:BIGINT CASE 1:BIGINT) = 0) AS $g_0, ((($e = 0:BIGINT) CASE 0:BIGINT CASE 1:BIGINT) = 1) AS $g_1))
+																																										ship_strategy : FORWARD
+
+																																										Stage 55 : Operator
+																																											content : LocalSortAggregate(select:(Partial_MIN(B3_LP) FILTER $g_1 AS min$0, Partial_MIN(B3_CNT) FILTER $g_1 AS min$1, Partial_COUNT(ss_list_price) FILTER $g_0 AS count$2),)
+																																											ship_strategy : FORWARD
+
+																																											Stage 57 : Operator
+																																												content : GlobalSortAggregate(select:(Final_MIN(min$0) AS B3_LP, Final_MIN(min$1) AS B3_CNT, Final_COUNT(count$2) AS B3_CNTD),)
+																																												ship_strategy : GLOBAL
+
+																																												Stage 58 : Operator
+																																													content : Calc(select: (B3_LP, CAST((B3_CNT IS NOT NULL CASE B3_CNT CASE 0)) AS B3_CNT, B3_CNTD))
+																																													ship_strategy : FORWARD
+
+																																													Stage 60 : Operator
+																																														content : NestedLoopJoin(where: true, buildRight)
+																																														ship_strategy : FORWARD
+
+																																														Stage 61 : Operator
+																																															content : Calc(where: ((ss_quantity >= 6) AND (ss_quantity <= 10) AND (((ss_list_price >= 1) AND (ss_list_price <= 11)) OR ((ss_coupon_amt >= 1) AND (ss_coupon_amt <= 1001)) OR ((ss_wholesale_cost >= 1) AND (ss_wholesale_cost <= 21)))), select: (ss_list_price))
+																																															ship_strategy : FORWARD
+
+																																															Stage 62 : Operator
+																																																content : BatchExecExpand: ss_list_price, $e, ss_list_price_0
+																																																ship_strategy : FORWARD
+
+																																																Stage 63 : Operator
+																																																	content : LocalHashAggregate(groupBy:(ss_list_price, $e),select:(ss_list_price, $e, Partial_AVG(ss_list_price_0) AS (sum$0, count$1), Partial_COUNT(ss_list_price_0) AS count$2),)
+																																																	ship_strategy : FORWARD
+
+																																																	Stage 65 : Operator
+																																																		content : GlobalHashAggregate(groupBy:(ss_list_price, $e),select:(ss_list_price, $e, Final_AVG(sum$0, count$1) AS B2_LP, Final_COUNT(count$2) AS B2_CNT),)
+																																																		ship_strategy : HASH[ss_list_price, $e]
+
+																																																		Stage 66 : Operator
+																																																			content : Calc(select: (ss_list_price, B2_LP, B2_CNT, ((($e = 0:BIGINT) CASE 0:BIGINT CASE 1:BIGINT) = 0) AS $g_0, ((($e = 0:BIGINT) CASE 0:BIGINT CASE 1:BIGINT) = 1) AS $g_1))
+																																																			ship_strategy : FORWARD
+
+																																																			Stage 67 : Operator
+																																																				content : LocalSortAggregate(select:(Partial_MIN(B2_LP) FILTER $g_1 AS min$0, Partial_MIN(B2_CNT) FILTER $g_1 AS min$1, Partial_COUNT(ss_list_price) FILTER $g_0 AS count$2),)
+																																																				ship_strategy : FORWARD
+
+																																																				Stage 69 : Operator
+																																																					content : GlobalSortAggregate(select:(Final_MIN(min$0) AS B2_LP, Final_MIN(min$1) AS B2_CNT, Final_COUNT(count$2) AS B2_CNTD),)
+																																																					ship_strategy : GLOBAL
+
+																																																					Stage 70 : Operator
+																																																						content : Calc(select: (B2_LP, CAST((B2_CNT IS NOT NULL CASE B2_CNT CASE 0)) AS B2_CNT, B2_CNTD))
+																																																						ship_strategy : FORWARD
+
+																																																						Stage 72 : Operator
+																																																							content : NestedLoopJoin(where: true, buildRight)
+																																																							ship_strategy : FORWARD
+
+																																																							Stage 73 : Operator
+																																																								content : LocalLimit(offset: 0, fetch: 100)
+																																																								ship_strategy : FORWARD
+
+																																																								Stage 75 : Operator
+																																																									content : GlobalLimit(offset: 0, fetch: 100)
+																																																									ship_strategy : GLOBAL
+
+																																																									Stage 76 : Operator
+																																																										content : Calc(select: (B1_LP, B1_CNT, B1_CNTD, B2_LP, B2_CNT, B2_CNTD, B3_LP, B3_CNT, B3_CNTD, B4_LP, B4_CNT, B4_CNTD, B5_LP, B5_CNT, B5_CNTD, B6_LP, B6_CNT, B6_CNTD))
+																																																										ship_strategy : FORWARD
+
+
+                                                                                                                                                                                                                                 

@@ -1,0 +1,10 @@
+hash-threshold 200
+
+query T nosort
+  select
+--    max(sr_returned_date_sk), min(sr_returned_date_sk)
+max(d_date_sk), min(d_date_sk)
+  from
+    date_dim
+limit
+  100

@@ -1,0 +1,6 @@
+[workspace]
+members = [ "crates/*" ]
+
+[profile.release]
+incremental = true
+debug = 1 # just line info

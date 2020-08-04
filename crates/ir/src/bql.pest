@@ -1,0 +1,248 @@
+/*
+ * Ref: https://github.com/antlr/grammars-v4/blob/master/sqlite/SQLite.g4
+ * known problems: 
+ * 1. now no support for LIKE and exists and analysis func...
+ * 2. some complex nested exprs may be bad
+ * 3. pest has some problems in backtracking
+ */
+cmd_list = { SOI ~ cmd? ~ (";" ~ cmd)* ~ EOI }
+cmd = {
+    create_table |
+    drop_table |
+    ^"explain"? ~ query
+}
+
+//--- ddl ---
+create_table = {
+    ^"create" ~ ^"table" ~ if_not_exists? ~ qualified_table_name ~ "(" ~ column_def ~ ("," ~ column_def)* ~ ")"
+}
+if_not_exists = { ^"if" ~ ^"not" ~ ^"exists" }
+column_def = {
+    column_name ~ type_name ~ column_constraint?
+}
+column_constraint = {
+    ^"primary" ~ ^"key" ~ sort_order? |
+    ^"not" ~ ^"null" |
+    ^"default" ~ literal
+}
+
+drop_table = { ^"drop" ~ ^"table" ~ if_exists? ~ qualified_table_name }
+if_exists = { ^"if" ~ ^"exists" }
+
+//--- dml ---
+// query
+//TODO other kinds of dml
+//FIXME limit and order_by not supported by subqueries?
+query = { with? ~ compound_select }
+
+with = { ^"with" ~ with_query ~ ("," ~ with_query)* }
+with_query = { table_name ~ ^"as" ~ "(" ~ compound_select ~ ")" }
+
+compound_select = {
+    ( select | select_with_alias ) ~ (compound_op ~ ( select | select_with_alias ))*    
+}
+compound_op = { ^"union" ~ ^"all" | ^"union" | ^"except" | ^"intersect" }
+select_with_alias = { "(" ~ select ~ ")" ~ as_qualif? }
+select = {
+    ^"select" ~ ^"distinct"? ~ select_column ~ ("," ~ select_column)* ~ from? ~ where_clause? ~ group_by? ~ order_by? ~ limit?
+}
+select_column = { expr ~ as_qualif? | "*" | table_name ~ "." ~ "*" }
+
+//FIXME strictly need to exclude all reserved words from id/name
+as_qualif = { 
+    ^"as"? ~ 
+    !(^"limit" | ^"order" | ^"where" | ^"from" | ^"and" | ^"group" | ^"left" | ^"on" | compound_op) ~ 
+    name
+}
+
+from = { ^"from" ~ ( join_tables | compound_select ) }
+join_tables = {
+    join_table ~ (join_op ~ join_table ~ join_cond?)*
+}
+join_table = {
+    "(" ~ compound_select ~ ")" ~ as_qualif? |
+    qualified_table_name ~ as_qualif?
+    // qualified_table_name ~ "(" ~ (expr ~ ("," ~ expr)*)? ~ ")" ~ as_qualif?
+}
+join_cond = {
+    ^"on" ~ logical_expr |
+    ^"using" ~ "(" ~ column_name ~ ("," ~ column_name)* ~ ")"
+}
+join_op = {
+    "," |
+    ^"join" |
+    ^"natural"? ~ join_type ~ ^"join"
+}
+join_type = { ^"left" ~ ^"outer"? | ^"inner" | ^"cross" }
+
+where_clause = { ^"where" ~ logical_expr }
+group_by = { ^"group" ~ ^"by" ~ expr ~ ("," ~ expr)* ~ (^"having" ~ logical_expr)? }
+order_by = { ^"order" ~ ^"by" ~ sorted_column ~ ("," ~ sorted_column)* }
+limit = { ^"limit" ~ expr }
+
+sort_order = { ^"asc" | ^"desc" }
+sorted_column = { expr ~ sort_order? }
+
+expr_item = _{ 
+    literal | 
+    cast_expr | 
+    func_call_expr | 
+    qualified_name |
+    "(" ~ expr_item ~ ")" 
+}
+
+//FIXME just workaround for tpcds sql
+func_arg = { case_expr | arith_expr }
+func_call_expr = { 
+    func_name ~ "(" ~ ")" |
+    func_name ~ "(" ~ func_arg ~ ("," ~ func_arg)* ~ ")" 
+}
+
+arith_op = { "+" | "-" | "*" | "/" }
+arith_expr_item = {
+    "(" ~ arith_expr_item ~ ")" |
+    expr_item ~ (arith_op ~ expr_item)*
+}
+arith_expr = {
+    arith_expr_item ~ (arith_op ~ arith_expr_item)*
+}
+
+//FIXME * is ugly, just allow * for count?
+count_tuple_expr = { ^"count" ~ "(" ~ "*" ~ ")" }
+//FIXME ugly workaround?
+count_distinct_expr = { ^"count" ~ "(" ~ ^"distinct" ~ qualified_name ~ ")" }
+
+cast_expr = { ^"cast" ~ "(" ~ arith_expr ~ ^"as" ~ type_name ~ ")" }
+
+case_expr = {
+    ^"case" ~ (^"when" ~ arith_expr ~ ^"then" ~ arith_expr)+ ~ 
+      (^"else" ~ arith_expr)? ~ ^"end" |
+    ^"case" ~ (^"when" ~ logical_expr ~ ^"then" ~ arith_expr)+ ~ 
+      (^"else" ~ arith_expr)? ~ ^"end" |  
+    ^"case" ~ id ~ 
+      (^"when" ~ arith_expr ~ ^"then" ~ arith_expr)+ ~ 
+      (^"else" ~ arith_expr)? ~ ^"end" |
+    ^"case" ~ id ~ 
+      (^"when" ~ logical_expr ~ ^"then" ~ arith_expr)+ ~ 
+      (^"else" ~ arith_expr)? ~ ^"end"    
+}
+
+expr = {
+    count_tuple_expr |
+    count_distinct_expr |
+    case_expr |
+    arith_expr    
+}
+
+literal = {
+    signed_number |
+    string_literal |
+    blob |
+    ^"null"
+}
+
+comp_op   = _{ "<>" | "<=" | ">=" | "!=" | "=" | "<" | ">" }
+in_expr = { 
+    expr ~ ^"in" ~ const_array | 
+    expr ~ ^"in" ~ compound_select 
+}
+between_expr = { 
+    expr ~ ^"between" ~ ( compound_select|expr ) ~ 
+           ^"and" ~ ( compound_select|expr ) 
+}
+comp_expr = { 
+    in_expr | 
+    between_expr | 
+    expr ~ ^"is" ~ ^"null" |
+    expr ~  ^"is" ~ ^"not" ~ ^"null" |
+    ( compound_select|expr ) ~ comp_op ~ ( compound_select|expr ) |
+    qualified_name
+}
+logical_val  = { 
+    "(" ~ logical_val ~ ")" |
+    ^"not"? ~ comp_expr
+}
+logical_expr = {
+    "(" ~ logical_expr ~ ")" ~ (( ^"and" | !(^"order") ~ ^"or" ) ~ logical_expr)* |
+     logical_val ~ (( ^"and" | !(^"order") ~ ^"or" ) ~ logical_expr)*      
+}
+
+//--- basic type ---
+id = @{
+    ('A'..'Z' | "_" | 'a'..'z') ~ ("$" | '0'..'9' | 'A'..'Z' | "_" | 'a'..'z')* |
+    // A keyword in double-quotes is an identifier.
+    "\"" ~ ("\"\"" | !"\"" ~ ANY)* ~ "\"" |
+    // A keyword enclosed in grave accents (ASCII code 96) is allowed as an identifier as well.
+    "`" ~ ("``" | !"`" ~ ANY)* ~ "`"
+}
+
+// A keyword in single quotes is a string literal.
+string_literal = @{ "'" ~ ("''" | !"'" ~ ANY)* ~ "'" }
+blob = @{ ("x" | "X") ~ "'" ~ (hex_digit)+ ~ "'" }
+
+number = _{ float | int }
+int = @{ digit+ | ("0x" | "0X") ~ hex_digit+ }
+float = @{
+    digit+ ~ "." ~ digit* ~ exponent? |
+    "." ~ digit+ ~ exponent? |
+    digit+ ~ exponent
+}
+exponent = _{ ("e" | "E") ~ ("+" | "-")? ~ digit+ }
+digit = _{ '0'..'9' }
+hex_digit = _{ '0'..'9' | 'a'..'f' | 'A'..'F' }
+
+//FIXME allow arithmetic and func call in array
+const_num_array = { "(" ~ signed_number ~ ("," ~ signed_number)* ~ ")" }
+const_str_array = { "(" ~ string_literal ~ ("," ~ string_literal)* ~ ")" }
+const_array = _{ const_num_array | const_str_array }
+
+name = _{ id } //FIXME 
+database_name = { name }
+table_name = { name }
+qualified_table_name = ${ (database_name ~ ".")? ~ table_name }
+column_name = { name }
+func_name = { name }
+qualified_name = ${ (name ~ ".")? ~ name }
+
+type_name = {
+    name ~ ("(" ~ signed_number ~ ("," ~ signed_number)? ~ ")")?
+}
+
+signed_number = @{
+    ("+" | "-")? ~ number
+}
+
+//FIXME EOI here?
+COMMENT = _{
+    // line comment
+    "--" ~ ((!("\n") ~ ANY)* ~ ("\n" | EOI)) |
+    // block comment
+    "/*" ~ ((!"*/" ~ ANY)*)
+}
+WHITESPACE = _{ " " | "\t" | "\r" | "\n" }
+
+/*
+reserved_word = @{
+    ^"add" | ^"all" | ^"alter" | ^"and" | ^"as" | ^"autoincrement" |
+    ^"between" |
+    ^"check" | ^"collate" | ^"commit" | ^"constraint" | ^"create" | ^"cross" |
+    ^"default" | ^"deferrable" | ^"delete" | ^"distinct" | ^"drop" |
+    ^"escape" | ^"exists" |
+    ^"foreign" | ^"from" | ^"full" |
+    ^"group" |
+    ^"having" |
+    ^"in" | ^"index" | ^"inner" | ^"insert" | ^"intersect" | ^"into" | ^"is" | ^"isnull" |
+    ^"join" |
+    ^"left" | ^"limit" |
+    ^"natural" | ^"not" | ^"notnull" | ^"null" |
+    ^"on" | ^"or" | ^"order" | ^"outer" |
+    ^"primary" |
+    ^"references" | ^"right" |
+    ^"select" | ^"set" |
+    ^"table" | ^"temporary" | ^"then" | ^"to" | ^"transaction" |
+    ^"unique" | ^"update" | ^"using" |
+    ^"values" |
+    ^"when" | ^"where" |
+    ^"recursive"
+}
+*/
