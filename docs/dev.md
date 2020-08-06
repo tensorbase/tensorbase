@@ -24,7 +24,7 @@ ROOT
 
 ## Issue Conventions
 
-|  |  |
+| label | |
 |:--|:--|
 |type | |
 |status| | 

@@ -9,9 +9,9 @@ TensorBase is an **architectural performance** design. It is demonstrated to que
 
 TensorBase is written from scratch in the Rust language (system) and C language (runtime kernel). Here, you use the most familiar tools to challenge the most difficult problems. Comfortable languages and minimized dependencies, from-scratch architecting make it a **highly hackable system**. 
 
-Read the [launch post](https://tensorbase.io/2020/08/04/hello-base.html) to get more about TensorBase's "Who? Where from? Where go?"
+Read [launch post](https://tensorbase.io/2020/08/04/hello-base.html) to get more about TensorBase's "Who? Where from? Where go?"
 
-Please **give TensorBase a star** to help the community grown if you like it.
+Please **give TensorBase a star** to help it more grown.
 
 
 ## Try TensorBase
@@ -56,6 +56,7 @@ cargo run --release --bin baseshell
 
 
 ## Engineering Effort
+Welcome to join us, you data nerds!
 
 | subsystem | component   | difficulty | creativity | priority | committers |
 |:---       |:---         |:---        |:---        |:---      |:---        |
@@ -92,7 +93,7 @@ Open an [issue](https://github.com/tensorbase/tensorbase/issues) with label [typ
 
 
 ## Contributing
-Welcome to join us, you data nerds!
+Thanks for your contributions!
 
 [Dev Docs](/docs/dev.md)
 
