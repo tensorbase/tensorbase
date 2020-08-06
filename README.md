@@ -1,9 +1,9 @@
-## What is TensorBase
+### What is TensorBase
 ---------------------
 TensorBase is a modern engineering effort for building a high performance and cost-effective bigdata analytics infrastructure in an open source culture. 
 
 
-## Status
+### Status
 ---------
 TensorBase is in its intial stage (milestone 0) and under heavy development. 
 
@@ -16,7 +16,7 @@ Read [the launch post](https://tensorbase.io/2020/08/04/hello-base.html) to get 
 Please give TensorBase a star to help the community grown if you like it.
 
 
-## Try TensorBase
+### Try TensorBase
 -----------------
 
 TensorBase is developed for Linux, but should work for any docker enabled system (for example, Windows 10 WSL2).
@@ -32,7 +32,7 @@ This mode is portable but more resource occupied, and the performance is platfor
 TBD.
 
 
-## Quick Start
+### Quick Start
 --------------
 Now TensorBase provides two binaries to enable the following workflow:
 
@@ -60,26 +60,26 @@ cargo run --release --bin baseshell
 [Dev Docs](/docs/dev.md) provides a little more explanation for why above commands work.
 
 
-## Engineering Effort
+### Engineering Effort
 ----------------------
 
 
 
-## Communication
+### Communication
 ----------------
 Open an [issue](https://github.com/tensorbase/tensorbase/issues) with tag [discussion].
 
 [Slack Channel](https://tensorbase.slack.com/)
 
 
-## Contributing
+### Contributing
 ---------------
 Welcome to join us, you data nerds!
 
 [Dev Docs](/docs/dev.md)
 
 
-## License
+### License
 ----------
 TensorBase is distributed under the terms of the Apache License (Version 2.0).
 
