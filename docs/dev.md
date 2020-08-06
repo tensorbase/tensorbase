@@ -30,3 +30,5 @@ ROOT
 |status| | 
 |priority| | 
 |component| |
+|difficulty| | 
+|creativity| |

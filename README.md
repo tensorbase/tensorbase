@@ -58,30 +58,29 @@ cargo run --release --bin baseshell
 ## Engineering Effort
 Welcome to join us, you data nerds!
 
-| subsystem | component   | difficulty | creativity | priority | committers |
-|:---       |:---         |:---        |:---        |:---      |:---        |
-| storage*  | | | | | @jinmingjian |
-|           | data layout | | | | |
-|           | data read | | | | |
-|           | data write | | | | |
-|           | metadata | | | | |
-| runtime   | | | | | @jinmingjian |
-|           | base language(sql) | | | | |     
-|           | parsing | | | | |
-|           | base ir | | | | |
-|           | codegen | | | | |
-|           | jit compiler* | | | | |
-|           | kernel execution | | | | |
-| infra     | | | | | @jinmingjian |
-|           | common   | | | | |
-|           | lib      | | | | |
-|           | testing  | | | | |
-|           | bench    | | | | | 
-|           | doc      | | | | |                 
-| client    | | | | | @jinmingjian |  
-|           | baseshell | | | | |
-|           | baseops   | | | | |   
-|           | | | | | |   
+| subsystem | component   | priority | committers |
+|:---       |:---         |:---      |:---        |
+| storage*  | | | @jinmingjian |
+|           | data layout | | | 
+|           | data read | | | 
+|           | data write | | |
+|           | metadata | | | 
+| runtime   | | | @jinmingjian |
+|           | base language(sql) | | |     
+|           | parsing | | |
+|           | base ir | | |
+|           | codegen | | |
+|           | jit compiler* | | |
+|           | kernel execution | | |
+| infra     | | | @jinmingjian |
+|           | common   | | |
+|           | lib      | | |
+|           | testing  | | |
+|           | bench    | | |
+|           | doc      | | |                
+| client    | | | @jinmingjian |  
+|           | baseshell | | |
+|           | baseops   | | |   
 
 Note:
 1. this table just reflects current status 
