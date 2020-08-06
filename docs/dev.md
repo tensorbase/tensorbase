@@ -1,8 +1,5 @@
-Welcome to join us, you data nerds!
-
-
 ## Base Conventions
---------------------
+
 ### Baisc Logics
 
 * binaries are the entries for all kinds in base
