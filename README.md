@@ -58,7 +58,7 @@ cargo run --release --bin baseshell
 ## Engineering Efforts
 Welcome to join us, you data nerds!
 
-Here are on-going efforts. If you are interested in any effort, do not hesitate to join in.
+Here are on-going efforts. If you are interested in any effort, do not hesitate to join us.
 
 | subsystem | component   | priority | committers |
 |:---       |:---         |:---      |:---        |
