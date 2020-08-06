@@ -19,11 +19,11 @@ TensorBase is developed for Linux, but should work for any docker enabled system
 
 * from source
 
-TensorBase follows the idiomatic development flow of Rust. If you only try to run, just play with [Quick Start](#quick-start). Thanks to the strong rust ecosystem, it is not necessary to run build first.
+TensorBase follows the idiomatic development flow of Rust. Make sure your Rust nightly toolchain works. If you only try to run, just play with [Quick Start](#quick-start). Thanks to the strong rust ecosystem, it is not necessary to run build first.
 
 * docker
 
-This mode is portable but more resource occupied, and the performance is platform dependent.
+This mode is portable but more host resource occupied, and the performance is platform dependent.
 
 TBD.
 
@@ -86,7 +86,10 @@ Note:
 1. this table just reflects current status 
 
 ## Communication
-Open an [issue](https://github.com/tensorbase/tensorbase/issues) with label [type/discuss].
+
+Feel free to feedback any problem via [issues](https://github.com/tensorbase/tensorbase/issues).
+
+Mailing list: open an [issue](https://github.com/tensorbase/tensorbase/issues) with label [type/discuss].
 
 [Slack Channel](https://tensorbase.slack.com/)
 
