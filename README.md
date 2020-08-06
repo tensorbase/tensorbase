@@ -11,7 +11,7 @@ TensorBase is written from scratch in the Rust language (system) and C language 
 
 Read [launch post](https://tensorbase.io/2020/08/04/hello-base.html) to get more about TensorBase's "Who? Where from? Where go?"
 
-Please **give TensorBase a star** to help it more grown.
+Please give TensorBase a star to help it more grown.
 
 
 ## Try TensorBase
