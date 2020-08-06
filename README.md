@@ -62,25 +62,26 @@ Here are on-going efforts. If you are interested in any effort, do not hesitate 
 
 | subsystem | component   | priority | committers |
 |:---       |:---         |:---      |:---        |
-| storage*  | | | @jinmingjian |
+| storage*  | | | [@jinmingjian](https://github.com/jinmingjian) |
 |           | data layout | | | 
 |           | data read | | | 
 |           | data write | | |
 |           | metadata | | | 
-| runtime   | | | @jinmingjian |
+| runtime   | | | [@jinmingjian](https://github.com/jinmingjian) |
 |           | base language(sql) | | |     
 |           | parsing | | |
 |           | base ir | | |
 |           | codegen | | |
 |           | jit compiler* | | |
 |           | kernel execution | | |
-| infra     | | | @jinmingjian |
+| infra     | | | [@jinmingjian](https://github.com/jinmingjian) |
 |           | common   | | |
 |           | lib      | | |
 |           | testing  | | |
 |           | bench    | | |
-|           | doc      | | |                
-| client    | | | @jinmingjian |  
+|           | doc      | | | 
+|           | project  | | |                
+| client    | | | [@jinmingjian](https://github.com/jinmingjian) |  
 |           | baseshell | | |
 |           | baseops   | | |   
 
