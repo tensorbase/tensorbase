@@ -89,7 +89,7 @@ Note:
 
 Feel free to feedback any problem via [issues](https://github.com/tensorbase/tensorbase/issues).
 
-Mailing list: open an [issue](https://github.com/tensorbase/tensorbase/issues) with label [type/discuss].
+Mailing list: just open an [issue](https://github.com/tensorbase/tensorbase/issues) with label [type/discuss].
 
 [Slack Channel](https://tensorbase.slack.com/)
 
