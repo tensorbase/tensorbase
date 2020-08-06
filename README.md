@@ -83,7 +83,8 @@ Here are on-going efforts. If you are interested in any effort, do not hesitate 
 |           | project  | | |                
 | client    | | | [@jinmingjian](https://github.com/jinmingjian) |  
 |           | baseshell | | |
-|           | baseops   | | |   
+|           | baseops   | | | 
+|           | visualization   | | | 
 
 
 ## Communication
