@@ -55,8 +55,10 @@ cargo run --release --bin baseshell
 [Dev Docs](/docs/dev.md) provides a little more explanation for why above commands work.
 
 
-## Engineering Effort
+## Engineering Efforts
 Welcome to join us, you data nerds!
+
+Here are on-going efforts. If you are interested in any effort, do not hesitate to join in.
 
 | subsystem | component   | priority | committers |
 |:---       |:---         |:---      |:---        |
@@ -82,8 +84,6 @@ Welcome to join us, you data nerds!
 |           | baseshell | | |
 |           | baseops   | | |   
 
-Note:
-1. this table just reflects current status 
 
 ## Communication
 
