@@ -5,13 +5,13 @@ TensorBase is a modern engineering effort for building a high performance and co
 ## Status
 TensorBase is in its intial stage (milestone 0) and under heavy development. 
 
-TensorBase is an **architectural performance** design. It is demonstrated to query ~1.5 billion rows of NYC taxi dataset in ~100 milliseconds for total response time in its milestone 0. The raw speed of core data scanning in kernel saturates the memory bandwidth (for example, ~120GB/s for six-channel single socket). Column-oriented, vectorized, SIMD all have, and big bang...
+TensorBase is an **architectural performance** design. It is demonstrated to query ~1.5 billion rows of NYC taxi dataset in ~100 milliseconds for total response time in its milestone 0. The raw speed of core data scanning in kernel saturates the memory bandwidth (for example, ~120GB/s for six-channel single socket). Column-oriented, vectorized, SIMD all have, and big bangs...
 
 TensorBase is written from scratch in the Rust language (system) and C language (runtime kernel). Here, you use the most familiar tools to challenge the most difficult problems. Comfortable languages and minimized dependencies, from-scratch architecting make it a **highly hackable system**. 
 
-Read [the launch post](https://tensorbase.io/2020/08/04/hello-base.html) to get more about TensorBase's "Who? Where from? Where go?"
+Read the [launch post](https://tensorbase.io/2020/08/04/hello-base.html) to get more about TensorBase's "Who? Where from? Where go?"
 
-Please give TensorBase a star to help the community grown if you like it.
+Please **give TensorBase a star** to help the community grown if you like it.
 
 
 ## Try TensorBase
@@ -57,10 +57,36 @@ cargo run --release --bin baseshell
 
 ## Engineering Effort
 
+| subsystem | component   | difficulty | creativity | priority | committers |
+|:---       |:---         |:---        |:---        |:---      |:---        |
+| storage*  | | | | | @jinmingjian |
+|           | data layout | | | | |
+|           | data read | | | | |
+|           | data write | | | | |
+|           | metadata | | | | |
+| runtime   | | | | | @jinmingjian |
+|           | base language(sql) | | | | |     
+|           | parsing | | | | |
+|           | base ir | | | | |
+|           | codegen | | | | |
+|           | jit compiler* | | | | |
+|           | kernel execution | | | | |
+| infra     | | | | | @jinmingjian |
+|           | common   | | | | |
+|           | lib      | | | | |
+|           | testing  | | | | |
+|           | bench    | | | | | 
+|           | doc      | | | | |                 
+| client    | | | | | @jinmingjian |  
+|           | baseshell | | | | |
+|           | baseops   | | | | |   
+|           | | | | | |   
 
+Note:
+1. this table just reflects current status 
 
 ## Communication
-Open an [issue](https://github.com/tensorbase/tensorbase/issues) with tag [discussion].
+Open an [issue](https://github.com/tensorbase/tensorbase/issues) with label [type/discuss].
 
 [Slack Channel](https://tensorbase.slack.com/)
 
