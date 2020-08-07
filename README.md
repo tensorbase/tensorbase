@@ -1,5 +1,5 @@
 ## What is TensorBase
-TensorBase is a modern engineering effort for building a high performance and cost-effective bigdata analytics infrastructure in an open source culture. 
+TensorBase is a modern engineering effort for building a high performance and cost-effective bigdata warehouse in an open source culture. 
 
 
 ## Status
@@ -70,7 +70,7 @@ Here are on-going efforts. If you are interested in any effort, do not hesitate 
 | runtime   | | | [@jinmingjian](https://github.com/jinmingjian) |
 |           | base language(sql) | | |     
 |           | parsing | | |
-|           | base ir | | |
+|           | base ir (intermediate representation) | | |
 |           | codegen | | |
 |           | jit compiler* | | |
 |           | kernel execution | | |
