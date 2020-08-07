@@ -7,7 +7,7 @@ TensorBase is in its intial stage (milestone 0) and under heavy development.
 
 TensorBase is an **architectural performance** design. [It is demonstrated](https://tensorbase.io/2020/08/04/hello-base.html#benchmark) to query ~1.5 billion rows of NYC taxi dataset in ~100 milliseconds for total response time in its milestone 0. The raw speed of core data scanning in kernel saturates the memory bandwidth (for example, ~120GB/s for six-channel single socket). Column-oriented, vectorized, SIMD all have, and big bangs...
 
-TensorBase is written from scratch in the Rust language (system) and C language (runtime kernel). Here, you use the most familiar tools to challenge the most difficult problems. Comfortable languages and minimized dependencies, from-scratch architecting make it a **highly hackable system**. 
+TensorBase is written from scratch in the **Rust language** (system) and **C language** (runtime kernel). Here, you use the most familiar tools to challenge the most difficult problems. Comfortable languages and minimized dependencies, from-scratch architecting make it a **highly hackable system**. 
 
 Read [launch post](https://tensorbase.io/2020/08/04/hello-base.html) to get more about TensorBase's "Who? Where from? Where go?"
 
