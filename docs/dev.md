@@ -42,7 +42,7 @@ Linux(windows 10 wsl2 probably ok) + Rust nightly toolchain(installed via Rustup
 
 * The minimum kernel version will be specified at some time
 * The revision of Rust nightly toolchain will be specified at some time
-* it is possible to enable some work flow for dev under Windows 10 ([feel free to request](/issues))
+* it is possible to figure out some work flow for dev under Windows 10 ([feel free to request](https://github.com/tensorbase/tensorbase/issues))
 
 ### Tools Recommendation
 
