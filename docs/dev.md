@@ -32,3 +32,8 @@ ROOT
 |component| |
 |difficulty| | 
 |creativity| |
+
+
+## Base development Recommendation
+
+The committer of Base is usually using VS Code + Microsoft C/C++ for Visual Studio Code as the development environment.
