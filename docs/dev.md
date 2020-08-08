@@ -36,6 +36,6 @@ ROOT
 
 ## Base development Recommendation
 
-The committer of Base is usually using VS Code + Rust-analyzer(RA) extension + "Microsoft C/C++ for Visual Studio Code" extension as the development environment.
+The committers of Base are usually using VS Code + Rust-analyzer(RA) extension + "Microsoft C/C++ for Visual Studio Code" extension as the development environment.
 
-Feel Free to seek more helps from the Base community.
+Feel free to seek more helps from the Base community.
