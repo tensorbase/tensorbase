@@ -34,7 +34,17 @@ ROOT
 |creativity| |
 
 
-## Base development Recommendation
+## Base Development
+
+### Prerequisites
+
+Linux(windows 10 wsl2 probably ok) + Rust nightly toolchain(installed via Rustup)
+
+* The minimum kernel version will be specified at some time
+* The revision of Rust nightly toolchain will be specified at some time
+
+
+### Tools Recommendation
 
 The committers of Base are usually using VS Code + Rust-analyzer(RA) extension + "Microsoft C/C++ for Visual Studio Code" extension as the development environment.
 
