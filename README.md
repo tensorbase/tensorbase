@@ -25,7 +25,7 @@ TensorBase follows the idiomatic development flow of Rust. Make sure your Rust n
 
 This mode is portable but more host resource occupied, and the performance is platform dependent.
 
-([Dockerfile](project/Dockerfile) has been provided. But there is no dockerhub image for the connection problem. Because M0 is a developer previewing release, the docker image is considered as a low priority feature now. If you want this, please give a feedback in [this issue](#1).)
+([Dockerfile](project/Dockerfile) has been provided. But there is no dockerhub image for the connection problem. Because M0 is a developer previewing release, the docker image is considered as a low priority feature now. If you want this, please give a feedback in [this issue](https://github.com/tensorbase/tensorbase/issues/1).)
 
 
 ## Quick Start
@@ -58,42 +58,42 @@ cargo run --release --bin baseshell
 ## Engineering Efforts
 Welcome to join us, you data nerds!
 
-Here are on-going efforts. If you are interested in any effort, do not hesitate to join us.
+Here are on-going efforts. If you are interested in any effort, do not hesitate to [join us](#communications).
 
-| subsystem | component   | priority | committers |
+| subsystem | component   | priority | status |
 |:---       |:---         |:---      |:---        |
-| storage*  | | | [@jinmingjian](https://github.com/jinmingjian) |
+| storage*  | | | |
 |           | data layout | | | 
 |           | data read | | | 
 |           | data write | | |
 |           | metadata | | | 
-| runtime   | | | [@jinmingjian](https://github.com/jinmingjian) |
+| runtime   | | | |
 |           | base language(sql) | | |     
 |           | parsing | | |
 |           | base ir (intermediate representation) | | |
 |           | codegen | | |
 |           | jit compiler* | | |
 |           | kernel execution | | |
-| infra     | | | [@jinmingjian](https://github.com/jinmingjian) |
+| infra     | | |  |
 |           | common   | | |
 |           | lib      | | |
 |           | testing  | | |
 |           | bench    | | |
 |           | doc      | | | 
 |           | project  | | |                
-| client    | | | [@jinmingjian](https://github.com/jinmingjian) |  
+| client    | | |  |  
 |           | baseshell | | |
 |           | baseops   | | | 
 |           | visualization   | | | 
 
 
-## Communication
+## Communications
 
 Feel free to feedback any problem via [issues](https://github.com/tensorbase/tensorbase/issues).
 
 Mailing list: just open an [issue](https://github.com/tensorbase/tensorbase/issues) with label [type/discuss].
 
-[Slack Channel](https://tensorbase.slack.com/)
+[Slack Channel](https://join.slack.com/t/tensorbase/shared_invite/zt-gi2kgx9s-h7IPxc0fdo9h2EvtbLis~w)
 
 
 ## Contributing
