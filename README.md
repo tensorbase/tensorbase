@@ -15,7 +15,9 @@ Please give TensorBase a star to help it more grown.
 
 ## Roadmap
 
-The [m1](https://github.com/tensorbase/tensorbase/milestone/1) is the first milestone which is targeted to provide a production-ready release. A speicial edition will be shown to the interesting personals and oraganizations. Subscribe to [TensorBase's Newsletter here](https://tensorbase.io/#contact) to get the first time information if you are interesting.
+The coming [m1](https://github.com/tensorbase/tensorbase/milestone/1) will be the first milestone which is targeted to provide a production-ready release. 
+
+A speicial edition will be shown to the interesting personals and oraganizations. Subscribe to [TensorBase's Newsletter here](https://tensorbase.io/#contact) to get the first time information if you are interesting.
 
 ## Try TensorBase
 TensorBase is developed for Linux, but should work for any docker enabled system (for example, Windows 10 WSL2).
