@@ -25,7 +25,7 @@ TensorBase follows the idiomatic development flow of Rust. Make sure your Rust n
 
 This mode is portable but more host resource occupied, and the performance is platform dependent.
 
-TBD.
+([Dockerfile](project/Dockerfile) has been provided. But there is no dockerhub image for the connection problem. Because M0 is a developer previewing release, the docker image is considered as a low priority feature now. If you want this, please give a feedback in [this issue](#1).)
 
 
 ## Quick Start
