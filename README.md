@@ -15,7 +15,7 @@ Please give TensorBase a star to help it more grown.
 
 ## Roadmap
 
-The coming [m1](https://github.com/tensorbase/tensorbase/milestone/1) will be the first milestone which is targeted to provide a production-ready release. 
+The coming [m1](https://github.com/tensorbase/tensorbase/milestone/1) will be the first milestone which is targeted to provide a production-friendly release. 
 
 A speicial edition will be shown to the interesting personals and oraganizations. Subscribe to [TensorBase's Newsletter here](https://tensorbase.io/#contact) to get the first time information if you are interesting.
 
