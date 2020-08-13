@@ -49,3 +49,11 @@ Linux(windows 10 wsl2 probably ok) + Rust nightly toolchain(installed via Rustup
 The committers of Base are usually using VS Code + Rust-analyzer(RA) extension + "Microsoft C/C++ for Visual Studio Code" extension as the development environment.
 
 Feel free to seek more helps from the Base community.
+
+## Code Status
+
+In the early phase of Base, the building may not be guaranteed by daily commits. If you just do a building for some code understandings, just pick up the one from release tags. 
+
+The most recent release tag is [m0](https://github.com/tensorbase/tensorbase/tree/m0).
+
+Feel free to seek more helps from the Base community.
