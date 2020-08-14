@@ -44,6 +44,11 @@ Linux(windows 10 wsl2 probably ok) + Rust nightly toolchain(installed via Rustup
 * The revision of Rust nightly toolchain will be specified at some time
 * it is possible to figure out some work flow for dev under Windows 10 ([feel free to request](https://github.com/tensorbase/tensorbase/issues))
 
+for development, you need more toolings to be installed:
+* clang
+* cmake
+(the versions of above are not tested yet)
+
 ### Tools Recommendation
 
 The committers of Base are usually using VS Code + Rust-analyzer(RA) extension + "Microsoft C/C++ for Visual Studio Code" extension as the development environment.
