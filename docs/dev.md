@@ -47,7 +47,10 @@ Linux(windows 10 wsl2 probably ok) + Rust nightly toolchain(installed via Rustup
 for development, you need more toolings to be installed:
 * clang
 * cmake
-(the versions of above are not tested yet)
+* gcc 2.29+ (gcc is usually Linux distro shipped, for Ububtu, this requires you should have 19.04+ for works. It is considered to provide a native installation package at some time point.)
+
+Hardware:
+* x86 processor with avx2 is required for running __baseops__ command now. This is considerd to be changed in m1. stay tunned.
 
 ### Tools Recommendation
 

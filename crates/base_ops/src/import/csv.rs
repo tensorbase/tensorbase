@@ -127,7 +127,7 @@ pub(crate) fn import(args: Csv) {
     let flen = f.metadata().unwrap().len();
     let mmap = unsafe { Mmap::map(&f).unwrap() };
     let addr0 = SyncPointer(mmap.as_ptr());
-    let n = flen >> SIZ_PART_SHIFT;
+    let mut n = flen >> SIZ_PART_SHIFT;
 
     let ci: Vec<&str> = columns_indexs.split(":").collect();
     if ci.len() != 4 {
@@ -153,51 +153,6 @@ pub(crate) fn import(args: Csv) {
         .collect();
 
     //FIXME
-    // let coltyps = vec![
-    //     ColumnType::INT32,
-    //     // ColumnType::INT32,
-    //     ColumnType::UNIX_DATETIME,
-    // ];
-    // let mut _fs = Vec::with_capacity(idxs.len());
-    // let fds = if exported_as_csv {
-    //     let export_file = export_dir_path.to_owned() + "exported.csv";
-    //     //FIXME
-    //     if Path::new(&export_file).exists() {
-    //         remove_file(&export_file).unwrap();
-    //     }
-    //     let fs = OpenOptions::new()
-    //         .write(true)
-    //         .create(true)
-    //         .append(true)
-    //         .open(&export_file)
-    //         .unwrap();
-    //     let fd = fs.as_raw_fd();
-    //     _fs.push(fs);
-    //     vec![fd; idxs.len()]
-    // } else {
-    //     for i in &idxs {
-    //         let export_file = export_dir_path.to_owned() + &i.to_string();
-    //         //FIXME
-    //         if Path::new(&export_file).exists() {
-    //             remove_file(&export_file).unwrap();
-    //         }
-    //         _fs.push(
-    //             OpenOptions::new()
-    //                 .write(true)
-    //                 .create(true)
-    //                 .append(true)
-    //                 .open(&export_file)
-    //                 .unwrap(),
-    //         );
-    //     }
-    //     _fs.iter().map(|f| f.as_raw_fd()).collect::<Vec<_>>()
-    // };
-    // let col_idxs_csv: Vec<(u32, ColumnType, RawFd)> = idxs
-    //     .into_iter()
-    //     .zip(coltyps.into_iter())
-    //     .zip(fds.into_iter())
-    //     .map(|((x, y), z)| (x, y, z))
-    //     .collect();
     let col_idxs_csv: Vec<(u32, ColumnType, RawFd)> = idxs
         .into_iter()
         .zip(col_id_types.iter())
@@ -206,10 +161,11 @@ pub(crate) fn import(args: Csv) {
 
     let nf_row = nc.parse::<u32>().unwrap();
 
+    
     log::debug!("n:{},flen:{}", n, flen);
 
     let wg = crossbeam::sync::WaitGroup::new();
-    for tid in 0u32..n as u32 {
+    for tid in 0u32..=n as u32 {
         let wg = wg.clone();
         let col_idxs_csv = col_idxs_csv.clone();
         rayon::spawn(move || {
