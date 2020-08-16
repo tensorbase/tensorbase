@@ -60,7 +60,9 @@ then run a sum agg sql with the preshipped data (1MB):
 ```sql
 select sum(trip_id) from nyc_taxi
 ```
-
+<p align="center">
+<img width="399" src="https://tensorbase.io/img/2020-08-04-hello-base/base_m0_docker_run.png"/>
+</p>
 
 ## Quick Start
 Now TensorBase provides two binaries to enable the following workflow:
