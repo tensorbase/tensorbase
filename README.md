@@ -13,13 +13,13 @@ TensorBase has released **milestone 0** as the developer previewing release for 
 <p align="center">
 <img width="500" src="https://tensorbase.io/img/2020-08-04-hello-base/base_m0.png"/>
 </p>
-<p align="center""><sub>Aggregation results in Base's baseshell (95 - 118ms)</sub></p>
+<p align="center"">Aggregation results in Base's baseshell (95 - 118ms)</p>
 
 <p></p>
 <p align="center">
 <img width="500" src="https://tensorbase.io/img/2020-08-04-hello-base/clickhouse_20527.png"/>
 </p>
-<p align="center"><sub>Aggregation result in ClickHouse client (0.642s or 642ms)</sub></p>
+<p align="center">Aggregation result in ClickHouse client (0.642s or 642ms)</p>
 
 
 * **TensorBase is a highly hackable system** 
