@@ -43,6 +43,8 @@ TensorBase follows the idiomatic development flow of Rust. Make sure your Rust n
 
 This mode is portable (but has some platform dependent resource and performance effects).
 
+Try like this:
+
 ```bash
 docker pull tensorbase/tensorbase:m0
 docker run -ti tensorbase/tensorbase:m0 /bin/bash
