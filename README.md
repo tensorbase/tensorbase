@@ -5,7 +5,9 @@ TensorBase is a modern engineering effort for building a high performance and co
 ## Status
 TensorBase is in its intial stage (milestone 0) and under heavy development. 
 
-TensorBase is an **architectural performance** design. [It is demonstrated](https://tensorbase.io/2020/08/04/hello-base.html#benchmark) to **query ~1.5 billion rows of NYC taxi dataset in ~100 milliseconds** for total response time in its milestone 0. This is **6x faster than that of ClickHouse**.
+### TensorBase is an **architectural performance** design. 
+
+[It is demonstrated](https://tensorbase.io/2020/08/04/hello-base.html#benchmark) to **query ~1.5 billion rows of NYC taxi dataset in ~100 milliseconds** for total response time in its milestone 0. This is **6x faster than that of ClickHouse**.
 
 <p></p>
 <div>
@@ -20,9 +22,13 @@ TensorBase is an **architectural performance** design. [It is demonstrated](http
 <p align="center">Aggregation result in ClickHouse client</p>
 
 
-TensorBase is written from scratch in the **Rust language** (system) and its friend **C language** (runtime kernel). Here, you use the most familiar tools to challenge the most difficult problems. Comfortable languages and minimized dependencies, from-scratch architecting make it a **highly hackable system**. 
+### TensorBase is written from scratch in Rust language and its friend C. 
 
-Read [launch post](https://tensorbase.io/2020/08/04/hello-base.html) to get more about TensorBase's "Who? Where from? Where go?"
+Here, you use the most familiar tools to challenge the most difficult problems. Comfortable languages and minimized dependencies, from-scratch architecting make it a **highly hackable system**. 
+
+### Read more
+
+Read [launch post](https://tensorbase.io/2020/08/04/hello-base.html) to get more about TensorBase's "Who? Where from? Where go?".
 
 Please give TensorBase a star to help it more grown.
 
