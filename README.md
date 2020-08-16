@@ -22,9 +22,9 @@ TensorBase has released **milestone 0** as the developer previewing release for 
 <p align="center" style="font-size:15px;">Aggregation result in ClickHouse client (0.642s or 642ms)</p>
 
 
-* **TensorBase is written from scratch in Rust language and its friend C.** 
+* **TensorBase is a highly hackable system** 
 
-Here, you use the most familiar tools to challenge the most difficult problems. Comfortable languages and minimized dependencies, from-scratch architecting make it a **highly hackable system**. 
+TensorBase is written from scratch in Rust language and its friend C. Here with comfortable languages and minimized dependencies, from-scratch architecting, you now use the most familiar tools to challenge the most difficult problems. 
 
 * Read more
 
