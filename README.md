@@ -5,7 +5,7 @@ TensorBase is a modern engineering effort for building a high performance and co
 ## Status
 TensorBase is in its intial stage (milestone 0) and under heavy development. 
 
-### TensorBase is an **architectural performance** design. 
+#### TensorBase is an **architectural performance** design. 
 
 [It is demonstrated](https://tensorbase.io/2020/08/04/hello-base.html#benchmark) to **query ~1.5 billion rows of NYC taxi dataset in ~100 milliseconds** for total response time in its milestone 0. This is **6x faster than that of ClickHouse**.
 
@@ -13,16 +13,16 @@ TensorBase is in its intial stage (milestone 0) and under heavy development.
 <div>
 <img class="center_img_wider" src="https://tensorbase.io/img/2020-08-04-hello-base/base_m0.png"/>
 </div>
-<p align="center">Aggregation results in Base's baseshell</p>
+<p align="center">Aggregation results in Base's baseshell (95 - 118ms)</p>
 
 <p></p>
 <div>
 <img class="center_img_wider" src="https://tensorbase.io/img/2020-08-04-hello-base/clickhouse_20527.png"/>
 </div>
-<p align="center">Aggregation result in ClickHouse client</p>
+<p align="center">Aggregation result in ClickHouse client (0.642s or 642ms)</p>
 
 
-### TensorBase is written from scratch in Rust language and its friend C. 
+#### TensorBase is written from scratch in Rust language and its friend C. 
 
 Here, you use the most familiar tools to challenge the most difficult problems. Comfortable languages and minimized dependencies, from-scratch architecting make it a **highly hackable system**. 
 
