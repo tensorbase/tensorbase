@@ -24,7 +24,7 @@ TensorBase has released **milestone 0** as the developer previewing release for 
 
 * **TensorBase is a highly hackable system** 
 
-TensorBase is written from scratch in Rust language and its friend C. Here with comfortable languages and minimized dependencies, from-scratch architecting, you now use the most familiar tools to challenge the most difficult problems. 
+TensorBase is written from scratch in Rust language and its friend C. Here with comfortable languages, minimized dependencies and from-scratch architectings, you now can use the most familiar tools to challenge the most difficult problems. 
 
 * **Read more from [launch post](https://tensorbase.io/2020/08/04/hello-base.html)**.
 
