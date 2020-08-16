@@ -3,7 +3,7 @@ TensorBase is a modern engineering effort for building a high performance and co
 
 
 ## Status
-TensorBase has released milestone 0 as the developer previewing release. TensorBase is under heavy development now. 
+TensorBase has released **milestone 0** as the developer previewing release for inviting more interesting contributors to join in. 
 
 * **TensorBase is an architectural performance design.** 
 
@@ -43,7 +43,7 @@ TensorBase is developed for Linux, but should work for any docker enabled system
 
 * from source
 
-TensorBase follows the idiomatic development flow of Rust. Make sure your Rust nightly toolchain works. If you only try to run, just play with [Quick Start](#quick-start). Thanks to the strong rust ecosystem, it is not necessary to run build first.
+TensorBase follows the idiomatic development flow of Rust. Make sure your Rust nightly toolchain works. If you only try to run, just play with [Quick Start](#quick-start). Thanks to the strong rust ecosystem, it is not necessary to run build first. Please check [prerequisites](https://github.com/tensorbase/tensorbase/blob/master/docs/dev.md#prerequisites) before running from soruce.
 
 * docker
 
