@@ -10,16 +10,16 @@ TensorBase has released **milestone 0** as the developer previewing release for 
 [It is demonstrated](https://tensorbase.io/2020/08/04/hello-base.html#benchmark) to **query ~1.5 billion rows of NYC taxi dataset in ~100 milliseconds** for total response time in its milestone 0. This is **6x faster than that of ClickHouse**.
 
 <p></p>
-<div>
+<p align="center">
 <img width="500" src="https://tensorbase.io/img/2020-08-04-hello-base/base_m0.png"/>
-</div>
-<p align="center" style="font-size:15px;">Aggregation results in Base's baseshell (95 - 118ms)</p>
+</p>
+<p align="center""><sub>Aggregation results in Base's baseshell (95 - 118ms)</sub></p>
 
 <p></p>
-<div>
+<p align="center">
 <img width="500" src="https://tensorbase.io/img/2020-08-04-hello-base/clickhouse_20527.png"/>
-</div>
-<p align="center" style="font-size:15px;">Aggregation result in ClickHouse client (0.642s or 642ms)</p>
+</p>
+<p align="center"><sub>Aggregation result in ClickHouse client (0.642s or 642ms)</sub></p>
 
 
 * **TensorBase is a highly hackable system** 
