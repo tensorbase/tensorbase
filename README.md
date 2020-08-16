@@ -11,15 +11,15 @@ TensorBase is in its intial stage (milestone 0) and under heavy development.
 
 <p></p>
 <div>
-<img class="center_img_wider" src="https://tensorbase.io/img/2020-08-04-hello-base/base_m0.png"/>
+<img style="display:block; border-radius:3%; overflow:hidden; width:70%;" src="https://tensorbase.io/img/2020-08-04-hello-base/base_m0.png"/>
 </div>
-<p align="center">Aggregation results in Base's baseshell (95 - 118ms)</p>
+<p align="center" style="font-size:15px;">Aggregation results in Base's baseshell (95 - 118ms)</p>
 
 <p></p>
 <div>
-<img class="center_img_wider" src="https://tensorbase.io/img/2020-08-04-hello-base/clickhouse_20527.png"/>
+<img style="display:block; border-radius:3%; overflow:hidden; width:70%;" src="https://tensorbase.io/img/2020-08-04-hello-base/clickhouse_20527.png"/>
 </div>
-<p align="center">Aggregation result in ClickHouse client (0.642s or 642ms)</p>
+<p align="center" style="font-size:15px;">Aggregation result in ClickHouse client (0.642s or 642ms)</p>
 
 
 #### TensorBase is written from scratch in Rust language and its friend C. 
