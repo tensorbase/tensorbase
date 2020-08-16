@@ -11,13 +11,13 @@ TensorBase has released **milestone 0** as the developer previewing release for 
 
 <p></p>
 <div>
-<img style="display:block; border-radius:3%; overflow:hidden; width:70%;" src="https://tensorbase.io/img/2020-08-04-hello-base/base_m0.png"/>
+<img style="display:block; border-radius:3%; overflow:hidden; width:500px;" src="https://tensorbase.io/img/2020-08-04-hello-base/base_m0.png"/>
 </div>
 <p align="center" style="font-size:15px;">Aggregation results in Base's baseshell (95 - 118ms)</p>
 
 <p></p>
 <div>
-<img style="display:block; border-radius:3%; overflow:hidden; width:70%;" src="https://tensorbase.io/img/2020-08-04-hello-base/clickhouse_20527.png"/>
+<img style="display:block; border-radius:3%; overflow:hidden; width:500px;" src="https://tensorbase.io/img/2020-08-04-hello-base/clickhouse_20527.png"/>
 </div>
 <p align="center" style="font-size:15px;">Aggregation result in ClickHouse client (0.642s or 642ms)</p>
 
