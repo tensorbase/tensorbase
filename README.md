@@ -5,9 +5,22 @@ TensorBase is a modern engineering effort for building a high performance and co
 ## Status
 TensorBase is in its intial stage (milestone 0) and under heavy development. 
 
-TensorBase is an **architectural performance** design. [It is demonstrated](https://tensorbase.io/2020/08/04/hello-base.html#benchmark) to query ~1.5 billion rows of NYC taxi dataset in ~100 milliseconds for total response time in its milestone 0. The raw speed of core data scanning in kernel saturates the memory bandwidth (for example, ~120GB/s for six-channel single socket). Column-oriented, vectorized, SIMD all have, and big bangs...
+TensorBase is an **architectural performance** design. [It is demonstrated](https://tensorbase.io/2020/08/04/hello-base.html#benchmark) to **query ~1.5 billion rows of NYC taxi dataset in ~100 milliseconds** for total response time in its milestone 0. This is **6x faster than that of ClickHouse**.
 
-TensorBase is written from scratch in the **Rust language** (system) and **C language** (runtime kernel). Here, you use the most familiar tools to challenge the most difficult problems. Comfortable languages and minimized dependencies, from-scratch architecting make it a **highly hackable system**. 
+<p></p>
+<div>
+<img class="center_img_wider" src="https://tensorbase.io/img/2020-08-04-hello-base/base_m0.png"/>
+</div>
+<p align="center">Aggregation results in Base's baseshell</p>
+
+<p></p>
+<div>
+<img class="center_img_wider" src="https://tensorbase.io/img/2020-08-04-hello-base/clickhouse_20527.png"/>
+</div>
+<p align="center">Aggregation result in ClickHouse client</p>
+
+
+TensorBase is written from scratch in the **Rust language** (system) and its friend **C language** (runtime kernel). Here, you use the most familiar tools to challenge the most difficult problems. Comfortable languages and minimized dependencies, from-scratch architecting make it a **highly hackable system**. 
 
 Read [launch post](https://tensorbase.io/2020/08/04/hello-base.html) to get more about TensorBase's "Who? Where from? Where go?"
 
@@ -28,9 +41,18 @@ TensorBase follows the idiomatic development flow of Rust. Make sure your Rust n
 
 * docker
 
-This mode is portable but more host resource occupied, and the performance is platform dependent.
+This mode is portable (but has some platform dependent resource and performance effects).
 
-([Dockerfile](project/Dockerfile) has been provided. But there is no dockerhub image for the connection problem. Because M0 is a developer previewing release, the docker image is considered as a low priority feature now. If you want this, please give a feedback in [this issue](https://github.com/tensorbase/tensorbase/issues/1).)
+```bash
+docker pull tensorbase/tensorbase:m0
+docker run -ti tensorbase/tensorbase:m0 /bin/bash
+>> /base/baseshell
+```
+
+then run a sum agg sql with the preshipped data (1MB):
+```sql
+select sum(trip_id) from nyc_taxi
+```
 
 
 ## Quick Start
