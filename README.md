@@ -26,11 +26,10 @@ TensorBase has released **milestone 0** as the developer previewing release for 
 
 TensorBase is written from scratch in Rust language and its friend C. Here with comfortable languages and minimized dependencies, from-scratch architecting, you now use the most familiar tools to challenge the most difficult problems. 
 
-* Read more
+* **Read more from [launch post](https://tensorbase.io/2020/08/04/hello-base.html)**.
 
-Read [launch post](https://tensorbase.io/2020/08/04/hello-base.html) to get more about TensorBase's "Who? Where from? Where go?".
 
-Please give TensorBase a star to help it more grown.
+If you like this project, please give a star to help it more grown.
 
 ## Roadmap
 
