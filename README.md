@@ -5,6 +5,9 @@ TensorBase is a modern engineering effort for building a high performance and co
 ## Status
 TensorBase has released **milestone 0** as the developer previewing release for inviting more interesting contributors to join in. 
 
+Current development is active in background and this repo is not synced regularly because it is planned to introduce different editions from m1 and there is no external contribution now.
+
+
 * **TensorBase is an architectural performance design.** 
 
 [It is demonstrated](https://tensorbase.io/2020/08/04/hello-base.html#benchmark) to **query ~1.5 billion rows of NYC taxi dataset in ~100 milliseconds** for total response time in its milestone 0. This is **6x faster than that of ClickHouse**.

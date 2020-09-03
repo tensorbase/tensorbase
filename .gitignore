@@ -10,4 +10,5 @@ crates/*/target
 Cargo.lock
 **/bin
 **/expanded_macro
+client_id
 
