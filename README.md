@@ -130,7 +130,7 @@ Feel free to feedback any problem via [issues](https://github.com/tensorbase/ten
 
 Mailing list: just open an [issue](https://github.com/tensorbase/tensorbase/issues) with label [type/discuss].
 
-[Slack Channel](https://join.slack.com/t/tensorbase/shared_invite/zt-h1uqloyu-DG6kMOEYedEIbakImUkvSA)
+[Slack Channel](https://join.slack.com/t/tensorbase/shared_invite/zt-hwl91gat-ZrVzDIaLqR0pbypWBLM6zg)
 
 [Telegram](https://t.me/tensorbase)
 
