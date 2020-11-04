@@ -1,8 +1,17 @@
 ## What is TensorBase
 TensorBase is a modern engineering effort for building a high performance and cost-effective bigdata warehouse in an open source culture. 
 
+## News
+
+[TensorBase joins Rust Fest Global 2020!](https://rustfest.global/session/18-architect-a-high-performance-sql-query-engine-in-rust/)
+
+The core works and practices of TensorBase will be presented with the Rust context in mind. And more, current progress (a.k.a. TensorBase 2020.11) will be shown as possible.
+
+Let's meet in the talk, all data nerds!
+
 
 ## Status
+
 TensorBase has released **milestone 0** as the developer previewing release for inviting more interesting contributors to join in. 
 
 Current development is active in background and this repo is not synced regularly because it is planned to introduce different editions from m1 and there is no external contribution now.
