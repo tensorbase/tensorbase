@@ -1,6 +1,6 @@
 ## Base Conventions
 
-### Baisc Logics
+### Basic Logics
 
 * binaries are the entries for all kinds in base
 * configs are used to configure the binaries to work 
