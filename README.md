@@ -3,7 +3,16 @@ TensorBase is a modern engineering effort for building a high performance and co
 
 ## News
 
-[TensorBase joins Rust Fest Global 2020!](https://rustfest.global/session/18-architect-a-high-performance-sql-query-engine-in-rust/)
+* [TensorBase joins Rust China Conf 2020!](https://2020conf.rustcc.cn/schedule.html)
+
+Let's do a year summary for TensorBase's 2020 wonderful journey with Rust.
+
+Base has missed the planned 2020.11 milestone, in that I want a solid new release. The backend engine is 80% ready in the early of Nov. But I still fight for the server side. This is the price to make compatibility with the ClickHouse communication protocol. The good news is that an order of magnitude higher (than official CH server) raw packet throughput sever is out in these near days.
+
+Let me see if I give more infos for these wonderful outcomes.
+
+
+* [TensorBase joins Rust Fest Global 2020!](https://rustfest.global/session/18-architect-a-high-performance-sql-query-engine-in-rust/)
 
 The core works and practices of TensorBase will be presented with the Rust context in mind. And more, current progress (a.k.a. TensorBase 2020.11) will be shown as possible.
 
@@ -102,36 +111,7 @@ cargo run --release --bin baseshell
 
 
 ## Engineering Efforts
-Welcome to join us, you data nerds!
-
-Here are on-going efforts. If you are interested in any effort, do not hesitate to [join us](#communications).
-
-| subsystem | component   | priority | status |
-|:---       |:---         |:---      |:---        |
-| storage*  | | | |
-|           | data layout | | | 
-|           | data read | | | 
-|           | data write | | |
-|           | metadata | | | 
-| runtime   | | | |
-|           | base language(sql) | | |     
-|           | parsing | | |
-|           | base ir (intermediate representation) | | |
-|           | codegen | | |
-|           | jit compiler* | | |
-|           | kernel execution | | |
-| infra     | | |  |
-|           | common   | | |
-|           | lib      | | |
-|           | testing  | | |
-|           | bench    | | |
-|           | doc      | | | 
-|           | project  | | |                
-| client    | | |  |  
-|           | baseshell | | |
-|           | baseops   | | | 
-|           | visualization   | | | 
-
+Find more infos in [dev page](https://github.com/tensorbase/tensorbase/blob/master/docs/dev.md#engineering).
 
 ## Communications
 
@@ -139,7 +119,7 @@ Feel free to feedback any problem via [issues](https://github.com/tensorbase/ten
 
 Mailing list: just open an [issue](https://github.com/tensorbase/tensorbase/issues) with label [type/discuss].
 
-[Slack Channel](https://join.slack.com/t/tensorbase/shared_invite/zt-j54oqdgg-B1D7nPlsgCx7UU~M52_xZw)
+[Slack Channel](https://join.slack.com/t/tensorbase/shared_invite/zt-kntzpzdc-39KAY30q3CW8I2f0cKGPAg)
 
 [Telegram](https://t.me/tensorbase)
 

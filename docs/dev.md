@@ -65,3 +65,35 @@ In the early phase of Base, the building may not be guaranteed by daily commits.
 The most recent release tag is [m0](https://github.com/tensorbase/tensorbase/tree/m0).
 
 Feel free to seek more helps from the Base community.
+
+## Engineering Efforts
+Welcome to join us, you data nerds!
+
+Here are on-going efforts. If you are interested in any effort, do not hesitate to [join us](#communications).
+
+| subsystem | component   | priority | status |
+|:---       |:---         |:---      |:---        |
+| storage*  | | | |
+|           | data layout | | | 
+|           | data read | | | 
+|           | data write | | |
+|           | metadata | | | 
+| runtime   | | | |
+|           | base language(sql) | | |     
+|           | parsing | | |
+|           | base ir (intermediate representation) | | |
+|           | codegen | | |
+|           | jit compiler* | | |
+|           | kernel execution | | |
+| infra     | | |  |
+|           | common   | | |
+|           | lib      | | |
+|           | testing  | | |
+|           | bench    | | |
+|           | doc      | | | 
+|           | project  | | |                
+| client    | | |  |  
+|           | baseshell | | |
+|           | baseops   | | | 
+|           | visualization   | | | 
+
