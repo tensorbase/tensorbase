@@ -5,11 +5,11 @@ TensorBase is a modern engineering effort for building a high performance and co
 
 * [TensorBase joins Rust China Conf 2020!](https://2020conf.rustcc.cn/schedule.html)
 
-Let's do a year summary for TensorBase's 2020 wonderful journey with Rust.
+Let's do a year summary for Base's 2020 wonderful journey with Rust.
 
 Base has missed the planned 2020.11 milestone, in that I want a solid new release. The backend engine is 80% ready in the early of Nov. But I still fight for the server side. This is the price to make compatibility with the ClickHouse communication protocol. The good news is that an order of magnitude higher (than official CH server) raw packet throughput sever is out in these near days.
 
-Let me see if I give more infos for these wonderful outcomes.
+Let me see if I could give more infos for wonderful outcomes in Rust China Conf 2020.
 
 
 * [TensorBase joins Rust Fest Global 2020!](https://rustfest.global/session/18-architect-a-high-performance-sql-query-engine-in-rust/)
