@@ -123,6 +123,8 @@ Mailing list: just open an [issue](https://github.com/tensorbase/tensorbase/issu
 
 [Telegram](https://t.me/tensorbase)
 
+![Wechat Group](https://w.url.cn/s/AbLHzNl)
+
 ## Contributing
 Thanks for your contributions!
 
