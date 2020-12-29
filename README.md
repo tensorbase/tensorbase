@@ -123,7 +123,7 @@ Mailing list: just open an [issue](https://github.com/tensorbase/tensorbase/issu
 
 [Telegram](https://t.me/tensorbase)
 
-![Wechat Group](https://w.url.cn/s/AbLHzNl)
+![Wechat Group](https://github.com/tensorbase/tensorbase/blob/master/project/wechat/base_wechat_redirect.png)
 
 ## Contributing
 Thanks for your contributions!
