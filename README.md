@@ -123,6 +123,7 @@ Free-style discuss:
 
 [Slack Channel](https://join.slack.com/t/tensorbase/shared_invite/zt-kntzpzdc-39KAY30q3CW8I2f0cKGPAg)
 
+Wechat Group
 ![Wechat Group](https://user-images.githubusercontent.com/237573/103256605-d1f95f80-49c8-11eb-8cab-00b0d0bb7992.png)
 
 
