@@ -117,11 +117,11 @@ Find more infos in [dev page](https://github.com/tensorbase/tensorbase/blob/mast
 
 Feel free to feedback any problem via [issues](https://github.com/tensorbase/tensorbase/issues).
 
-Mailing list: just open an [issue](https://github.com/tensorbase/tensorbase/issues) with label [type/discuss].
+Free-style discuss: 
+
+[Discord Server](https://discord.gg/jYgmE2zsAG)
 
 [Slack Channel](https://join.slack.com/t/tensorbase/shared_invite/zt-kntzpzdc-39KAY30q3CW8I2f0cKGPAg)
-
-[Telegram](https://t.me/tensorbase)
 
 ![Wechat Group](https://user-images.githubusercontent.com/237573/103256605-d1f95f80-49c8-11eb-8cab-00b0d0bb7992.png)
 
