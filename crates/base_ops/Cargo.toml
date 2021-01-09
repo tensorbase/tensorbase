@@ -21,6 +21,7 @@ btoi = "0.4"
 chrono = "0.4"
 itoa = "0.4"
 bytes = "0.5.6"
+csv = "1.1.5"
 
 [build-dependencies]
 cmake = "0.1"

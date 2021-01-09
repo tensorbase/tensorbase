@@ -27,7 +27,7 @@ use std::{fs, path::Path};
     version = "0.1",
     author = "TensorBase, and its contributors",
     about = "TensorBase Devops Tool(Early Preview)",
-    set_term_width = 80
+    max_term_width = 80
 )]
 struct Opts {
     // /// [TODO]Optionally specify a custom config file.

@@ -32,6 +32,8 @@ use std::{
     time::Instant,
 };
 
+use csv::*;
+
 #[repr(C)]
 pub struct ParsedCSV {
     n_indexes: u32,
@@ -61,7 +63,7 @@ pub(crate) struct Csv {
     csv_file_paths: String,
 
     #[clap(
-        short = "i",
+        short = 'i',
         about = "[FIXME]Optionally provides a colon-separated lists for \
                  specifying which fields per line in csv will be read into \
                  corresponding columns in target table. Note: the file will \
@@ -71,7 +73,7 @@ pub(crate) struct Csv {
     columns_indexs: String,
 
     #[clap(
-        short = "a",
+        short = 'a',
         about = "[FIXME]Allow your select specified fields from one csv file \
          into another csv file combined with the columns_indexs option."
     )]
@@ -161,7 +163,7 @@ pub(crate) fn import(args: Csv) {
 
     let nf_row = nc.parse::<u32>().unwrap();
 
-    
+
     log::debug!("n:{},flen:{}", n, flen);
 
     let wg = crossbeam::sync::WaitGroup::new();
@@ -332,74 +334,47 @@ fn process_csv(
             &pcsv as *const ParsedCSV as *mut ParsedCSV,
             false,
         );
+
         let csv = std::slice::from_raw_parts(pc, scan_len);
-        let sps_len = pcsv.n_indexes as usize;
-        let sps = std::slice::from_raw_parts(pcsv.indexes, sps_len);
-        let mut n = 0usize;
-        // log::debug!("start processing loop...");
-        //UGLY
-        while n < sps_len {
+        let mut rdr = ReaderBuilder::new().from_reader(csv);
+
+        for result in rdr.records() {
+            let record = result.unwrap();
+
             for i in 0..nc {
                 let fi = col_idxs_csv[i].0 as usize;
                 let ft = col_idxs_csv[i].1;
-                let ifi = n + fi;
-                let s = if ifi == 0 { 0 } else { sps[ifi - 1] + 1 } as usize;
-                let e = if ifi == sps_len {
-                    scan_len
-                } else {
-                    sps[ifi] as usize
-                };
 
                 match ft {
                     ColumnType::INT32 | ColumnType::UINT32 => {
-                        if s != e {
-                            let v = &csv[s..e];
-                            // if v.len() >= 20 {
-                            //     panic!(v);
-                            // }
-                            cols[i].put_u32_le(btoi::btoi(v).unwrap());
-                        } else {
-                            //FIXME
-                            cols[i].put_u32_le(0);
-                        }
+                        let v = &record[i];
+                        cols[i].put_u32_le(v.parse::<u32>().unwrap());
+
                     }
                     ColumnType::INT8 | ColumnType::UINT8 => {
-                        if s != e {
-                            let v = &csv[s..e];
-                            cols[i].put_u8(btoi::btoi(v).unwrap());
-                        } else {
-                            cols[i].put_u8(0);
-                        }
+                        let v = &record[i];
+                        cols[i].put_u8(v.parse::<u8>().unwrap());
                     }
                     ColumnType::UNIX_DATETIME => {
-                        if s != e {
-                            let v = &csv[s..e];
-                            let ss = std::str::from_utf8_unchecked(v);
-                            cols[i].put_u32_le(
-                                NaiveDateTime::parse_from_str(
-                                    ss,
-                                    "%Y-%m-%d %H:%M:%S",
-                                )
-                                .expect(ss)
-                                .timestamp()
-                                    as u32,
-                            );
-                        } else {
-                            cols[i].put_u32_le(0);
-                        }
+                        let v = &record[i];
+                        let ss_trimed = v.trim_matches(|c| c == '"');
+
+                        cols[i].put_u32_le(
+                            NaiveDateTime::parse_from_str(
+                                ss_trimed,
+                                "%Y-%m-%d %H:%M:%S",
+                            )
+                            .expect(ss_trimed)
+                            .timestamp()
+                                as u32,
+                        );
+
                     }
                     _ => todo!(),
                 }
             }
-            //for validation
-            assert!(csv[sps[nfields_row_csv as usize - 1] as usize] == 10);
-
-            n += nfields_row_csv as usize;
         }
-        // cols.iter().for_each(|cs| {
-        //     debug!(cs.len());
-        // });
-        // debug!(tid);
+
 
         let outs_csv: Vec<(Vec<u8>, RawFd)> = cols
             .into_iter()
