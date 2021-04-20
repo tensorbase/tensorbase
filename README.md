@@ -10,14 +10,16 @@ TensorBase hopes to change the status quo of bigdata system as follows:
 
 ## Features
 
-* Out-of-the-box to play ([Get Started](/docs/get_started_developers.md) )
-* Modern Engineering with Architectural Performance In Rust
-* ClickHouse Compatible Syntax
-* Green Installation with DBA-Free Design
+* Out-of-the-box to play ( [get started just now](#quick-start) )
+* Lighting fast architectural performance In Rust ( [real-world benchmarks](#benchmarks) )
+* Modern redesigned columnar storage 
+* Top performance network transport server  
+* ClickHouse compatible syntax
+* Green installation with DBA-Free ops
 * Reliability and high availability (WIP)
 * Cluster (TBD)
-* Cloud Neutral and Cloud Native (TBD)
-* Arrow DataLake (...)
+* Cloud neutral and cloud native (TBD)
+* Arrow dataLake (...)
 
 ## Architecture (in 10,000 meters altitude)
 
@@ -25,12 +27,23 @@ TensorBase hopes to change the status quo of bigdata system as follows:
 
 ## Quick Start
 
+![play_out_of_the_box](https://user-images.githubusercontent.com/237573/115368682-e5d80400-a1f9-11eb-9a9e-deeb4d5d58d2.gif)
+
+
 * [Get Started for Users](/docs/get_started_users.md) 
 
 * [Get Started for Developers](/docs/get_started_developers.md) 
 
 ## Benchmarks
 
+For query, TensorBase is faster in simple aggregation, but soon slower in more complex cases. Great start!
+
+|Query |ClickHouse (v21.2.5.5)      | TensorBase (main branch)  | Speedup Ratio of TB   |
+|:----:|:---------------------------:|:-----------------------: | :--------------------------: |
+| select sum(trip_id) from trips_lite | 0.248 sec  |  0.079 sec | 3.1 (TB is faster) |
+| select date_part('year',pickup_datetime), count(1) from trips_lite group by date_part('year',pickup_datetime)* | 0.514 sec |  3.375 sec  | 0.15 (TB is slower)  |
+
+More detail about this benchmark seen [in benchmarks](/docs/benchmarks.md).
 
 ## Working Groups
 
