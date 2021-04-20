@@ -29,7 +29,7 @@ The development of TensorBase is same to the idiom of Rust engineering.
 
 4. ensure you have the binary of ClickHouse client
 
-    Download from the [github](https://github.com/ClickHouse/ClickHouse/releases), stable release is recommended.
+    Download from the [ClickHouse release page](https://github.com/ClickHouse/ClickHouse/releases), stable release is recommended.
 
 5. connect to the TensorBase server with clickhouse-client like this:
 

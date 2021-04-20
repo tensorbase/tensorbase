@@ -1,10 +1,10 @@
 0. ensure you have the binary of ClickHouse client
     
-    Download from the [github](https://github.com/ClickHouse/ClickHouse/releases), stable release is recommended.
+    Download from the [ClickHouse release page](https://github.com/ClickHouse/ClickHouse/releases), stable release is recommended.
 
 1. get the binary of TensorBase server
     
-    Download from the [github](https://github.com/tensorbase/tensorbase/releases)
+    Download from the [TensorBase release page](https://github.com/tensorbase/tensorbase/releases)
 
 2. config a base.conf for server booting
     
