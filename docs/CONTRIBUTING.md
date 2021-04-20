@@ -2,7 +2,7 @@
 
 # How to contribute
 
-# Contribution Guide
+# Contribution guide
 
 TensorBase is a community-driven open source project and we welcome any contributor. Contributions to the TensorBase project are expected to adhere to our [Code of Conduct](/specs/CODE_OF_CONDUCT.md).
 
@@ -11,7 +11,7 @@ This document outlines some conventions about development workflow, commit messa
 <!-- TOC -->
 
 - [How to contribute](#how-to-contribute)
-- [Contribution Guide](#contribution-guide)
+- [Contribution guide](#contribution-guide)
     - [Before you get started](#before-you-get-started)
         - [Setting up your development environment](#setting-up-your-development-environment)
     - [Your First Contribution](#your-first-contribution)
@@ -32,7 +32,7 @@ TensorBase is written in Rust. Before you start contributing code, you need to s
 
 All set to contribute? You can start by finding an existing issue with the [help-wanted]() label. These issues are well suited for new contributors.
 
-## Contribution Workflow
+## Contribution workflow
 
 To contribute to the TensorBase code base, please follow the workflow as defined in this section.
 
