@@ -16,7 +16,7 @@ This document outlines some conventions about development workflow, commit messa
         - [Setting up your development environment](#setting-up-your-development-environment)
     - [Your First Contribution](#your-first-contribution)
     - [Contribution Workflow](#contribution-workflow)
-    - [Get a code review](#get-a-code-review)
+    - [Code review](#code-review)
         - [Style reference](#style-reference)
 
 <!-- /TOC -->
@@ -39,13 +39,13 @@ To contribute to the TensorBase code base, please follow the workflow as defined
 1. Create a topic branch from where you want to base your work. This is usually main.
 2. Make commits of logical units and add test case if the change fixes a bug or adds new functionality.
 3. Run tests and make sure all the tests are passed.
-4. Make sure your commit messages are in the proper format (see below).
+4. Make sure your commit messages are in the proper format (TBD).
 5. Push your changes to a topic branch in your fork of the repository.
 6. Submit a pull request.
 
 Thanks for your contributions!
 
-## Get a code review
+## Code review
 
 If your pull request (PR) is opened, it will be assigned to reviewers. Those reviewers will do a thorough code review, looking at correctness, bugs, opportunities for improvement, documentation and comments, and style.
 
@@ -53,6 +53,4 @@ To address review comments, you should commit the changes to the same branch of 
 
 ### Style reference
 
-Keeping a consistent style for code, code comments, commit messages, and pull requests is very important for a project like TensorBase. 
-
-Now TensorBase uses the tool [*rustfmt*](/rustfmt.toml) to gate the coding style. If you are using IDE like vscode, the style is guanrateened automatically.
+Keeping a consistent style for code, code comments, commit messages, and pull requests is very important for a project like TensorBase. Now TensorBase uses the tool [*rustfmt*](/rustfmt.toml) to gate the coding style. If you are using IDE like vscode, the style is guanrateened automatically.
