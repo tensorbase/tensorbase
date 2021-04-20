@@ -21,6 +21,7 @@ TensorBase hopes to change the status quo of bigdata system as follows:
 
 ## Architecture (in 10,000 meters altitude)
 
+![arch_base](https://user-images.githubusercontent.com/237573/115341887-efeb0a00-a1db-11eb-8aea-0c6cef2ba1ca.jpg)
 
 ## Quick Start
 
