@@ -1,0 +1,20 @@
+[package]
+name = "engine"
+version = "0.1.0"
+authors = ["TensorBase"]
+edition = "2018"
+
+[dependencies]
+base = { path = "../base" }
+lang = { path = "../lang" }
+meta = { path = "../meta" }
+typed-arena = "2.0"
+thiserror = "1.0"
+indexmap = "1.6"
+log = "0.4"
+itoa = "0.4"
+libc = "0.2"
+arrow = { path = "../../arrow-datafusion/arrow" }
+datafusion = { path = "../../arrow-datafusion/datafusion" }
+tokio = { version = "1.0", features = ["macros", "rt", "rt-multi-thread", "sync"] }
+futures = "0.3"

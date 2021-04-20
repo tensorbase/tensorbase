@@ -1,0 +1,7 @@
+[package]
+name = "test_utils"
+version = "0.1.0"
+authors = ["TensorBase, and its contributors"]
+edition = "2018"
+
+[dependencies]

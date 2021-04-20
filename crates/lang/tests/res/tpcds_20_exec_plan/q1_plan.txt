@@ -1,0 +1,178 @@
+== Abstract Syntax Tree ==
+LogicalSort(sort0=[$0], dir0=[ASC-nulls-first], fetch=[100])
++- LogicalProject(c_customer_id=[$33])
+   +- LogicalFilter(condition=[AND(>($2, $SCALAR_QUERY({
+LogicalProject(EXPR$0=[*($0, 1.2:DECIMAL(2, 1))])
+  LogicalAggregate(group=[{}], agg#0=[AVG($0)])
+    LogicalProject(ctr_total_return=[$2])
+      LogicalFilter(condition=[=($cor0.ctr_store_sk, $1)])
+        LogicalAggregate(group=[{0, 1}], ctr_total_return=[SUM($2)])
+          LogicalProject(ctr_customer_sk=[$3], ctr_store_sk=[$7], sr_return_amt=[$11])
+            LogicalFilter(condition=[AND(=($0, $20), =($26, 1998))])
+              LogicalJoin(condition=[true], joinType=[inner])
+                LogicalTableScan(table=[[default_catalog, default_database, store_returns, source: [ParquetTableSource(sr_returned_date_sk, sr_return_time_sk, sr_item_sk, sr_customer_sk, sr_cdemo_sk, sr_hdemo_sk, sr_addr_sk, sr_store_sk, sr_reason_sk, sr_ticket_number, sr_return_quantity, sr_return_amt, sr_return_tax, sr_return_amt_inc_tax, sr_fee, sr_return_ship_cost, sr_refunded_cash, sr_reversed_charge, sr_store_credit, sr_net_loss)]]])
+                LogicalTableScan(table=[[default_catalog, default_database, date_dim, source: [ParquetTableSource(d_date_sk, d_date_id, d_date, d_month_seq, d_week_seq, d_quarter_seq, d_year, d_dow, d_moy, d_dom, d_qoy, d_fy_year, d_fy_quarter_seq, d_fy_week_seq, d_day_name, d_quarter_name, d_holiday, d_weekend, d_following_holiday, d_first_dom, d_last_dom, d_same_day_ly, d_same_day_lq, d_current_day, d_current_week, d_current_month, d_current_quarter, d_current_year)]]])
+})), =($3, $1), =($27, _UTF-16LE'TN'), =($0, $32))], variablesSet=[[$cor0]])
+      +- LogicalJoin(condition=[true], joinType=[inner])
+         :- LogicalJoin(condition=[true], joinType=[inner])
+         :  :- LogicalAggregate(group=[{0, 1}], ctr_total_return=[SUM($2)])
+         :  :  +- LogicalProject(ctr_customer_sk=[$3], ctr_store_sk=[$7], sr_return_amt=[$11])
+         :  :     +- LogicalFilter(condition=[AND(=($0, $20), =($26, 1998))])
+         :  :        +- LogicalJoin(condition=[true], joinType=[inner])
+         :  :           :- LogicalTableScan(table=[[default_catalog, default_database, store_returns, source: [ParquetTableSource(sr_returned_date_sk, sr_return_time_sk, sr_item_sk, sr_customer_sk, sr_cdemo_sk, sr_hdemo_sk, sr_addr_sk, sr_store_sk, sr_reason_sk, sr_ticket_number, sr_return_quantity, sr_return_amt, sr_return_tax, sr_return_amt_inc_tax, sr_fee, sr_return_ship_cost, sr_refunded_cash, sr_reversed_charge, sr_store_credit, sr_net_loss)]]])
+         :  :           +- LogicalTableScan(table=[[default_catalog, default_database, date_dim, source: [ParquetTableSource(d_date_sk, d_date_id, d_date, d_month_seq, d_week_seq, d_quarter_seq, d_year, d_dow, d_moy, d_dom, d_qoy, d_fy_year, d_fy_quarter_seq, d_fy_week_seq, d_day_name, d_quarter_name, d_holiday, d_weekend, d_following_holiday, d_first_dom, d_last_dom, d_same_day_ly, d_same_day_lq, d_current_day, d_current_week, d_current_month, d_current_quarter, d_current_year)]]])
+         :  +- LogicalTableScan(table=[[default_catalog, default_database, store, source: [ParquetTableSource(s_store_sk, s_store_id, s_rec_start_date, s_rec_end_date, s_closed_date_sk, s_store_name, s_number_employees, s_floor_space, s_hours, s_manager, s_market_id, s_geography_class, s_market_desc, s_market_manager, s_division_id, s_division_name, s_company_id, s_company_name, s_street_number, s_street_name, s_street_type, s_suite_number, s_city, s_county, s_state, s_zip, s_country, s_gmt_offset, s_tax_precentage)]]])
+         +- LogicalTableScan(table=[[default_catalog, default_database, customer, source: [ParquetTableSource(c_customer_sk, c_customer_id, c_current_cdemo_sk, c_current_hdemo_sk, c_current_addr_sk, c_first_shipto_date_sk, c_first_sales_date_sk, c_salutation, c_first_name, c_last_name, c_preferred_cust_flag, c_birth_day, c_birth_month, c_birth_year, c_birth_country, c_login, c_email_address, c_last_review_date)]]])
+
+== Optimized Logical Plan ==
+Calc(select=[c_customer_id]): rowcount = 100.0, cumulative cost = {1.4073875409409407E8 rows, 3.2122608351382723E9 cpu, 2.124153404E9 io, 3.4515337385284793E8 network, 5.877331645502546E8 memory}
++- SortLimit(orderBy=[c_customer_id ASC], offset=[0], fetch=[100], global=[true]): rowcount = 100.0, cumulative cost = {1.4073865409409407E8 rows, 3.2122608351382723E9 cpu, 2.124153404E9 io, 3.4515337385284793E8 network, 5.877331645502546E8 memory}
+   +- Exchange(distribution=[single]): rowcount = 100.0, cumulative cost = {1.4073855409409407E8 rows, 3.212258993070198E9 cpu, 2.124153404E9 io, 3.4515337385284793E8 network, 5.877299645502546E8 memory}
+      +- SortLimit(orderBy=[c_customer_id ASC], offset=[0], fetch=[100], global=[false]): rowcount = 100.0, cumulative cost = {1.4073845409409407E8 rows, 3.212242893070198E9 cpu, 2.124153404E9 io, 3.4515017385284793E8 network, 5.877299645502546E8 memory}
+         +- HashJoin(joinType=[InnerJoin], where=[=(ctr_customer_sk, c_customer_sk)], select=[c_customer_sk, c_customer_id, ctr_customer_sk], build=[right]): rowcount = 727444.3580932337, cumulative cost = {1.4073835409409407E8 rows, 3.1988428727907734E9 cpu, 2.124153404E9 io, 3.4515017385284793E8 network, 5.877267645502546E8 memory}
+            :- Exchange(distribution=[hash[c_customer_sk]]): rowcount = 2000000.0, cumulative cost = {4000000.0 rows, 3.36E8 cpu, 4.8E7 io, 4.8E7 network, 0.0 memory}
+            :  +- TableSourceScan(table=[[default_catalog, default_database, customer, source: [ParquetTableSource(c_customer_sk, c_customer_id, c_current_cdemo_sk, c_current_hdemo_sk, c_current_addr_sk, c_first_shipto_date_sk, c_first_sales_date_sk, c_salutation, c_first_name, c_last_name, c_preferred_cust_flag, c_birth_day, c_birth_month, c_birth_year, c_birth_country, c_login, c_email_address, c_last_review_date)]]], fields=[c_customer_sk, c_customer_id]): rowcount = 2000000.0, cumulative cost = {2000000.0 rows, 0.0 cpu, 4.8E7 io, 0.0 network, 0.0 memory}
+            +- Exchange(distribution=[hash[ctr_customer_sk]]): rowcount = 725478.0759933076, cumulative cost = {1.3601090973600084E8 rows, 2.841039048182827E9 cpu, 2.076153404E9 io, 2.9715017385284793E8 network, 5.703152907264152E8 memory}
+               +- Calc(select=[ctr_customer_sk]): rowcount = 725478.0759933076, cumulative cost = {1.3528543166000754E8 rows, 2.7191587314159513E9 cpu, 2.076153404E9 io, 2.913463492449015E8 network, 5.703152907264152E8 memory}
+                  +- HashJoin(joinType=[InnerJoin], where=[AND(>(ctr_total_return, *($f1, 1.2:DECIMAL(2, 1))), =(ctr_store_sk, ctr_store_sk0))], select=[ctr_customer_sk, ctr_store_sk, ctr_total_return, ctr_store_sk0, $f1], isBroadcast=[true], build=[right]): rowcount = 725478.0759933076, cumulative cost = {1.3455995358401424E8 rows, 2.7191587314159513E9 cpu, 2.076153404E9 io, 2.913463492449015E8 network, 5.703152907264152E8 memory}
+                     :- Calc(select=[ctr_customer_sk, ctr_store_sk, ctr_total_return]): rowcount = 1450956.1519866153, cumulative cost = {5.249968203077314E7 rows, 1.349299658524061E9 cpu, 1.038078708E9 io, 1.4825407955533013E8 network, 2.902015320215655E8 memory}
+                     :  +- HashJoin(joinType=[InnerJoin], where=[=(s_store_sk, ctr_store_sk)], select=[ctr_customer_sk, ctr_store_sk, ctr_total_return, s_store_sk], isBroadcast=[true], build=[right]): rowcount = 1450956.1519866153, cumulative cost = {5.104872587878653E7 rows, 1.349299658524061E9 cpu, 1.038078708E9 io, 1.4825407955533013E8 network, 2.902015320215655E8 memory}
+                     :     :- HashAggregate(isMerge=[false], groupBy=[ctr_customer_sk, ctr_store_sk], select=[ctr_customer_sk, ctr_store_sk, SUM(sr_return_amt) AS ctr_total_return]): rowcount = 4836520.506622051, cumulative cost = {4.959724712679991E7 rows, 1.3105973640710845E9 cpu, 1.038074696E9 io, 1.4825359715533012E8 network, 2.902000848215655E8 memory}
+                     :     :  +- Exchange(distribution=[hash[ctr_customer_sk, ctr_store_sk]]): rowcount = 5294665.917163665, cumulative cost = {4.476072662017786E7 rows, 1.162346718390502E9 cpu, 1.038074696E9 io, 1.4825359715533012E8 network, 8854.424242424244 memory}
+                     :     :     +- Calc(select=[sr_customer_sk AS ctr_customer_sk, sr_store_sk AS ctr_store_sk, sr_return_amt]): rowcount = 5294665.917163665, cumulative cost = {3.9466060703014195E7 rows, 2.3048551696969697E8 cpu, 1.038074696E9 io, 2951.474747474748 network, 8854.424242424244 memory}
+                     :     :        +- HashJoin(joinType=[InnerJoin], where=[=(sr_returned_date_sk, d_date_sk)], select=[sr_returned_date_sk, sr_customer_sk, sr_store_sk, sr_return_amt, d_date_sk], isBroadcast=[true], build=[right]): rowcount = 5294665.917163665, cumulative cost = {3.417139478585053E7 rows, 2.3048551696969697E8 cpu, 1.038074696E9 io, 2951.474747474748 network, 8854.424242424244 memory}
+                     :     :           :- TableSourceScan(table=[[default_catalog, default_database, store_returns, source: [ParquetTableSource(sr_returned_date_sk, sr_return_time_sk, sr_item_sk, sr_customer_sk, sr_cdemo_sk, sr_hdemo_sk, sr_addr_sk, sr_store_sk, sr_reason_sk, sr_ticket_number, sr_return_quantity, sr_return_amt, sr_return_tax, sr_return_amt_inc_tax, sr_fee, sr_return_ship_cost, sr_refunded_cash, sr_reversed_charge, sr_store_credit, sr_net_loss)]]], fields=[sr_returned_date_sk, sr_customer_sk, sr_store_sk, sr_return_amt]): rowcount = 2.8802942E7, cumulative cost = {2.8802942E7 rows, 0.0 cpu, 1.036905912E9 io, 0.0 network, 0.0 memory}
+                     :     :           +- Exchange(distribution=[broadcast], reuse_id=[1]): rowcount = 368.9343434343435, cumulative cost = {73786.8686868687 rows, 59029.494949494954 cpu, 1168784.0 io, 2951.474747474748 network, 0.0 memory}
+                     :     :              +- Calc(select=[d_date_sk], where=[=(d_year, 1998:BIGINT)]): rowcount = 368.9343434343435, cumulative cost = {73417.93434343435 rows, 0.0 cpu, 1168784.0 io, 0.0 network, 0.0 memory}
+                     :     :                 +- TableSourceScan(table=[[default_catalog, default_database, date_dim, source: [ParquetTableSource(d_date_sk, d_date_id, d_date, d_month_seq, d_week_seq, d_quarter_seq, d_year, d_dow, d_moy, d_dom, d_qoy, d_fy_year, d_fy_quarter_seq, d_fy_week_seq, d_day_name, d_quarter_name, d_holiday, d_weekend, d_following_holiday, d_first_dom, d_last_dom, d_same_day_ly, d_same_day_lq, d_current_day, d_current_week, d_current_month, d_current_quarter, d_current_year)]]], fields=[d_date_sk, d_year]): rowcount = 73049.0, cumulative cost = {73049.0 rows, 0.0 cpu, 1168784.0 io, 0.0 network, 0.0 memory}
+                     :     +- Exchange(distribution=[broadcast]): rowcount = 60.3, cumulative cost = {522.6 rows, 9648.0 cpu, 4012.0 io, 482.4 network, 0.0 memory}
+                     :        +- Calc(select=[s_store_sk], where=[=(s_state, _UTF-16LE'TN':VARCHAR(2147483647) CHARACTER SET "UTF-16LE")]): rowcount = 60.3, cumulative cost = {462.3 rows, 0.0 cpu, 4012.0 io, 0.0 network, 0.0 memory}
+                     :           +- TableSourceScan(table=[[default_catalog, default_database, store, source: [ParquetTableSource(s_store_sk, s_store_id, s_rec_start_date, s_rec_end_date, s_closed_date_sk, s_store_name, s_number_employees, s_floor_space, s_hours, s_manager, s_market_id, s_geography_class, s_market_desc, s_market_manager, s_division_id, s_division_name, s_company_id, s_company_name, s_street_number, s_street_name, s_street_type, s_suite_number, s_city, s_county, s_state, s_zip, s_country, s_gmt_offset, s_tax_precentage)]]], fields=[s_store_sk, s_state]): rowcount = 402.0, cumulative cost = {402.0 rows, 0.0 cpu, 4012.0 io, 0.0 network, 0.0 memory}
+                     +- Exchange(distribution=[broadcast]): rowcount = 201.0, cumulative cost = {8.133479347724777E7 rows, 1.3582498156759973E9 cpu, 1.038074696E9 io, 1.4309226968957135E8 network, 2.801049147048497E8 memory}
+                        +- HashAggregate(isMerge=[true], groupBy=[ctr_store_sk], select=[ctr_store_sk, Final_AVG(sum$0, count$1) AS $f1]): rowcount = 201.0, cumulative cost = {8.133459247724777E7 rows, 1.3582176556759973E9 cpu, 1.038074696E9 io, 1.4308824968957135E8 network, 2.801049147048497E8 memory}
+                           +- Exchange(distribution=[hash[ctr_store_sk]]): rowcount = 1005.0, cumulative cost = {8.133439147724777E7 rows, 1.3581975556759973E9 cpu, 1.038074696E9 io, 1.4308824968957135E8 network, 2.800944627048497E8 memory}
+                              +- LocalHashAggregate(groupBy=[ctr_store_sk], select=[ctr_store_sk, Partial_AVG(ctr_total_return) AS (sum$0, count$1)]): rowcount = 1005.0, cumulative cost = {8.133338647724777E7 rows, 1.3580287156759973E9 cpu, 1.038074696E9 io, 1.4306010968957135E8 network, 2.800944627048497E8 memory}
+                                 +- Calc(select=[ctr_store_sk, ctr_total_return]): rowcount = 4667088.471343455, cumulative cost = {8.133238147724777E7 rows, 1.264686946249128E9 cpu, 1.038074696E9 io, 1.4306010968957135E8 network, 2.800341627048497E8 memory}
+                                    +- HashAggregate(isMerge=[false], groupBy=[ctr_customer_sk, ctr_store_sk], select=[ctr_customer_sk, ctr_store_sk, SUM(sr_return_amt) AS ctr_total_return]): rowcount = 4667088.471343455, cumulative cost = {7.666529300590432E7 rows, 1.264686946249128E9 cpu, 1.038074696E9 io, 1.4306010968957135E8 network, 2.800341627048497E8 memory}
+                                       +- Exchange(distribution=[hash[ctr_customer_sk, ctr_store_sk]]): rowcount = 5109184.221957996, cumulative cost = {7.199820453456086E7 rows, 1.1216297880343041E9 cpu, 1.038074696E9 io, 1.4306010968957135E8 network, 8854.424242424244 memory}
+                                          +- Calc(select=[sr_customer_sk AS ctr_customer_sk, sr_store_sk AS ctr_store_sk, sr_return_amt]): rowcount = 5109184.221957996, cumulative cost = {6.688902031260286E7 rows, 2.2241336496969697E8 cpu, 1.038074696E9 io, 2951.474747474748 network, 8854.424242424244 memory}
+                                             +- HashJoin(joinType=[InnerJoin], where=[=(sr_returned_date_sk, d_date_sk)], select=[sr_returned_date_sk, sr_customer_sk, sr_store_sk, sr_return_amt, d_date_sk], isBroadcast=[true], build=[right]): rowcount = 5109184.221957996, cumulative cost = {6.1779836090644866E7 rows, 2.2241336496969697E8 cpu, 1.038074696E9 io, 2951.474747474748 network, 8854.424242424244 memory}
+                                                :- Calc(select=[sr_returned_date_sk, sr_customer_sk, sr_store_sk, sr_return_amt], where=[IS NOT NULL(sr_store_sk)]): rowcount = 2.7793923E7, cumulative cost = {5.6596865E7 rows, 0.0 cpu, 1.036905912E9 io, 0.0 network, 0.0 memory}
+                                                :  +- TableSourceScan(table=[[default_catalog, default_database, store_returns, source: [ParquetTableSource(sr_returned_date_sk, sr_return_time_sk, sr_item_sk, sr_customer_sk, sr_cdemo_sk, sr_hdemo_sk, sr_addr_sk, sr_store_sk, sr_reason_sk, sr_ticket_number, sr_return_quantity, sr_return_amt, sr_return_tax, sr_return_amt_inc_tax, sr_fee, sr_return_ship_cost, sr_refunded_cash, sr_reversed_charge, sr_store_credit, sr_net_loss)]]], fields=[sr_returned_date_sk, sr_customer_sk, sr_store_sk, sr_return_amt]): rowcount = 2.8802942E7, cumulative cost = {2.8802942E7 rows, 0.0 cpu, 1.036905912E9 io, 0.0 network, 0.0 memory}
+                                                +- Reused(reference_id=[1])
+
+== Physical Execution Plan ==
+Stage 1 : Data Source
+	content : collect elements with CollectionInputFormat
+
+	Stage 2 : Operator
+		content : ParquetTableSource(c_customer_sk, c_customer_id, c_current_cdemo_sk, c_current_hdemo_sk, c_current_addr_sk, c_first_shipto_date_sk, c_first_sales_date_sk, c_salutation, c_first_name, c_last_name, c_preferred_cust_flag, c_birth_day, c_birth_month, c_birth_year, c_birth_country, c_login, c_email_address, c_last_review_date)
+		ship_strategy : REBALANCE
+
+Stage 4 : Data Source
+	content : collect elements with CollectionInputFormat
+
+	Stage 5 : Operator
+		content : ParquetTableSource(sr_returned_date_sk, sr_return_time_sk, sr_item_sk, sr_customer_sk, sr_cdemo_sk, sr_hdemo_sk, sr_addr_sk, sr_store_sk, sr_reason_sk, sr_ticket_number, sr_return_quantity, sr_return_amt, sr_return_tax, sr_return_amt_inc_tax, sr_fee, sr_return_ship_cost, sr_refunded_cash, sr_reversed_charge, sr_store_credit, sr_net_loss)
+		ship_strategy : REBALANCE
+
+Stage 6 : Data Source
+	content : collect elements with CollectionInputFormat
+
+	Stage 7 : Operator
+		content : ParquetTableSource(d_date_sk, d_date_id, d_date, d_month_seq, d_week_seq, d_quarter_seq, d_year, d_dow, d_moy, d_dom, d_qoy, d_fy_year, d_fy_quarter_seq, d_fy_week_seq, d_day_name, d_quarter_name, d_holiday, d_weekend, d_following_holiday, d_first_dom, d_last_dom, d_same_day_ly, d_same_day_lq, d_current_day, d_current_week, d_current_month, d_current_quarter, d_current_year)
+		ship_strategy : REBALANCE
+
+		Stage 8 : Operator
+			content : Calc(where: (d_year = 1998:BIGINT), select: (d_date_sk))
+			ship_strategy : FORWARD
+
+			Stage 10 : Operator
+				content : HashJoin(where: (sr_returned_date_sk = d_date_sk), buildRight)
+				ship_strategy : BROADCAST
+
+				Stage 11 : Operator
+					content : Calc(select: (sr_customer_sk AS ctr_customer_sk, sr_store_sk AS ctr_store_sk, sr_return_amt))
+					ship_strategy : FORWARD
+
+					Stage 13 : Operator
+						content : CompleteHashAggregate(groupBy:(ctr_customer_sk, ctr_store_sk),select:(ctr_customer_sk, ctr_store_sk, SUM(sr_return_amt) AS ctr_total_return),)
+						ship_strategy : HASH[ctr_customer_sk, ctr_store_sk]
+
+Stage 14 : Data Source
+	content : collect elements with CollectionInputFormat
+
+	Stage 15 : Operator
+		content : ParquetTableSource(s_store_sk, s_store_id, s_rec_start_date, s_rec_end_date, s_closed_date_sk, s_store_name, s_number_employees, s_floor_space, s_hours, s_manager, s_market_id, s_geography_class, s_market_desc, s_market_manager, s_division_id, s_division_name, s_company_id, s_company_name, s_street_number, s_street_name, s_street_type, s_suite_number, s_city, s_county, s_state, s_zip, s_country, s_gmt_offset, s_tax_precentage)
+		ship_strategy : REBALANCE
+
+		Stage 16 : Operator
+			content : Calc(where: (s_state = _UTF-16LE'TN':VARCHAR(2147483647) CHARACTER SET "UTF-16LE"), select: (s_store_sk))
+			ship_strategy : FORWARD
+
+			Stage 18 : Operator
+				content : HashJoin(where: (s_store_sk = ctr_store_sk), buildRight)
+				ship_strategy : BROADCAST
+
+				Stage 19 : Operator
+					content : Calc(select: (ctr_customer_sk, ctr_store_sk, ctr_total_return))
+					ship_strategy : FORWARD
+
+Stage 20 : Data Source
+	content : collect elements with CollectionInputFormat
+
+	Stage 21 : Operator
+		content : ParquetTableSource(sr_returned_date_sk, sr_return_time_sk, sr_item_sk, sr_customer_sk, sr_cdemo_sk, sr_hdemo_sk, sr_addr_sk, sr_store_sk, sr_reason_sk, sr_ticket_number, sr_return_quantity, sr_return_amt, sr_return_tax, sr_return_amt_inc_tax, sr_fee, sr_return_ship_cost, sr_refunded_cash, sr_reversed_charge, sr_store_credit, sr_net_loss)
+		ship_strategy : REBALANCE
+
+		Stage 22 : Operator
+			content : Calc(where: sr_store_sk IS NOT NULL, select: (sr_returned_date_sk, sr_customer_sk, sr_store_sk, sr_return_amt))
+			ship_strategy : FORWARD
+
+			Stage 23 : Operator
+				content : HashJoin(where: (sr_returned_date_sk = d_date_sk), buildRight)
+				ship_strategy : BROADCAST
+
+				Stage 24 : Operator
+					content : Calc(select: (sr_customer_sk AS ctr_customer_sk, sr_store_sk AS ctr_store_sk, sr_return_amt))
+					ship_strategy : FORWARD
+
+					Stage 26 : Operator
+						content : CompleteHashAggregate(groupBy:(ctr_customer_sk, ctr_store_sk),select:(ctr_customer_sk, ctr_store_sk, SUM(sr_return_amt) AS ctr_total_return),)
+						ship_strategy : HASH[ctr_customer_sk, ctr_store_sk]
+
+						Stage 27 : Operator
+							content : Calc(select: (ctr_store_sk, ctr_total_return))
+							ship_strategy : FORWARD
+
+							Stage 28 : Operator
+								content : LocalHashAggregate(groupBy:(ctr_store_sk),select:(ctr_store_sk, Partial_AVG(ctr_total_return) AS (sum$0, count$1)),)
+								ship_strategy : FORWARD
+
+								Stage 30 : Operator
+									content : GlobalHashAggregate(groupBy:(ctr_store_sk),select:(ctr_store_sk, Final_AVG(sum$0, count$1) AS $f1),)
+									ship_strategy : HASH[ctr_store_sk]
+
+									Stage 32 : Operator
+										content : HashJoin(where: ((ctr_total_return > ($f1 * 1.2:DECIMAL(2, 1))) AND (ctr_store_sk = ctr_store_sk0)), buildRight)
+										ship_strategy : BROADCAST
+
+										Stage 33 : Operator
+											content : Calc(select: (ctr_customer_sk))
+											ship_strategy : FORWARD
+
+											Stage 35 : Operator
+												content : HashJoin(where: (ctr_customer_sk = c_customer_sk), buildRight)
+												ship_strategy : HASH[ctr_customer_sk]
+
+												Stage 36 : Operator
+													content : LocalSortLimit(orderBy: [c_customer_id ASC], offset: 0, fetch: 100)
+													ship_strategy : FORWARD
+
+													Stage 38 : Operator
+														content : GlobalSortLimit(orderBy: [c_customer_id ASC], offset: 0, fetch: 100)
+														ship_strategy : GLOBAL
+
+														Stage 39 : Operator
+															content : Calc(select: (c_customer_id))
+															ship_strategy : FORWARD

@@ -1,0 +1,20 @@
+[package]
+name = "base"
+version = "0.1.0"
+authors = ["TensorBase, and its contributors"]
+edition = "2018"
+license = "Apache-2.0"
+
+[dependencies]
+base_proc_macro = { path = "./proc_macro" }
+itoa = "0.4"
+dtoa = "0.4"
+thiserror = "1.0"
+libc = "0.2"
+chrono = "0.4"
+num-integer = "0.1"
+num-traits = "0.2"
+
+[dev-dependencies]
+anyhow = "1.0"
+# chrono = "0.4"

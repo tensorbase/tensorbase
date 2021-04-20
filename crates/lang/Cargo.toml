@@ -1,0 +1,24 @@
+[package]
+name = "lang"
+version = "0.1.0"
+authors = ["TensorBase, and its contributors"]
+edition = "2018"
+license = "Apache-2.0"
+
+[dependencies]
+base = { path = "../base" }
+meta = { path = "../meta" }
+typed-arena = "2.0"
+pest = "2.1"
+pest_derive = "2.1"
+thiserror = "1.0"
+log = "0.4"
+# indexmap = "1.6"
+# chrono = "0.4"
+
+[dev-dependencies]
+baselog = { git = "https://github.com/tensorbase/baselog.git" }
+
+[[bench]]
+name = "bench_parse"
+harness = false

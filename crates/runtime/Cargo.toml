@@ -1,0 +1,33 @@
+[package]
+authors = ["TensorBase, and its contributors"]
+edition = "2018"
+name = "runtime"
+version = "0.1.0"
+
+[dependencies]
+libc = "0.2"
+thiserror = "1.0"
+log = "0.4"
+bytes = "0.5.6"
+chrono = "0.4"
+chrono-tz = "0.5"
+lzzzz = "0.8"
+thread_local = "1.0"
+dashmap = "4.0"
+clap = "3.0.0-beta.2"
+base = { path = "../base" }
+meta = { path = "../meta" }
+lang = { path = "../lang" }
+engine = { path = "../engine" }
+lightjit = { path = "../lightjit" }
+baselog = { git = "https://github.com/tensorbase/baselog.git" }
+clickhouse-rs-cityhash-sys = "0.1.2"
+arrow = { path = "../../arrow-datafusion/arrow" }
+
+[dev-dependencies]
+test_utils = { path = "../test_utils" }
+toml = "0.5"
+zerocopy = "0.3"
+anyhow = "1.0"
+rand = "0.8"
+walkdir = "2.3"

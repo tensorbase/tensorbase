@@ -1,0 +1,15 @@
+/target/
+client/**/target
+crates/*/target
+**/*.rs.bk
+**/*.rs.pending-snap
+.idea/*
+*.log
+*.iml
+**/.vscode
+**/build
+Cargo.lock
+/bin
+**/expanded_macro
+/tmp
+

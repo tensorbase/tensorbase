@@ -1,0 +1,23 @@
+[package]
+authors = ["TensorBase, and its contributors"]
+edition = "2018"
+name = "meta"
+version = "0.1.0"
+
+[dependencies]
+sled = "0.34"
+thiserror = "1.0"
+log = "0.4"
+toml = "0.5"
+num-traits = "0.2"
+itoa = "0.4"
+libc = "0.2"
+base = { path = "../base" }
+
+[dependencies.serde]
+features = ["derive"]
+version = "1.0"
+
+[dev-dependencies]
+baselog = { git = "https://github.com/tensorbase/baselog.git" }
+walkdir = "2.3"
