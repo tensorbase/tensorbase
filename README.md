@@ -55,12 +55,6 @@ This is a higher kind wg for database related topics, like ideas from papers.
 
 Join these working groups on the [Discussions](https://github.com/tensorbase/tensorbase/discussions) or on [Discord server](https://discord.gg/E72n2jzgKD).
 
-## Ideas
-
-* Distributing on top of [DataFusion Ballista]()
-* High-performance UDFs on top of [lightjit engine]()
-
-Pick up more ideas from issues!
 
 ## Communications
 
