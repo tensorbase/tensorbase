@@ -47,6 +47,7 @@ const CID0: Id = TID + 1;
 const CID1: Id = TID + 2;
 
 #[tokio::test]
+#[ignore]
 async fn basic_query() -> EngineResult<()> {
     let cis = vec![(CID0, BqlType::UInt(32))];
     let mut query_id = 1u64;

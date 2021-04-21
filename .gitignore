@@ -12,4 +12,4 @@ Cargo.lock
 /bin
 **/expanded_macro
 /tmp
-arrow-datafusion/arrow/target
+arrow-datafusion/*/target
