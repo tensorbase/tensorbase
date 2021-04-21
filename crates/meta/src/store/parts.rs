@@ -808,7 +808,7 @@ mod unit_tests {
 
 
         let mut cpss = Vec::new();
-        ps.fill_copainfos_int_by_ptk_range(&mut cpss, tid, cids, 0, 20200105)?;
+        ps.fill_copainfos_int_by_ptk_range(&mut cpss, tid, &cids, 0, 20200105)?;
         let mut ct_part = 0;
         for cps in cpss {
             // println!("copa: {:?}", cpi);
@@ -824,7 +824,7 @@ mod unit_tests {
         let cids = vec![(1u64, BqlType::UInt(32))]; //faked
         let mut cpss = Vec::new();
         ps.fill_copainfos_int_by_ptk_range(
-            &mut cpss, tid, cids, 20200102, 20200103,
+            &mut cpss, tid, &cids, 20200102, 20200103,
         )?;
         let mut ct_part = 0;
         for cps in cpss {

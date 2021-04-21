@@ -56,15 +56,6 @@ impl std::hash::BuildHasher for BuildPtkExprsHasher {
     }
 }
 
-#[derive(Clone)]
-pub struct BuildKersHasher;
-impl std::hash::BuildHasher for BuildKersHasher {
-    type Hasher = BaseHasher;
-    fn build_hasher(&self) -> BaseHasher {
-        BaseHasher { state: 0 }
-    }
-}
-
 pub static BMS: SyncLazy<BaseMgmtSys> = SyncLazy::new(|| {
     let args: Vec<String> = match env::var("BASE_DBG_CONF_OVERRIDE") {
         Ok(conf_path) => vec![
@@ -182,7 +173,6 @@ pub struct BaseMgmtSys<'a> {
     pub(crate) meta_store: MetaStore,
     pub(crate) part_store: PartStore<'a>,
     pub ptk_exprs_reg: DashMap<Id, SyncPointer<u8>, BuildPtkExprsHasher>,
-    pub kers_reg: DashMap<String, (CString, QueryState), BuildKersHasher>,
     pub timezone_sys: String,
     pub timezone_sys_offset: i32,
 }
@@ -255,17 +245,12 @@ impl<'a> BaseMgmtSys<'a> {
             DashMap::<Id, SyncPointer<u8>, BuildPtkExprsHasher>::with_hasher(
                 BuildPtkExprsHasher,
             );
-        let kers_reg =
-            DashMap::<String, (CString, QueryState), BuildKersHasher>::with_hasher(
-                BuildKersHasher,
-            );
         //
         Ok(BaseMgmtSys {
             conf: Pin::new(conf),
             meta_store,
             part_store,
             ptk_exprs_reg,
-            kers_reg,
             timezone_sys,
             timezone_sys_offset,
         })
@@ -671,7 +656,6 @@ impl<'a> BaseMgmtSys<'a> {
         let blks = crate::read::query(
             &self.meta_store,
             &self.part_store,
-            &self.kers_reg,
             query_id,
             current_db,
             p,
