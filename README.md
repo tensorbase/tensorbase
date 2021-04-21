@@ -45,6 +45,14 @@ For query, TensorBase is faster in simple aggregation, but soon slower in more c
 
 More detail about this benchmark seen [in benchmarks](/docs/benchmarks.md).
 
+## Roadmap
+
+[Milestones](https://github.com/tensorbase/tensorbase/milestones)
+## Dev Meeting
+
+We setup a dev meeting on Zoom at Wednesday or at Tencent meeting at Friday.
+
+
 ## Working Groups
 
 #### Working Group - Engineering
