@@ -29,7 +29,6 @@ TensorBase hopes to change the status quo of bigdata system as follows:
 
 ![play_out_of_the_box](https://user-images.githubusercontent.com/237573/115368682-e5d80400-a1f9-11eb-9a9e-deeb4d5d58d2.gif)
 
-
 * [Get Started for Users](/docs/get_started_users.md) 
 
 * [Get Started for Developers](/docs/get_started_developers.md) 
@@ -50,8 +49,9 @@ More detail about this benchmark seen [in benchmarks](/docs/benchmarks.md).
 [Milestones](https://github.com/tensorbase/tensorbase/milestones)
 ## Dev Meeting
 
-We setup a dev meeting on Zoom at Wednesday or at Tencent meeting at Friday.
+We setup an online dev meeting on Zoom at Wednesday 7:00pm (UTC+8) or at Tencent Meeting at Friday 7:00pm (UTC+8). The meeting url will be shared before the start time in [Discord server](https://discord.gg/E72n2jzgKD) and [Slack Channel](https://join.slack.com/t/tensorbase/shared_invite/zt-ntwmjvpu-TQ9drOdUwNJWmUTXvxMumA) for Zoom, or Wechat group for Tencent Meeting.
 
+(The current time is flexible now, if you want to have a talk but in another timezone just leave a message in any way.)
 
 ## Working Groups
 
