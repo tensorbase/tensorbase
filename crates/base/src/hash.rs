@@ -47,6 +47,14 @@ impl Hasher for str {
     }
 }
 
+impl Hasher for String {
+    #[inline]
+    fn hash(&self) -> u64 {
+        let bs = self.as_bytes();
+        bs.hash()
+    }
+}
+
 #[cfg(test)]
 mod unit_tests {
     use super::Hasher;
@@ -63,12 +71,20 @@ mod unit_tests {
         assert_eq!("../primitives/tests/all_tests.c0".hash(), 3909039897);
         assert_eq!(b"../primitives/tests/all_tests.c0".hash(), 3909039897);
 
-        let mut ss = 0u64;
+        let mut ss0 = 0u64;
         for i in 0u64..1000000 {
             let s = format!("../primitives/tests/all_tests.c{}", i);
-            ss += (s.as_str()).hash();
+            ss0 += (s.as_str()).hash();
         }
-        println!("ss: {}", ss);
-        assert_eq!(ss, 2147478854486776);
+        println!("ss0: {}", ss0);
+        assert_eq!(ss0, 2147478854486776);
+
+        let mut ss1 = 0u64;
+        for i in 0u64..1000000 {
+            let s = format!("../primitives/tests/all_tests.c{}", i);
+            ss1 += s.hash();
+        }
+        println!("ss1: {}", ss1);
+        assert_eq!(ss0, ss1);
     }
 }
