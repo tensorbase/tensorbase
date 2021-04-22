@@ -1,7 +1,7 @@
 ## Project organizations
 
 |   path      |  components    |
-|:-----------:|:---------------------------:|
+|:-----------:|:---------------------------|
 | arrow-datafusion  |  modified sources from arrow-datafusion <br /> (we may use a dedicate repo in the future) |
 | crates/base   | base library for common utils |
 | crates/engine | bridge to DataFusion <br />main works: adapt partition tree + mmap based storage model into the DataFusion's MemTable |
