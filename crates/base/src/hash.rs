@@ -35,36 +35,15 @@ decl_Hasher! { usize,u64,i64,u32,i32,u16,i16,u8,i8, }
 impl Hasher for [u8] {
     #[inline]
     fn hash(&self) -> u64 {
-        let mut rt = 0u64;
-        let p = self.as_ptr();
-        let len = self.len();
-        unsafe {
-            for i in (0..len).step_by(8) {
-                let k = *(p.offset(i as isize) as *const u64);
-                rt ^= std::arch::x86_64::_mm_crc32_u64(0, k as u64)
-            }
-        }
-        rt
+        crc32c::crc32c(self) as u64
     }
 }
 
 impl Hasher for str {
     #[inline]
     fn hash(&self) -> u64 {
-        #[inline]
-        unsafe fn _hash(k1: u64, k2: u64) -> u64 {
-            use std::arch::x86_64::*;
-            _mm_crc32_u64(k1, k2)
-        }
-        let mut rt = 0u64;
-        unsafe {
-            let p = self.as_ptr();
-            for i in (0..self.len()).step_by(8) {
-                let k = *(p.offset(i as isize) as *const u64);
-                rt ^= _hash(0, k as u64);
-            }
-        }
-        rt
+        let bs = self.as_bytes();
+        bs.hash()
     }
 }
 
@@ -81,15 +60,15 @@ mod unit_tests {
 
         //
         println!("{}", "../primitives/tests/all_tests.c0".hash());
-        assert_eq!("../primitives/tests/all_tests.c0".hash(), 890051764);
-        assert_eq!(b"../primitives/tests/all_tests.c0".hash(), 890051764);
+        assert_eq!("../primitives/tests/all_tests.c0".hash(), 3909039897);
+        assert_eq!(b"../primitives/tests/all_tests.c0".hash(), 3909039897);
 
         let mut ss = 0u64;
-        for i in 0u64..10000000 {
+        for i in 0u64..1000000 {
             let s = format!("../primitives/tests/all_tests.c{}", i);
             ss += s.hash();
         }
         println!("ss: {}", ss);
-        assert_eq!(ss, 21474789874233884);
+        assert_eq!(ss, 2147478854486776);
     }
 }
