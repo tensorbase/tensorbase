@@ -19,5 +19,5 @@ features = ["derive"]
 version = "1.0"
 
 [dev-dependencies]
-baselog = { git = "https://github.com/tensorbase/baselog.git" }
+baselog = { git = "https://github.com/tensorbase/baselog.git", branch = "main" }
 walkdir = "2.3"

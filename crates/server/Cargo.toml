@@ -15,7 +15,7 @@ log = "0.4"
 thiserror = "1.0"
 meta = { path = "../meta" }
 runtime = { path = "../runtime" }
-baselog = { git = "https://github.com/tensorbase/baselog.git" }
+baselog = { git = "https://github.com/tensorbase/baselog.git", branch = "main"}
 
 [target.'cfg(not(target_env = "msvc"))'.dependencies]
 tikv-jemallocator = "0.4"

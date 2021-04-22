@@ -20,7 +20,7 @@ meta = { path = "../meta" }
 lang = { path = "../lang" }
 engine = { path = "../engine" }
 lightjit = { path = "../lightjit" }
-baselog = { git = "https://github.com/tensorbase/baselog.git" }
+baselog = { git = "https://github.com/tensorbase/baselog.git", branch = "main" }
 clickhouse-rs-cityhash-sys = "0.1.2"
 arrow = { path = "../../arrow-datafusion/arrow" }
 
