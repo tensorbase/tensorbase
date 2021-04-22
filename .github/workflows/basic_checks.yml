@@ -22,7 +22,7 @@ jobs:
         override: true
         components: rustfmt, clippy
     - uses: actions/checkout@v2
-    - name: TensorBase Release Build
-      run: cargo build --release
+    - name: TensorBase Build
+      run: cargo build
     - name: TensorBase unit tests
       run: cargo test --exclude 'arrow*' --exclude datafusion --exclude parquet --workspace -- --test-threads=1
