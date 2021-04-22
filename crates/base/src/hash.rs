@@ -66,7 +66,7 @@ mod unit_tests {
         let mut ss = 0u64;
         for i in 0u64..1000000 {
             let s = format!("../primitives/tests/all_tests.c{}", i);
-            ss += s.hash();
+            ss += (s.as_str()).hash();
         }
         println!("ss: {}", ss);
         assert_eq!(ss, 2147478854486776);
