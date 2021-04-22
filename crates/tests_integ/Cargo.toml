@@ -27,7 +27,7 @@ futures-util = { version = "0.3", features = ["sink"] }
 anyhow = "1.0.32"
 halfbrown = "0.1.11"
 paste = "1.0.1"
-baselog = { git = "https://github.com/tensorbase/baselog.git" }
+baselog = { git = "https://github.com/tensorbase/baselog.git", branch = "main" }
 walkdir = "2.3.1"
 chrono = "0.4"
 
