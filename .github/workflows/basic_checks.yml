@@ -1,0 +1,28 @@
+name: Rust
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Install latest nightly
+      uses: actions-rs/toolchain@v1
+      with:
+        toolchain: nightly
+        override: true
+        components: rustfmt, clippy
+    - uses: actions/checkout@v2
+    - name: TensorBase Release Build
+      run: cargo build --release
+    - name: TensorBase unit tests
+      run: cargo test --exclude 'arrow*' --exclude datafusion --exclude parquet --workspace -- --test-threads=1
