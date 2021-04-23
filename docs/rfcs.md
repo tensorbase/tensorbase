@@ -16,4 +16,4 @@ RFC List
 --------
 |   ID      |  RFC Issue                  |
 |:---------:|:----------------------------|
-| 01        | Enable TPC-H Benchmarks #19 |
+| 1         | [Enable TPC-H Benchmarks #19](https://github.com/tensorbase/tensorbase/issues/19) |
