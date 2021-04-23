@@ -6,6 +6,10 @@ Read the [Project organizations here](/docs/arch.md).
 
 Read the [language reference here](/docs/lang.md).
 
+## TensorBase RFC(Request for Comments)
+
+Read the [RFCs here](/docs/rfcs.md).
+
 ## Platform Requirements
 
 * OS: Linux (or Linux guest containers supported...not tested)
