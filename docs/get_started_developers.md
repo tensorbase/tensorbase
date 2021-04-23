@@ -15,7 +15,7 @@ The development of TensorBase is same to the idiom of Rust engineering.
 
 2. config a base.conf for server booting
 
-    Here is [an example of base.conf](/crates/server/tests/confs/base.conf). It is suggested that you just change the meta_dirs and data_dirs to your own directory.
+    Here is [an example of base.conf](/crates/server/tests/confs/base.conf). It is suggested that you just copy and change the meta_dirs and data_dirs to your own directory.
 
 3. use cargo to run the server in debug mode (fast compilation but slow run),
 
@@ -26,8 +26,8 @@ The development of TensorBase is same to the idiom of Rust engineering.
         cargo run --release --bin server -- -c $path_to_base_conf$
 
     NOTE:
-    + $path_to_base_conf$ is the full path of conf done in #2.
-    + current release profile is using lto = 'thin'. You could adjust the options in [Cargo.toml](Cargo.toml) for balancing the speed for compilation and that for running. However, TensorBase uses lto = 'fat' for its binary release.
+    + $path_to_base_conf$ is the full path of conf in #2.
+    + current release profile is using lto = 'thin'. You could adjust the options in [Cargo.toml](Cargo.toml) for balancing the speed for compilation and running. However, TensorBase uses lto = 'fat' for its binary release.
 
 4. ensure you have the binary of ClickHouse client
 
