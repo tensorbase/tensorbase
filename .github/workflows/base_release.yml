@@ -23,18 +23,6 @@ jobs:
     - uses: actions/checkout@v2
     - name: TensorBase Build
       run: cargo build --release
-    - name: TensorBase Conf File Gen
-      run: echo $BASE_CONF > base.conf
-      env:
-          BASE_CONF: |
-            [system]                  
-            meta_dirs = ["specify_your_suitable_meta_path_here/tb_schema"] 
-            data_dirs = ["specify_your_suitable_data_path_here/tb_data"]   
-            [storage]                          
-            data_dirs_clickhouse = ""          
-            [server]                           
-            ip_addr = "localhost"              
-            port = 9528
     - name: TensorBase Create Release
       uses: "marvinpinto/action-automatic-releases@latest"
       with:
@@ -42,6 +30,5 @@ jobs:
         automatic_release_tag: "latest"
         files: |
                target/release/server
-               LICENSE
-               base.conf
+               crates/server/tests/confs/base.conf
     
