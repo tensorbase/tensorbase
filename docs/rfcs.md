@@ -9,7 +9,7 @@ We could simplify the format of RFC. Such as:
 * How
 * Todo
 
-NOTE: This workflow is experimentally just enabled for core committer-level contributions. The target is to let more people know the major features, changes and also the work mechanism of TensorBase. For common contributions, this is not necessary.
+NOTE: This workflow is just enabled for core committer-level contributions. The target is to let more newcomers know the major features, changes and also the work mechanism of TensorBase. For common contributions, this is not necessary.
 
 
 RFC List
