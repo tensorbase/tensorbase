@@ -17,7 +17,7 @@ log = "0.4"
 # chrono = "0.4"
 
 [dev-dependencies]
-baselog = { git = "https://github.com/tensorbase/baselog.git" }
+baselog = { git = "https://github.com/tensorbase/baselog.git", branch = "main" }
 
 [[bench]]
 name = "bench_parse"
