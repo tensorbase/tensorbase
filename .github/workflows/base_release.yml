@@ -22,11 +22,10 @@ jobs:
         components: rustfmt, clippy
     - uses: actions/checkout@v2
     - name: TensorBase Build
-      run: cargo build --release
+      run: CARGO_PROFILE_RELEASE_LTO='thin' CARGO_PROFILE_RELEASE_CODEGEN_UNITS=1 cargo build --release
     - name: TensorBase Create Release
       uses: "marvinpinto/action-automatic-releases@latest"
       with:
-        title: "${{ github.event.release.tag_name }}"
         repo_token: "${{ secrets.GITHUB_TOKEN }}"
         automatic_release_tag: "${{ github.event.release.tag_name }}"
         prerelease: false
