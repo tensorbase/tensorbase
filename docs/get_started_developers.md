@@ -26,7 +26,7 @@ The development of TensorBase is same to the idiom of Rust engineering.
         cargo run --release --bin server -- -c $path_to_base_conf$
 
     NOTE#1: $path_to_base_conf$ is the full path of conf done in #2.
-    NOTE#2: current release profile is using lto = 'thin'. You could adjust the options in [Cargo.toml](Cargo.toml) for balancing the speed for compilation and that for running. TensorBase use lto = 'fat' for its release.
+    NOTE#2: current release profile is using lto = 'thin'. You could adjust the options in [Cargo.toml](Cargo.toml) for balancing the speed for compilation and that for running. However, TensorBase uses lto = 'fat' for its binary release.
 
 4. ensure you have the binary of ClickHouse client
 
