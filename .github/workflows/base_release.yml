@@ -23,13 +23,19 @@ jobs:
     - uses: actions/checkout@v2
     - name: TensorBase Build
       run: CARGO_PROFILE_RELEASE_LTO='thin' CARGO_PROFILE_RELEASE_CODEGEN_UNITS=1 cargo build --release
+    - name: TensorBase Archive
+      run: zip -j base_linux.zip target/release/server crates/server/tests/confs/base.conf
     - name: TensorBase Create Release
-      uses: "marvinpinto/action-automatic-releases@latest"
+      uses: anton-yurchenko/git-release@v3.4.4
+      env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          DRAFT_RELEASE: "false"
+          PRE_RELEASE: "true"
+          ALLOW_EMPTY_CHANGELOG: "true"
+          ALLOW_TAG_PREFIX: "true"
+          RELEASE_NAME_SUFFIX: " (nightly build)"
       with:
-        repo_token: "${{ secrets.GITHUB_TOKEN }}"
-        automatic_release_tag: "${{ github.event.release.tag_name }}"
-        prerelease: false
-        files: |
-               target/release/server
-               crates/server/tests/confs/base.conf
+        args: |
+          base_linux.zip
+
     
