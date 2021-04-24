@@ -27,16 +27,12 @@ jobs:
       run: zip -j base_linux.zip target/release/server crates/server/tests/confs/base.conf
     - run: touch CHANGELOG.md
     - name: TensorBase Create Release
-      uses: anton-yurchenko/git-release@v3.4.4
-      env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          DRAFT_RELEASE: "false"
-          PRE_RELEASE: "true"
-          ALLOW_EMPTY_CHANGELOG: "true"
-          ALLOW_TAG_PREFIX: "true"
-          RELEASE_NAME_SUFFIX: " (nightly build)"
+      uses: svenstaro/upload-release-action@v2
       with:
-        args: |
-          base_linux.zip
+        repo_token: ${{ secrets.GITHUB_TOKEN }}
+        file: base_linux.zip
+        tag: ${{ github.ref }}
+        overwrite: true
+        body: "nightly build"
 
     
