@@ -25,6 +25,7 @@ jobs:
       run: CARGO_PROFILE_RELEASE_LTO='thin' CARGO_PROFILE_RELEASE_CODEGEN_UNITS=1 cargo build --release
     - name: TensorBase Archive
       run: zip -j base_linux.zip target/release/server crates/server/tests/confs/base.conf
+    - run: touch CHANGELOG.md
     - name: TensorBase Create Release
       uses: anton-yurchenko/git-release@v3.4.4
       env:
