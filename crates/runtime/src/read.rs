@@ -37,7 +37,7 @@ pub(crate) fn query(
         query_id.as_str(),
         &mut qs,
     )?;
-    log::info!("query run time cost {:?}", timer.elapsed());
+    log::debug!("query run time cost {:?}", timer.elapsed());
 
     log::debug!("res: {:?}", res);
     // arrow::util::pretty::print_batches(&res)?;
