@@ -12,39 +12,27 @@ use crate::{
     types::{AsBytes, BqlType, Id, IntoRef},
 };
 
-/*
-* design:
-*  ? pn: part number, unique self-incr u64 integer
-*      gen in a 2^16 gap
-*  ? part key
-* adaptive:
-*  two-level splits: -> 2^8 -> 2^8
-*  but >= 64k? or 32k?
-*
-* fact table:
-*   timestamp - 1 min partition
-* dim table:
-*   one part per disk?
-*   uuid  - 256 part size
-*
-* prk
-* pak
+///
+///## Basic designs and concepts about Parts:
+///
+///* Partition Tree: 
+///  store and manage the meta infos to partition data horizontally in TB. 
+///  All tables should have implicit or explicit partition infos 
+///  from their creations.
+///
+///* Part Store:
+///  a implementation for the partition tree.
+///  currently to use sled is not performant and could be changed in the future
+///
+///* Copa(Column Partition): 
+///  TB is columnar, so the partition is columnar, which is called as CoPa(is 
+///  short for Column Partition). Data in the CoPa are append-only and unordered.
+///
+///* Partition Key: 
+///  All tables should specify the partition keys implicitly or explicitly from 
+///  their creations.
+///
 
-* part
-  unordered in one part
-
-* column group:
-    pak_min - pak_max
-    pak_min as group file name
-*   size of a group? default to the granularity of cache?: 64M?
-*                   depend on part size?
-*                   1k? or one file? one file per day?
-
-* column
-
-*
-*
-*/
 //FIXME move to types mod?
 #[derive(Debug)]
 #[repr(C)]
@@ -110,17 +98,9 @@ pub fn get_part_path(
 pub struct PartStore<'a> {
     data_dirs: &'a Vec<String>,
     mdb: sled::Db,
-    // cdb: sled::Db,
     tree_parts: sled::Tree,
     tree_prids: sled::Tree,
     tree_part_size: sled::Tree,
-    // cache_part_fds: sled::Tree,
-    // tree_part_fd_nm: sled::Tree,
-    // tree_part_fd_om: sled::Tree,
-    // tree_addr: sled::Tree,
-    // tree_size: sled::Tree,
-    // tree_min: sled::Tree,
-    // tree_max: sled::Tree,
 }
 
 impl<'a> PartStore<'a> {
