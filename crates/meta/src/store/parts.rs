@@ -1,12 +1,10 @@
 use std::{
-    convert::TryInto,
     ffi::CStr,
     io::{Error, ErrorKind},
 };
 
 use base::{bytes_cat, mem::MemAddr, mmap::mm_file_ro};
 use libc::close;
-use num_traits::ToPrimitive;
 use sled::IVec;
 
 use crate::{
@@ -146,59 +144,17 @@ impl<'a> PartStore<'a> {
         let tree_prids =
             mdb.open_tree(b"pr").map_err(|_| MetaError::OpenError)?;
 
-        // let c0 = [meta_dirs[0].as_ref(), "c0"].join("/");
-        // let cdb = sled::Config::default()
-        //     .path(c0)
-        //     .cache_capacity(128 * 1024 * 1024) //FIXME configurable
-        //     .open()
-        //     .map_err(|_| MetaError::OpenError)?;
-        // let cache_part_fds =
-        //     cdb.open_tree(b"pf").map_err(|_| MetaError::OpenError)?;
-        // cache_part_fds.clear().map_err(|_| MetaError::OpenError)?;
-
-        // let tree_part_fd_nm =
-        //     cdb.open_tree(b"pn").map_err(|_| MetaError::OpenError)?;
-        // let tree_part_fd_om =
-        //     cdb.open_tree(b"po").map_err(|_| MetaError::OpenError)?;
-        // tree_part_fd_nm.clear().map_err(|_| MetaError::OpenError)?;
-        // tree_part_fd_om.clear().map_err(|_| MetaError::OpenError)?;
-
-        // let tree_addr =
-        //     mdb.open_tree(b"a").map_err(|_| MetaError::OpenError)?;
-        // let tree_size =
-        //     mdb.open_tree(b"s").map_err(|_| MetaError::OpenError)?;
-        // let tree_min =
-        //     mdb.open_tree(b"mi").map_err(|_| MetaError::OpenError)?;
-        // let tree_max =
-        //     mdb.open_tree(b"ma").map_err(|_| MetaError::OpenError)?;
         Ok(PartStore {
             mdb,
-            // cdb,
             data_dirs,
             tree_parts,
             tree_prids,
             tree_part_size,
-            // tree_addr,
-            // tree_size,
-            // tree_min,
-            // tree_max,
         })
     }
 
-    // pub fn part<T: Sized>(part_key: T) -> Part<T> {
-
-    // }
-
-    // pub fn get_offset<T: Sized>(&self, tid: Id, part_key: T, reserved_len: usize) -> usize {
-    //     self.tree_part_size.fetch_and_update(key, f)
-    // }
-    // pub fn get_offset_int_ptk<T: PrimInt>(
-    //     &self,
-    //     ptk: u64,
-    //     reserved_len: usize,
-    //FIXME offset -> prid
     #[inline]
-    pub fn get_offset_int_ptk(
+    pub fn get_prid_int_ptk(
         &self,
         tid: Id,
         ptk: u64,
@@ -209,8 +165,6 @@ impl<'a> PartStore<'a> {
         if let Ok(Some(v)) = self.tree_part_size.fetch_and_update(kbs, |old| {
             let old_num = match old {
                 Some(bytes) => {
-                    // let array: [u8; 8] = bytes.try_into().unwrap();
-                    // let number = usize::from_le_bytes(array);
                     let v0 = *bytes.into_ref::<usize>();
                     v0
                 }
@@ -239,18 +193,7 @@ impl<'a> PartStore<'a> {
         Ok(())
     }
 
-    // #[inline]
-    // pub fn get_prid_int_ptk(&self, tid: Id, ptk: u64) -> MetaResult<()> {
-    //     let k = (tid.to_be(), ptk.to_be());
-    //     let kbs = k.as_bytes();
-    //     self.tree_prids
-    //         .get(kbs)
-    //         .map_err(|_| MetaError::GetFdError)?;
-    //     Ok(())
-    // }
-
-    //FIXME put nothing?
-    //      plan: size, max, min, zonemap?
+    //FIXME possibly add more metadata
     #[inline]
     pub fn insert_copa_int_ptk(&self, cid: Id, ptk: u64) -> MetaResult<()> {
         let k = (cid.to_be(), ptk.to_be());
@@ -261,76 +204,12 @@ impl<'a> PartStore<'a> {
         Ok(())
     }
 
-    // pub fn get_fd<T: AsBytes>(&self, tid: Id, ptk: T) -> MetaResult<u32> {
-    //     [tid.to_be_bytes()  ];
-
-    //     Ok()
-    // }
-
-    // pub fn get_fd_int(&self, tid: Id, cid: Id, ptk: u64) -> MetaResult<u32> {
-    //     PartStore::_get_fd_int(
-    //         &self.cache_part_fds,
-    //         self.data_dirs,
-    //         tid,
-    //         cid,
-    //         ptk,
-    //     )
-    // }
-    // pub fn get_fd_nm_int(&self, tid: Id, cid: Id, ptk: u64) -> MetaResult<u32> {
-    //     PartStore::_get_fd_int(
-    //         &self.tree_part_fd_nm,
-    //         self.data_dirs,
-    //         tid,
-    //         cid,
-    //         ptk,
-    //     )
-    // }
-    // pub fn get_fd_om_int(&self, tid: Id, cid: Id, ptk: u64) -> MetaResult<u32> {
-    //     PartStore::_get_fd_int(
-    //         &self.tree_part_fd_om,
-    //         self.data_dirs,
-    //         tid,
-    //         cid,
-    //         ptk,
-    //     )
-    // }
-
     pub fn get_part_dir(&self, ptk: u64) -> &String {
         let dd = self.data_dirs;
         use base::hash::Hasher;
         let idx_dd = ptk.hash() as usize % dd.len();
         &dd[idx_dd]
     }
-
-    //FIXME fd created here probably stale and invalidate
-    //sol#1 fill the tree in every boot?
-    // #[inline(always)]
-    // fn _get_fd_int(
-    //     tree: &sled::Tree,
-    //     dp: &String,
-    //     tid: Id,
-    //     cid: Id,
-    //     ptk: u64,
-    // ) -> MetaResult<u32> {
-    //     let k = (cid.to_be(), ptk.to_be());
-    //     let kbs = k.as_bytes();
-    //     let fd_opt = tree.get(kbs).map_err(|_| MetaError::GetFdError)?;
-    //     if let Some(fdiv) = fd_opt {
-    //         let fd = *(&*fdiv).into_ref::<u32>();
-    //         Ok(fd)
-    //     } else {
-    //         ensure_table_path_existed(tid, dp)?;
-    //         let fpath = get_part_path(tid, cid, ptk, dp)?;
-    //         match open_file_as_fd(&fpath) {
-    //             Ok(fd) => {
-    //                 tree.insert(kbs, &fd.to_le_bytes())
-    //                     .map_err(|_| MetaError::GetFdError)?;
-    //                 Ok(fd)
-    //             }
-    //             e @ _ => e,
-    //         }
-    //     }
-    // }
 
     pub fn fill_copainfos_int_by_ptk_range(
         &self,
@@ -389,118 +268,15 @@ impl<'a> PartStore<'a> {
         Ok(())
     }
 
-    // #[inline(always)]
-    // fn _get_fds_int_range(
-    //     tree: &sled::Tree,
-    //     cid: Id,
-    //     ptk_s: u64,
-    //     ptk_e: u64,
-    // ) -> MetaResult<Vec<u32>> {
-
-    //     fds
-    // }
-
-    //all column and table cached fd
     //FIXME to rework
     //TODO
     pub fn uncache_for_table(&self, tid: Id, cids: &[Id]) -> MetaResult<()> {
         Ok(())
-        //FIXME check all iterator's sanities
-        // let mut psi = self.tree_part_size.scan_prefix(tid.to_be_bytes());
-        // let psk = if let Some(Ok((k, _))) = psi.next() {
-        //     Some(k)
-        // } else {
-        //     None
-        // };
-        // let mut kpfds = vec![];
-        // for cid in cids {
-        //     let mut it = self.cache_part_fds.scan_prefix(cid.to_be_bytes());
-        //     kpfds.push(if let Some(Ok((k, _))) = it.next() {
-        //         Some(k)
-        //     } else {
-        //         None
-        //     })
-        // }
-
-        // let mut kpfdnms = vec![];
-        // for cid in cids {
-        //     let mut it = self.tree_part_fd_nm.scan_prefix(cid.to_be_bytes());
-        //     kpfdnms.push(if let Some(Ok((k, _))) = it.next() {
-        //         Some(k)
-        //     } else {
-        //         None
-        //     })
-        // }
-
-        // let mut kpfdoms = vec![];
-        // for cid in cids {
-        //     let mut it = self.tree_part_fd_om.scan_prefix(cid.to_be_bytes());
-        //     kpfdoms.push(if let Some(Ok((k, _))) = it.next() {
-        //         Some(k)
-        //     } else {
-        //         None
-        //     })
-        // }
-
-        // let res: TransactionResult<(), MetaError> = (
-        //     &self.tree_part_size,
-        //     &self.cache_part_fds,
-        //     &self.tree_part_fd_nm,
-        //     &self.tree_part_fd_om,
-        // )
-        //     .transaction(|(tx_ps, tx_pfd, tx_pfdnm, tx_pfdom)| {
-        //         if let Some(ref k) = psk {
-        //             let _iv_opt = tx_ps.remove(k)?;
-        //         }
-        //         for kpfd in kpfds.iter() {
-        //             if let Some(ref k) = kpfd {
-        //                 let _iv_opt = tx_pfd.remove(k)?;
-        //             }
-        //         }
-        //         for kpfd in kpfdnms.iter() {
-        //             if let Some(ref k) = kpfd {
-        //                 let _iv_opt = tx_pfdnm.remove(k)?;
-        //             }
-        //         }
-        //         for kpfd in kpfdoms.iter() {
-        //             if let Some(ref k) = kpfd {
-        //                 let _iv_opt = tx_pfdom.remove(k)?;
-        //             }
-        //         }
-        //         // log::debug!("keys in tree_part_size removed!");
-
-        //         Ok(())
-        //     });
-        // log::debug!("uncache transaction done for table: {}", tid);
-
-        // match res {
-        //     Ok(_) => Ok(()),
-        //     Err(e) => Err(MetaError::WrappingTransactionError(e.to_string())),
-        // }
     }
 
+    //FIXME to rework
+    //TODO
     pub fn flush(&self) -> MetaResult<()> {
-        //FIXME flush_async?
-        // log::debug!(
-        //     "ps dump - ps: {}, pf: {}, pn: {}, po: {} ",
-        //     self.tree_part_size.len(),
-        //     self.cache_part_fds.len(),
-        //     self.tree_part_fd_nm.len(),
-        //     self.tree_part_fd_om.len()
-        // );
-        // self.tree_part_size
-        //     .flush()
-        //     .map_err(|_| MetaError::InsertError)?;
-        // self.cache_part_fds
-        //     .flush()
-        //     .map_err(|_| MetaError::InsertError)?;
-        // self.tree_part_fd_nm
-        //     .flush()
-        //     .map_err(|_| MetaError::InsertError)?;
-        // self.tree_part_fd_om
-        //     .flush()
-        //     .map_err(|_| MetaError::InsertError)?;
-
         Ok(())
     }
 
@@ -681,7 +457,7 @@ mod unit_tests {
         let tid = 123;
         let ptk = 20200202;
         for i in 0usize..100_000 {
-            let ofs = ps.get_offset_int_ptk(tid, ptk, 20_000)?;
+            let ofs = ps.get_prid_int_ptk(tid, ptk, 20_000)?;
             assert_eq!(ofs, 20_000 * i);
         }
 

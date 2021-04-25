@@ -306,7 +306,7 @@ fn write_part(
     ensure_table_path_existed(tid, dp)?;
 
     let pt_len = count_len(&idxs);
-    let offset = ps.get_offset_int_ptk(tid, ptk, pt_len)?;
+    let prid = ps.get_prid_int_ptk(tid, ptk, pt_len)?;
     for i in 0..blk.ncols {
         let col = &blk.columns[i];
         let cname = unsafe { std::str::from_utf8_unchecked(&col.name) }; //FIXME
@@ -323,7 +323,7 @@ fn write_part(
         //write
         let ctyp_siz = ctyp.size()? as usize;
         let pt_len_in_bytes = pt_len * ctyp_siz;
-        let offset_in_bytes = offset * ctyp_siz;
+        let offset_in_bytes = prid * ctyp_siz;
         //FIXME gather into bb
         let bb =
             gather_into_buf(&idxs, pt_len_in_bytes, cdata.as_ptr(), ctyp_siz);
@@ -340,52 +340,12 @@ fn write_part(
                 pt_len_in_bytes,
                 offset_in_bytes as i64,
             );
-        }
-
-        // match ctyp {
-        //     meta::types::BqlType::UInt(bits) => match bits {
-        //         8 => unsafe {
-
-        //         },
-        //         16 => {}
-        //         32 => {}
-        //         64 => {}
-        //         _ => {}
-        //     },
-        //     // meta::types::BqlType::Int(_) => {}
-        //     // meta::types::BqlType::Decimal(_, _) => {}
-        //     // meta::types::BqlType::DateTime => {}
-        //     _ => {
-        //         return Err(BaseRtError::UnsupportedPartitionKeyType);
-        //     }
-        // }
-
-        // for j in 0..blk.nrows {
-        //     match ctyp.size() {
-        //         Ok(tsize) => {
-        //             let idx = j * tsize as usize;
-        //             // cdata[idx]
-        //         }
-        //         //MetaError::NoFixedSizeDataTypeError
-        //         Err(_) => {}
-        //     }
-        //     // match ctyp {
-        //     //     meta::types::BqlType::UnInit => {}
-        //     //     meta::types::BqlType::UInt(_) => {}
-        //     //     meta::types::BqlType::Int(_) => {}
-        //     //     meta::types::BqlType::Decimal(_, _) => {}
-        //     //     meta::types::BqlType::DateTime => {}
-        //     //     meta::types::BqlType::String => {}
-        //     //     meta::types::BqlType::LowCardinalityString => {}
-        //     // }
-        // }
-
-        unsafe {
             close(fd as i32);
         }
+
         ps.insert_copa_int_ptk(cid, ptk)?;
     }
-    ps.set_copa_size_int_ptk(tid, ptk, offset + pt_len)?;
+    ps.set_copa_size_int_ptk(tid, ptk, prid + pt_len)?;
 
     Ok(())
 }
