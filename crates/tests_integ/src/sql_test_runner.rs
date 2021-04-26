@@ -3,15 +3,15 @@ use std::io::prelude::*;
 use std::io::BufReader;
 use std::{fs::File, path::Path};
 
-use ch_client::prelude::errors;
-use ch_client::prelude::*;
+// use ch_client::prelude::errors;
+// use ch_client::prelude::*;
 
 use ch_client::prelude::{Options, Pool};
 use std::convert::TryInto;
 use std::env;
 use url::Url;
 
-use tokio::prelude::*;
+// use tokio::prelude::*;
 
 pub fn db_url() -> String {
     env::var("DATABASE_URL").unwrap_or_else(|_| {
@@ -44,12 +44,13 @@ pub fn get_pool() -> Pool {
 struct Opts {
     /// Sets a custom config file. Could have been an Option<T> with no default too
     #[clap(short, long)]
+    #[allow(dead_code)] 
     test_name: Option<String>,
 }
 
 #[tokio::main]
 async fn main() -> std::io::Result<()> {
-    let opts: Opts = Opts::parse();
+    // let opts: Opts = Opts::parse();
 
     // let tn_opt = opts.test_name;
     let tn_opt = Some("basic_checks".to_string());

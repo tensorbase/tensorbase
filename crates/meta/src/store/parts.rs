@@ -97,7 +97,7 @@ pub fn get_part_path(
 
 pub struct PartStore<'a> {
     data_dirs: &'a Vec<String>,
-    mdb: sled::Db,
+    #[allow(dead_code)] mdb: sled::Db,
     tree_parts: sled::Tree,
     tree_prids: sled::Tree,
     tree_part_size: sled::Tree,
@@ -260,6 +260,7 @@ impl<'a> PartStore<'a> {
         Ok(())
     }
 
+    #[allow(dead_code)] 
     fn pretty_print(&self) -> MetaResult<()> {
         let name = &*self.mdb.name();
         println!("psdb: {}", unsafe { std::str::from_utf8_unchecked(&*name) });

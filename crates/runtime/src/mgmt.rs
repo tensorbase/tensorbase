@@ -17,8 +17,8 @@ use meta::{
     types::{BaseChunk, BqlType, Id},
 };
 use std::{
-    env, fs::remove_dir_all, lazy::SyncLazy, panic::panic_any,
-    path::Path, pin::Pin, sync::Mutex, time::Instant,
+    env, fs::remove_dir_all, lazy::SyncLazy, panic::panic_any, path::Path,
+    pin::Pin, sync::Mutex, time::Instant,
 };
 
 use clap::{App, Arg};
@@ -892,7 +892,9 @@ fn command_insert_into_gen_block(
 ) -> BaseRtResult<()> {
     let nr = rows.len();
     if tab.columns.len() != 0 {
-        return Err(BaseRtError::UnsupportedFunctionality2("insert with partial values now is not supported"));
+        return Err(BaseRtError::UnsupportedFunctionality2(
+            "insert with partial values now is not supported",
+        ));
         //insert into some columns
         // let mut ic = 0;
         // for (cn, _) in &tab.columns {
@@ -959,12 +961,12 @@ fn command_insert_into_gen_block(
                     lc_dict_data: None,
                 },
             });
-        ic += 1;
+            ic += 1;
         }
     }
     blk.ncols = blk.columns.len();
     blk.nrows = nr;
-    
+
     Ok(())
 }
 
