@@ -250,7 +250,7 @@ impl<'a> PartStore<'a> {
 
     //FIXME to rework
     //TODO
-    pub fn uncache_for_table(&self, tid: Id, cids: &[Id]) -> MetaResult<()> {
+    pub fn uncache_for_table(&self, _tid: Id, _cids: &[Id]) -> MetaResult<()> {
         Ok(())
     }
 
@@ -392,16 +392,15 @@ fn open(path: &CStr) -> MetaResult<u32> {
 
 #[cfg(test)]
 mod unit_tests {
-    use base::seq;
     use baselog::{
-        Config, ConfigBuilder, LevelFilter, TermLogger, TerminalMode,
+        ConfigBuilder, LevelFilter, TermLogger, TerminalMode,
     };
     use walkdir::WalkDir;
 
     use super::*;
     use crate::errs::MetaResult;
     use std::path::Path;
-    use std::{env::temp_dir, fs::create_dir_all};
+    use std::fs::create_dir_all;
     use std::{fs::remove_dir_all, time::Instant};
 
     fn prepare_dirs(tmp_dir: &str) -> MetaResult<(String, String)> {

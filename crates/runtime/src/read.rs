@@ -1,16 +1,13 @@
-use dashmap::DashMap;
-use engine::{run, types::QueryState};
+use engine::types::QueryState;
 use lang::parse::{Pair, Rule};
-use libc::c_void;
 use meta::{
     store::{parts::PartStore, sys::MetaStore},
-    types::{BaseChunk, BqlType},
 };
-use std::{convert::TryFrom, ffi::CString, ptr, time::Instant};
+use std::{convert::TryFrom, time::Instant};
 
 use crate::{
-    ch::blocks::{Block, Column},
-    errs::{BaseRtError, BaseRtResult},
+    ch::blocks::Block,
+    errs::BaseRtResult,
 };
 
 pub(crate) fn query(

@@ -1,4 +1,4 @@
-use chrono::{Datelike, NaiveDate, NaiveDateTime};
+use chrono::{Datelike, NaiveDate};
 use num_integer::Integer;
 use num_traits::ToPrimitive;
 
@@ -84,7 +84,7 @@ pub fn parse_to_epoch(s: &str) -> BaseResult<u32> {
 mod unit_tests {
     use super::*;
     use crate::show_option_size;
-    use chrono::{prelude::*, Duration};
+    use chrono::prelude::*;
 
     #[test]
     fn basic_check() -> BaseResult<()> {
