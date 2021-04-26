@@ -16,6 +16,7 @@ pub fn run(
     current_db: &str,
     p: Pair<Rule>,
     raw_query: &str,
+    // TODO Don't actually use this for anything
     query_id: &str,
     qs: &mut QueryState,
 ) -> EngineResult<Vec<RecordBatch>> {
