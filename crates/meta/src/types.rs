@@ -494,6 +494,7 @@ impl<T> Part<T> {
     ///
     /// `as_bytes` provides access to the bytes of this value as an immutable
     /// byte slice.
+    #[allow(dead_code)] 
     fn as_bytes(&self) -> &[u8] {
         unsafe {
             // NOTE: This function does not have a Self: Sized bound.
@@ -507,6 +508,7 @@ impl<T> Part<T> {
     ///
     /// `as_bytes_mut` provides access to the bytes of this value as a mutable
     /// byte slice.
+    #[allow(dead_code)] 
     fn as_bytes_mut(&mut self) -> &mut [u8] {
         unsafe {
             // NOTE: This function does not have a Self: Sized bound.

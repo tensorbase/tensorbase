@@ -542,6 +542,7 @@ impl MetaStore {
         self.tree_tabs.get(key).map_err(|_e| MetaError::GetError)
     }
 
+    #[allow(dead_code)] 
     fn get_table_info_engine(&self, tid: Id) -> MetaResult<EngineType> {
         self._get_table_info_prim_int::<u8>(tid, "en")
             .map(|e| EngineType::from(e))
@@ -591,6 +592,7 @@ impl MetaStore {
         Ok(())
     }
 
+    #[allow(dead_code)] 
     fn insert_cell<T: AsBytes, U: AsBytes>(
         &self,
         cid: Id,
@@ -702,6 +704,7 @@ impl MetaStore {
         self.id(qname)
     }
 
+    #[allow(dead_code)] 
     fn pretty_print(&self) -> MetaResult<()> {
         let name = &*self.mdb.name();
         println!("mdb: {}", unsafe { std::str::from_utf8_unchecked(&*name) });

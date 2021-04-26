@@ -20,8 +20,8 @@ use actix_codec::{AsyncRead, AsyncWrite};
 use actix_rt::net::TcpStream;
 use actix_server::Server;
 use actix_service::fn_service;
-use baselog::{Config, ConfigBuilder, LevelFilter, TermLogger, TerminalMode};
-use bytes::{Buf, BufMut, BytesMut};
+use baselog::{ConfigBuilder, LevelFilter, TermLogger, TerminalMode};
+use bytes::{Buf, BytesMut};
 use log::*;
 
 struct BaseSrvConn {

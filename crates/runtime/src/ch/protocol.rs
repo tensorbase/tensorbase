@@ -46,9 +46,9 @@ pub enum HTTPMethod {
 #[derive(Debug)]
 #[repr(u8)]
 pub enum QueryKind {
-    NO_QUERY = 0, // Uninitialized object.
-    INITIAL_QUERY = 1,
-    SECONDARY_QUERY = 2, // Query that was initiated by another query for distributed or ON CLUSTER query execution.
+    NoQuery = 0, // Uninitialized object.
+    InitialQuery = 1,
+    SecondaryQuery = 2, // Query that was initiated by another query for distributed or ON CLUSTER query execution.
 }
 
 // #[derive(Debug)]
