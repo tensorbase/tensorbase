@@ -1,4 +1,3 @@
-use engine::errs::EngineError;
 use thiserror::Error;
 
 /// Result type

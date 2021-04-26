@@ -1,7 +1,7 @@
 use std::{convert::TryFrom, slice};
 
 use arrow::{
-    datatypes::{DataType, TimeUnit},
+    datatypes::DataType,
     record_batch::RecordBatch,
 };
 use bytes::{Buf, BufMut, BytesMut};
@@ -566,7 +566,7 @@ impl BytesDecoder<Column> for &[u8] {
                 let ndict = self.get_u64_le();
                 //consume whole dict,a.k.a. gen offset_map
                 let mut os_map = vec![];
-                let mut oss = self.as_ptr();
+                let oss = self.as_ptr();
                 for i in 0..ndict {
                     let os = unsafe { self.as_ptr().offset_from(oss) } as u32;
                     os_map.push(os);

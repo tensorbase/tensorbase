@@ -57,7 +57,6 @@ use crate::to_qualified_key;
 use crate::errs::{MetaError, MetaResult};
 use crate::types::*;
 
-use base::bytes_cat;
 use num_traits::PrimInt;
 pub use sled::IVec;
 
@@ -86,13 +85,13 @@ impl MetaStore {
             .path(p0)
             .cache_capacity(64 * 1024 * 1024)
             .open()
-            .map_err(|e| MetaError::OpenError)?;
-        let tree0 = mdb.open_tree(b"0").map_err(|e| MetaError::OpenError)?;
-        let tree1 = mdb.open_tree(b"1").map_err(|e| MetaError::OpenError)?;
+            .map_err(|_e| MetaError::OpenError)?;
+        let tree0 = mdb.open_tree(b"0").map_err(|_e| MetaError::OpenError)?;
+        let tree1 = mdb.open_tree(b"1").map_err(|_e| MetaError::OpenError)?;
         let tree_tabs =
-            mdb.open_tree(b"ts").map_err(|e| MetaError::OpenError)?;
+            mdb.open_tree(b"ts").map_err(|_e| MetaError::OpenError)?;
         let tree_cols =
-            mdb.open_tree(b"cs").map_err(|e| MetaError::OpenError)?;
+            mdb.open_tree(b"cs").map_err(|_e| MetaError::OpenError)?;
         Ok(MetaStore {
             mdb,
             tree0,
@@ -150,7 +149,7 @@ impl MetaStore {
     //FIXME assumed the idgen can be recovered, but we still need a
     //      manual recovery mech which could be done in housekeeping
     fn gen_id(&self) -> MetaResult<Id> {
-        self.mdb.generate_id().map_err(|e| MetaError::IdGenError)
+        self.mdb.generate_id().map_err(|_e| MetaError::IdGenError)
     }
 
     ///WARN this api assumes the name are qualified name and validated before passing
@@ -194,13 +193,13 @@ impl MetaStore {
                 let _old = self
                     .tree0
                     .insert(ks, id.as_bytes())
-                    .map_err(|e| MetaError::InsertError)?;
+                    .map_err(|_e| MetaError::InsertError)?;
                 debug_assert!(_old.is_none());
                 //tree1
                 let _old = self
                     .tree1
                     .insert(id.to_be_bytes(), ks)
-                    .map_err(|e| MetaError::InsertError)?;
+                    .map_err(|_e| MetaError::InsertError)?;
                 debug_assert!(_old.is_none());
                 // if let Some(old_value) = r {
                 //     let bs = &*old_value;
@@ -224,7 +223,7 @@ impl MetaStore {
         let _old = self
             .tree0
             .insert(key_sd, dbname)
-            .map_err(|e| MetaError::InsertError)?;
+            .map_err(|_e| MetaError::InsertError)?;
         debug_assert!(_old.is_none());
         Ok(rt)
     }
@@ -540,7 +539,7 @@ impl MetaStore {
         let mut key: Vec<u8> = Vec::with_capacity(16);
         key.extend_from_slice(to_key_id_order(tid).as_bytes());
         key.extend_from_slice(k.as_bytes());
-        self.tree_tabs.get(key).map_err(|e| MetaError::GetError)
+        self.tree_tabs.get(key).map_err(|_e| MetaError::GetError)
     }
 
     fn get_table_info_engine(&self, tid: Id) -> MetaResult<EngineType> {
@@ -556,7 +555,7 @@ impl MetaStore {
         let mut key: Vec<u8> = Vec::with_capacity(16);
         key.extend_from_slice(to_key_id_order(tid).as_bytes());
         key.extend_from_slice(k.as_bytes());
-        let r = self.tree_tabs.get(key).map_err(|e| MetaError::GetError)?;
+        let r = self.tree_tabs.get(key).map_err(|_e| MetaError::GetError)?;
         if let Some(iv) = r {
             let bs = &*iv;
             if bs.len() == std::mem::size_of::<T>() {
@@ -584,7 +583,7 @@ impl MetaStore {
         let r = self
             .tree_tabs
             .insert(key, v.as_bytes())
-            .map_err(|e| MetaError::InsertError)?;
+            .map_err(|_e| MetaError::InsertError)?;
         if r.is_some() {
             log::info!("{:?}", r.as_ref().unwrap());
         }
@@ -608,7 +607,7 @@ impl MetaStore {
         let r = self
             .tree_cols
             .insert(k.as_slice(), v.as_slice())
-            .map_err(|e| MetaError::InsertError)?;
+            .map_err(|_e| MetaError::InsertError)?;
         debug_assert!(r.is_none());
 
         if is_index_needed {
@@ -619,7 +618,7 @@ impl MetaStore {
             let r = self
                 .tree_cols
                 .insert(k.as_slice(), &[])
-                .map_err(|e| MetaError::InsertError)?;
+                .map_err(|_e| MetaError::InsertError)?;
             debug_assert!(r.is_none());
         }
         Ok(())
@@ -675,7 +674,7 @@ impl MetaStore {
         let r = self
             .tree_cols
             .get(&cid.to_be_bytes())
-            .map_err(|e| MetaError::InsertError)?;
+            .map_err(|_e| MetaError::InsertError)?;
         if let Some(iv) = r {
             let bs = &*iv;
             if std::mem::size_of::<ColumnInfo>() == bs.len() {
@@ -936,7 +935,7 @@ mod unit_tests {
         // .scan_prefix(to_key_id_order(3).as_bytes());
         // println!("res.count: {}", res.by_ref());
         for r in res {
-            let (k, v) = r.map_err(|_| MetaError::InsertError)?;
+            let (k, _v) = r.map_err(|_| MetaError::InsertError)?;
             // println!(
             //     "k: {:?}, v: {:?}",
             //     // unsafe { std::str::from_utf8_unchecked(&*k) },
