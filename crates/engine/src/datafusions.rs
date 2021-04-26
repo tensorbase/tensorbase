@@ -1,23 +1,21 @@
-use std::{collections::{HashMap, HashSet}, lazy::SyncLazy, sync::{Arc, Mutex}, time::Instant};
+use std::{collections::HashSet, lazy::SyncLazy, sync::Arc};
 
 use arrow::{
     array::{
-        ArrayData, ArrayRef, Date32Array, Int8Array, Int16Array, Int32Array,
-        Int64Array, PrimitiveArray, Time32SecondArray, Timestamp32Array,
-        TimestampSecondArray, UInt8Array, UInt16Array, UInt32Array,
-        UInt64Array,
+        ArrayData, ArrayRef, Int8Array, Int16Array, Int32Array,
+        Int64Array, Timestamp32Array, UInt8Array, UInt16Array, 
+        UInt32Array, UInt64Array,
     },
     buffer::Buffer,
     datatypes::{
-        ArrowPrimitiveType, DataType, Field, Int8Type, Schema, TimeUnit,
+        DataType, Field, Schema, 
     },
     ffi::FFI_ArrowArray,
     record_batch::RecordBatch,
 };
 use datafusion::{
     datasource::MemTable,
-    error::{DataFusionError, Result},
-    physical_plan::collect,
+    error::Result,
     prelude::ExecutionContext,
 };
 use meta::{
@@ -25,7 +23,7 @@ use meta::{
         parts::{CoPaInfo, PartStore},
         sys::MetaStore,
     },
-    types::{BqlType, ColumnInfo, Id},
+    types::{BqlType, Id},
 };
 use tokio::runtime::{self, Runtime};
 
@@ -59,7 +57,7 @@ pub(crate) fn run(
     ps: &PartStore,
     current_db: &str,
     raw_query: &str,
-    query_id: &str,
+    _query_id: &str,
     tabs: HashSet<String>,
     cols: HashSet<String>,
     qs: &mut QueryState,

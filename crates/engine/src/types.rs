@@ -1,13 +1,8 @@
-use std::time::Instant;
-
-use base::mmap::mm_unmap;
-use libc::c_void;
 use meta::{
-    store::parts::{CoPaInfo, PartStore},
+    store::parts::CoPaInfo,
     types::{BqlType, Id},
 };
 
-use crate::errs::{EngineError, EngineResult};
 
 pub trait IQueryState {
 }

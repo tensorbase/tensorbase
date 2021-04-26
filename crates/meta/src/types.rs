@@ -199,21 +199,21 @@ impl BqlType {
                         .next()
                         .ok_or(MetaError::UnknownBqlTypeConversionError)?,
                 )
-                .map_err(|e| MetaError::UnknownBqlTypeConversionError)?;
+                .map_err(|_e| MetaError::UnknownBqlTypeConversionError)?;
                 let s0 = str::from_utf8(
                     ps_iter
                         .next()
                         .ok_or(MetaError::UnknownBqlTypeConversionError)?,
                 )
-                .map_err(|e| MetaError::UnknownBqlTypeConversionError)?;
+                .map_err(|_e| MetaError::UnknownBqlTypeConversionError)?;
                 let p = p0
                     .trim()
                     .parse::<u8>()
-                    .map_err(|e| MetaError::UnknownBqlTypeConversionError)?;
+                    .map_err(|_e| MetaError::UnknownBqlTypeConversionError)?;
                 let s = s0
                     .trim()
                     .parse::<u8>()
-                    .map_err(|e| MetaError::UnknownBqlTypeConversionError)?;
+                    .map_err(|_e| MetaError::UnknownBqlTypeConversionError)?;
                 //FIXME stronger validations
                 Ok(BqlType::Decimal(p, s))
             }
