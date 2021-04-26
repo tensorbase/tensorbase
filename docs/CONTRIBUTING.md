@@ -13,6 +13,7 @@ This document outlines some conventions about development workflow, commit messa
 - [How to contribute](#how-to-contribute)
 - [Contribution guide](#contribution-guide)
     - [Before you get started](#before-you-get-started)
+        - [Sign the CLA or using DCO](#sign-the-cla-or-using-dco)
         - [Setting up your development environment](#setting-up-your-development-environment)
     - [Your First Contribution](#your-first-contribution)
     - [Contribution Workflow](#contribution-workflow)
@@ -22,6 +23,14 @@ This document outlines some conventions about development workflow, commit messa
 <!-- /TOC -->
 
 ## Before you get started
+
+### Sign the CLA or using DCO
+
+You should explicitly to make sure you adhere to the community's requirements. Currently, it is open to accept two ways : [CLA](https://en.wikipedia.org/wiki/Contributor_License_Agreement) or [DCO(Developer Certificate of Origin)](https://developercertificate.org/).
+
+for CLA: you just do agree the CLA once. Just follow the bot's instruction. Many open source projects are using this way.
+
+for DCO: you sign off your commits every time. This is verbose. But if some contributor really only accept this option, it is still OK. The commit message must contain a `Signed-off-by` line for DCO. Use option `git commit -s` to sign off your commits.
 
 ### Setting up your development environment
 
