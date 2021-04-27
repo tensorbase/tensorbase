@@ -1,6 +1,6 @@
 use bytes::{Buf, BufMut, BytesMut};
 use lzzzz::lz4;
-use std::str;
+use std::{slice, str};
 
 use crate::{
     mgmt::{BaseCommandKind, BMS},
@@ -15,6 +15,8 @@ use crate::ch::protocol::{
 use crate::errs::{BaseRtError, BaseRtResult};
 
 use super::{
+    blocks::Column,
+    codecs::BytesDecoder,
     protocol::{StageKind, LZ4_COMPRESSION_METHOD},
 };
 

@@ -3,6 +3,7 @@ use bytes::BytesMut;
 use chrono::{Local, Offset, TimeZone};
 use chrono_tz::{OffsetComponents, OffsetName, TZ_VARIANTS};
 use dashmap::DashMap;
+use engine::types::QueryState;
 use lang::parse::{
     parse_command, parse_create_database, parse_create_table,
     parse_drop_database, parse_drop_table, parse_insert_into,
@@ -17,7 +18,7 @@ use meta::{
     types::{BaseChunk, BqlType, Id},
 };
 use std::{
-    env, fs::remove_dir_all, lazy::SyncLazy, panic::panic_any,
+    env, ffi::CString, fs::remove_dir_all, lazy::SyncLazy, panic::panic_any,
     path::Path, pin::Pin, sync::Mutex, time::Instant,
 };
 
@@ -84,7 +85,7 @@ pub static BMS: SyncLazy<BaseMgmtSys> = SyncLazy::new(|| {
             .takes_value(true)
     )
     .get_matches_from(args);
-    let mut conf_opt: Option<Conf>;
+    let mut conf_opt: Option<Conf> = None;
     if let Some(conf_path) = matches.value_of("conf") {
         conf_opt = Conf::load(Some(conf_path));
         if conf_opt == None {
@@ -959,8 +960,8 @@ fn command_insert_into_gen_block(
                     lc_dict_data: None,
                 },
             });
-        ic += 1;
         }
+        ic += 1;
     }
     blk.ncols = blk.columns.len();
     blk.nrows = nr;

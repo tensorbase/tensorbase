@@ -1,3 +1,5 @@
+use std::convert::TryInto;
+
 pub trait Hasher {
     fn hash(&self) -> u64;
 }
