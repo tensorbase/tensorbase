@@ -2,6 +2,8 @@ use std::io::Error;
 
 use crate::mem::MemAddr;
 
+use libc::c_void;
+
 use crate::errs::{BaseError, BaseResult};
 
 #[inline]
@@ -83,7 +85,6 @@ pub fn mm_unmap(addr: MemAddr, size: usize) -> BaseResult<()> {
 #[cfg(test)]
 mod unit_tests {
     use std::{env, ffi::CString, fs, io::Error};
-    use libc::c_void;    
 
     use super::*;
 
