@@ -2,7 +2,7 @@ use ch_client::prelude::errors;
 use ch_client::prelude::*;
 mod common;
 use common::get_pool;
-
+use ch_client::prelude::types::Decimal;
 // macro_rules! get {
 //     ($row:ident, $idx: expr, $msg: expr) => {
 //         $row.value($idx)?.expect($msg)
@@ -56,16 +56,17 @@ async fn basic_test_insert() -> errors::Result<()> {
 
     drop(insert);
 
-    let sql = "select count(a) from test_tab";
     {
+        let sql = "select count(a) from test_tab";
         let mut query_result = conn.query(sql).await?;
 
         while let Some(block) = query_result.next().await? {
             for row in block.iter_rows() {
-                let agg_res: i64 = row.value(0)?.unwrap();
+                let agg_res: i64 = row.value::<u64>(0)?.unwrap() as i64;
                 assert_eq!(agg_res, count_res);
             }
         }
+    
     }
 
     {
@@ -74,11 +75,53 @@ async fn basic_test_insert() -> errors::Result<()> {
 
         while let Some(block) = query_result.next().await? {
             for row in block.iter_rows() {
-                let agg_res: i64 = row.value(0)?.unwrap();
+                let agg_res: i64 = row.value::<u64>(0)?.unwrap() as i64;
                 // println!("{}", agg_res);
                 assert_eq!(agg_res, sum_res);
             }
         }
+    }
+
+    // conn.execute("drop database if exists test_db").await?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn basic_insert_decimal() -> errors::Result<()> {
+    let pool = get_pool();
+    let mut conn = pool.connection().await?;
+
+    conn.execute("create database if not exists test_db")
+        .await?;
+    conn.execute("use test_db").await?;
+
+    conn.execute(format!("DROP TABLE IF EXISTS test_tab_dec"))
+        .await?;
+    conn.execute(format!("CREATE TABLE test_tab_dec(a Decimal(9,2))"))
+        .await?;
+
+    let data_a = vec![Decimal::from(12300_i32, 2), Decimal::from(1002_i32, 2)];
+    let checks = vec!["123.00", "10.02"];
+    let block = { Block::new("test_tab_dec").add("a", data_a) };
+
+    let mut insert = conn.insert(&block).await?;
+    insert.commit().await?;
+
+    drop(insert);
+    {
+        let sql = "select a from test_tab_dec";
+        let mut query_result = conn.query(sql).await?;
+
+        while let Some(block) = query_result.next().await? {
+            let mut i = 0;
+
+            for row in block.iter_rows() {
+                let res = row.value::<Decimal<i32>>(0)?.unwrap();
+                assert_eq!(res.to_string(), checks[i]);
+                i += 1;
+            }
+        }
+    
     }
 
     // conn.execute("drop database if exists test_db").await?;
