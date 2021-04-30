@@ -30,7 +30,7 @@ mod common;
 
 #[test]
 fn integ_test_parse_tpcds_20() {
-    let dir_perfix = common::TEST_RES_ROOT.to_string() + "tpcds_20";
+    let dir_perfix = common::get_test_root() + "tpcds_20";
     let paths = read_dir(dir_perfix).unwrap();
     paths.for_each(|p: io::Result<DirEntry>| {
         let p = p.unwrap().path();
@@ -49,7 +49,7 @@ fn integ_test_parse_tpcds_20() {
 
 #[test]
 fn parse_tpch() {
-    let dir_perfix = common::TEST_RES_ROOT.to_string() + "tpch/q";
+    let dir_perfix = common::get_test_root() + "tpch/q";
     for i in 1..=22 {
         // for i in 1..=1 {
         let f = format!("{}{}{}", dir_perfix, i, ".sql");
@@ -66,7 +66,7 @@ fn parse_tpch() {
 // #[test]
 fn integ_test_parse_tpcds_full() {
     let paths =
-        read_dir(common::TEST_RES_ROOT.to_string() + "tpcds_full").unwrap();
+        read_dir(common::get_test_root() + "tpcds_full").unwrap();
     paths.for_each(|p: io::Result<DirEntry>| {
         let p = p.unwrap().path();
         println!("----- for {:?}:", p.file_name());

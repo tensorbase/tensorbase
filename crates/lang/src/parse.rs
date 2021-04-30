@@ -543,7 +543,7 @@ mod unit_tests {
 
     use super::{
         parse_create_database, parse_create_table, pretty_parse_tree, seek_to,
-        BqlParser, Pair, Pairs, Rule,
+        BqlParser, Rule,
     };
     use meta::types::BqlType;
     use pest::Parser;
@@ -581,6 +581,7 @@ mod unit_tests {
         Ok(())
     }
 
+    #[allow(unaligned_references)]
     #[test]
     pub fn test_parse_create_table() -> LangResult<()> {
         let ddl = r##"create TABLE some_tab_v2
