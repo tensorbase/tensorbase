@@ -192,70 +192,71 @@ async fn basic_insert_lcstring() -> errors::Result<()> {
 //     Ok(())
 // }
 
-#[tokio::test]
-async fn basic_test_query_system_numbers() -> errors::Result<()> {
-    let pool = get_pool();
-    let mut conn = pool.connection().await?;
-
-    let sql = "select sum(number) from system.numbers(1000000000000)";
-    let mut query_result = conn.query(sql).await?;
-
-    while let Some(block) = query_result.next().await? {
-        for row in block.iter_rows() {
-            let agg_res: i64 = row.value(0)?.unwrap();
-            // println!("{}", agg_res);
-            assert_eq!(agg_res, 1001881602603448320);
-        }
-    }
-
-    drop(query_result);
-
-    Ok(())
-}
-
-#[tokio::test]
-async fn stress_test_query_system_numbers() -> errors::Result<()> {
-    let pool = get_pool();
-    let mut conn = pool.connection().await?;
-
-    conn.execute("use system").await?;
-
-    let sql = "select sum(number) from numbers(1000000000000)";
-
-    for i in 0..100 {
-        //FIXME -> 1024
-        println!("to run q#{}", i);
-        let mut query_result = conn.query(sql).await?;
-        while let Some(block) = query_result.next().await? {
-            for row in block.iter_rows() {
-                let agg_res: i64 = row.value(0)?.unwrap();
-                // println!("{}", agg_res);
-                assert_eq!(agg_res, 1001881602603448320);
-            }
-        }
-        drop(query_result);
-    }
-
-    let sql = "select sum(123*number+456) from numbers(1000000000000)";
-
-    for i in 0..100 {
-        //FIXME -> 1024
-        println!("to run q#{}", i);
-        let mut query_result = conn.query(sql).await?;
-        while let Some(block) = query_result.next().await? {
-            for row in block.iter_rows() {
-                let agg_res: i64 = row.value(0)?.unwrap();
-                // println!("{}", agg_res);
-                assert_eq!(agg_res, -5895315395742717952);
-            }
-        }
-        drop(query_result);
-    }
-
-    conn.execute("use default").await?;
-
-    Ok(())
-}
+// The system number table is supported in CH but not datafusion
+// #[tokio::test]
+// async fn basic_test_query_system_numbers() -> errors::Result<()> {
+//     let pool = get_pool();
+//     let mut conn = pool.connection().await?;
+// 
+//     let sql = "select sum(number) from system.numbers(1000000000000)";
+//     let mut query_result = conn.query(sql).await?;
+// 
+//     while let Some(block) = query_result.next().await? {
+//         for row in block.iter_rows() {
+//             let agg_res: i64 = row.value(0)?.unwrap();
+//             // println!("{}", agg_res);
+//             assert_eq!(agg_res, 1001881602603448320);
+//         }
+//     }
+// 
+//     drop(query_result);
+// 
+//     Ok(())
+// }
+// 
+// #[tokio::test]
+// async fn stress_test_query_system_numbers() -> errors::Result<()> {
+//     let pool = get_pool();
+//     let mut conn = pool.connection().await?;
+// 
+//     conn.execute("use system").await?;
+// 
+//     let sql = "select sum(number) from numbers(1000000000000)";
+// 
+//     for i in 0..100 {
+//         //FIXME -> 1024
+//         println!("to run q#{}", i);
+//         let mut query_result = conn.query(sql).await?;
+//         while let Some(block) = query_result.next().await? {
+//             for row in block.iter_rows() {
+//                 let agg_res: i64 = row.value(0)?.unwrap();
+//                 // println!("{}", agg_res);
+//                 assert_eq!(agg_res, 1001881602603448320);
+//             }
+//         }
+//         drop(query_result);
+//     }
+// 
+//     let sql = "select sum(123*number+456) from numbers(1000000000000)";
+// 
+//     for i in 0..100 {
+//         //FIXME -> 1024
+//         println!("to run q#{}", i);
+//         let mut query_result = conn.query(sql).await?;
+//         while let Some(block) = query_result.next().await? {
+//             for row in block.iter_rows() {
+//                 let agg_res: i64 = row.value(0)?.unwrap();
+//                 // println!("{}", agg_res);
+//                 assert_eq!(agg_res, -5895315395742717952);
+//             }
+//         }
+//         drop(query_result);
+//     }
+// 
+//     conn.execute("use default").await?;
+// 
+//     Ok(())
+// }
 
 // #[tokio::test]
 // async fn test_query_compress() -> errors::Result<()> {
