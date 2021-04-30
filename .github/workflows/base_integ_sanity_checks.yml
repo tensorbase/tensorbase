@@ -15,15 +15,15 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+    - uses: actions/checkout@v2
     - name: Install latest nightly
       uses: actions-rs/toolchain@v1
       with:
-        toolchain: nightly
-        override: true
-        components: rustfmt, clippy
-    - uses: actions/checkout@v2
-    - name: TensorBase Build
-      run: cargo build
+            toolchain: nightly
+            override: true
+    - name: TensorBase cargo check
+      run: |
+           cargo --version --verbose 
     - name: TensorBase Run server
       run: |
            cargo run --bin server -- -s "$BASE_CONF" > out & 
