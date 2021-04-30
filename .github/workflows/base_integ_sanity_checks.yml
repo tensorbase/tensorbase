@@ -1,0 +1,45 @@
+name: Base Integ Sanity Checks
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Install latest nightly
+      uses: actions-rs/toolchain@v1
+      with:
+        toolchain: nightly
+        override: true
+        components: rustfmt, clippy
+    - uses: actions/checkout@v2
+    - name: TensorBase Build
+      run: cargo build
+    - name: TensorBase Run server
+      run: |
+           cargo run --bin server -- -s "$BASE_CONF" > out & 
+      env:
+          BASE_CONF: |
+            [system]                  
+            meta_dirs = ["${{ github.workspace }}/tb_schema"] 
+            data_dirs = ["${{ github.workspace }}/tb_data"]   
+            [storage]                          
+            data_dirs_clickhouse = ""          
+            [server]                           
+            ip_addr = "localhost"              
+            port = 9528   
+    - name: TensorBase wait for server up
+      uses: juliangruber/sleep-action@v1
+      with:
+           time: 10s
+    - name: TensorBase integ sanity checks
+      run: cargo test --package tests_integ  --test sanity_checks -- --test-threads=1
