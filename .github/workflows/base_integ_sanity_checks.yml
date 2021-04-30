@@ -23,7 +23,7 @@ jobs:
             override: true
     - name: TensorBase Run server
       run: |
-           cargo run --bin server -- -s "$BASE_CONF" > out & 
+           cargo run --bin server -- -s "$BASE_CONF"
       env:
           BASE_CONF: |
             [system]                  
@@ -35,10 +35,10 @@ jobs:
             ip_addr = "localhost"              
             port = 9528   
     - name: TensorBase wait for server up 01
-      run: |
-           cargo install wait-for-them
-           wait-for-them localhost:9528
+      run: cargo install wait-for-them
     - name: TensorBase wait for server up 02
+      run: wait-for-them 127.0.0.1:9528
+    - name: TensorBase wait for server up 03
       uses: juliangruber/sleep-action@v1
       with:
            time: 1s
