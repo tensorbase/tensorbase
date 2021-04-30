@@ -21,9 +21,6 @@ jobs:
       with:
             toolchain: nightly
             override: true
-    - name: TensorBase cargo check
-      run: |
-           cargo --version --verbose 
     - name: TensorBase Run server
       run: |
            cargo run --bin server -- -s "$BASE_CONF" > out & 
@@ -37,9 +34,13 @@ jobs:
             [server]                           
             ip_addr = "localhost"              
             port = 9528   
-    - name: TensorBase wait for server up
+    - name: TensorBase wait for server up 01
+      run: |
+           cargo install wait-for-them
+           wait-for-them localhost:9528
+    - name: TensorBase wait for server up 02
       uses: juliangruber/sleep-action@v1
       with:
-           time: 10s
+           time: 1s
     - name: TensorBase integ sanity checks
       run: cargo test --package tests_integ  --test sanity_checks -- --test-threads=1
