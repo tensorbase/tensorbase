@@ -1,11 +1,11 @@
 use std::{convert::TryFrom, slice};
 
 use arrow::{array, datatypes::DataType, record_batch::RecordBatch};
+use base::bytes_cat;
 use bytes::{Buf, BufMut, BytesMut};
 use clickhouse_rs_cityhash_sys::city_hash_128;
 use lzzzz::lz4;
 
-use base::bytes_cat;
 use meta::types::{BaseChunk, BqlType};
 
 use crate::ch::codecs::{
@@ -393,7 +393,7 @@ fn arrow_type_to_btype(typ: &DataType) -> BaseRtResult<BqlType> {
         DataType::Timestamp32(_) => Ok(BqlType::DateTime),
         DataType::Date16 => Ok(BqlType::Date),
         DataType::Decimal(p,s)=>  Ok(BqlType::Decimal(*p as u8, *s as u8)),
-        // BqlType::String => Ok(DataType::Utf8),
+        DataType::LargeUtf8 => Ok(BqlType::String),
         _ => Err(BaseRtError::UnsupportedConversionToBqlType),
     }
 }
@@ -414,7 +414,11 @@ impl TryFrom<RecordBatch> for Block {
             let col = &cols[i];
             let cd = col.data();
             // let array = col.as_any().downcast_ref::<array::Int64Array>().unwrap().values();
-            let buf = &cd.buffers()[0];
+            let buf = if matches!(btype, BqlType::String) {
+                &col.data().buffers()[1]
+            } else {
+                &col.data().buffers()[0]
+            };
             // log::debug!("cd.get_array_memory_size(): {}", cd.get_array_memory_size());
             let len_in_bytes = if matches!(btype, BqlType::String) {
                 let arr = col
@@ -507,12 +511,13 @@ fn decode_to_column(
         for i in 0..nrows {
             let os = unsafe { bs.as_ptr().offset_from(oss) } as u32;
             os_map.push(os);
-            let slen = bs.read_varint()? as usize; //NOTE length of bql string in 0..127
+            let slen = bs.read_varint()? as usize;
             bs.ensure_enough_bytes_to_read(slen)?;
             bs.advance(slen);
         }
         let bc_data = unsafe {
             let len = bs.as_ptr().offset_from(oss) as u32;
+            os_map.push(len);
             slice::from_raw_parts(oss, len as usize).to_vec()
         };
         Ok(Column {

@@ -1,7 +1,7 @@
 use std::{
     collections::HashMap,
     intrinsics::{copy_nonoverlapping, unlikely},
-    mem,
+    mem, slice,
 };
 
 use base::mem::shape_slice;
@@ -9,8 +9,8 @@ use libc::{c_void, close};
 use meta::{
     store::{
         parts::{
-            ensure_table_path_existed, get_part_path, open_file_as_fd,
-            PartStore,
+            ensure_table_path_existed, gen_ompath_from_part_path,
+            get_part_path, open_file_as_fd, PartStore,
         },
         sys::MetaStore,
     },
@@ -95,7 +95,11 @@ pub fn write_block(
     }
 
     for (ptk, idxs) in parts {
-        write_part(blk, ptk, idxs, ms, ps, tab_ins, tid_ins)?;
+        if has_blob_type_column(blk) {
+            write_part_locked(blk, ptk, idxs, ms, ps, tab_ins, tid_ins)?;
+        } else {
+            write_part(blk, ptk, idxs, ms, ps, tab_ins, tid_ins)?;
+        }
     }
 
     Ok(())
@@ -293,6 +297,64 @@ fn gather_into_buf(
 }
 
 #[inline(always)]
+fn gather_into_blob_buf(
+    idxs: &Vec<(u32, u32)>,
+    ptr_cdata: *const u8,
+    omdata: &Vec<u32>,
+    siz_part: usize,
+) -> (Vec<u8>, Vec<usize>) {
+    debug_assert!(idxs.len() > 0);
+    let mut bb = Vec::<u8>::new();
+    let mut om = vec![0usize];
+    for r in idxs {
+        let oss = omdata[r.0 as usize];
+        let len_last = omdata[(r.1 + 1) as usize] - omdata[r.1 as usize];
+        let rlen_in_bytes = omdata[r.1 as usize] - oss + len_last;
+        let v = unsafe {
+            let ptr = ptr_cdata.offset(oss as isize);
+            slice::from_raw_parts(ptr, rlen_in_bytes as usize)
+        };
+        bb.extend_from_slice(v);
+        let oml = om.pop().unwrap();
+        let mut os = 0;
+        for i in r.0..=r.1 {
+            os = oml + (omdata[i as usize] - oss) as usize;
+            om.push(os);
+        }
+        om.push(os + len_last as usize);
+    }
+    for i in 0..om.len() {
+        om[i] += siz_part;
+    }
+    let len_blob = bb.len();
+    // unsafe {
+    //     libc::pwrite(fd as i32, bb.as_ptr() as *const c_void, len_blob, 0);
+    //     libc::pwrite(
+    //         fd_om as i32,
+    //         om.as_ptr() as *const c_void,
+    //         om.len() * size_of::<u64>(),
+    //         0,
+    //     );
+    //     close(fd as i32);
+    //     close(fd_om as i32);
+    // }
+    (bb, om)
+}
+
+#[inline(always)]
+fn has_blob_type_column(blk: &Block) -> bool {
+    for i in 0..blk.ncols {
+        let col = &blk.columns[i];
+        let cchk = &col.data;
+        let ctyp = cchk.btype;
+        if matches!(ctyp, BqlType::String) {
+            return true;
+        }
+    }
+    return false;
+}
+
+#[inline(always)]
 fn write_part(
     blk: &Block,
     ptk: u64,
@@ -327,24 +389,129 @@ fn write_part(
         //FIXME gather into bb
         let bb =
             gather_into_buf(&idxs, pt_len_in_bytes, cdata.as_ptr(), ctyp_siz);
-        unsafe {
-            libc::fallocate(
-                fd as i32,
-                0,
-                offset_in_bytes as i64,
-                pt_len_in_bytes as i64,
-            );
-            libc::pwrite(
-                fd as i32,
-                bb.as_ptr() as *const c_void,
-                pt_len_in_bytes,
-                offset_in_bytes as i64,
-            );
-            close(fd as i32);
-        }
+        dump_buf(
+            fd,
+            offset_in_bytes,
+            pt_len_in_bytes,
+            bb.as_ptr() as *const c_void,
+        );
 
-        ps.insert_copa_int_ptk(cid, ptk)?;
+        ps.insert_copa_int_ptk(cid, ptk, offset_in_bytes + pt_len_in_bytes)?;
     }
+    ps.set_copa_size_int_ptk(tid, ptk, prid + pt_len)?;
+
+    Ok(())
+}
+
+fn dump_buf(
+    fd: u32,
+    offset_in_bytes: usize,
+    pt_len_in_bytes: usize,
+    buf: *const c_void,
+) {
+    unsafe {
+        libc::fallocate(
+            fd as i32,
+            0,
+            offset_in_bytes as i64,
+            pt_len_in_bytes as i64,
+        );
+        libc::pwrite(fd as i32, buf, pt_len_in_bytes, offset_in_bytes as i64);
+        close(fd as i32);
+    }
+}
+
+//TODO slow path, to boost the performance when we want
+// #[inline(always)]
+fn write_part_locked(
+    blk: &Block,
+    ptk: u64,
+    idxs: Vec<(u32, u32)>,
+    ms: &MetaStore,
+    ps: &PartStore,
+    tab_ins: &str,
+    tid: Id,
+) -> BaseRtResult<()> {
+    let dp = ps.get_part_dir(ptk);
+    ensure_table_path_existed(tid, dp)?;
+
+    let pt_len = count_len(&idxs);
+
+    ps.acquire_lock(tid)?;
+    let prid = ps.get_prid_int_ptk(tid, ptk, pt_len)?;
+    for i in 0..blk.ncols {
+        let col = &blk.columns[i];
+        let cname = unsafe { std::str::from_utf8_unchecked(&col.name) }; //FIXME
+        let qcn = [tab_ins, cname].join(".");
+        let cid = ms.cid_by_qname(qcn).ok_or(BaseRtError::ColumnNotExist)?;
+
+        let cchk = &col.data;
+        let ctyp = cchk.btype;
+
+        match ctyp {
+            BqlType::String => {
+                let cdata = &cchk.data;
+                let omdata = cchk.offset_map.as_ref().unwrap();
+                let siz_in_bytes = ps
+                    .get_copa_siz_in_bytes_int_ptk(cid, ptk)?
+                    .unwrap_or_default();
+                let (bb, om) = gather_into_blob_buf(
+                    &idxs,
+                    cdata.as_ptr(),
+                    omdata,
+                    siz_in_bytes,
+                );
+
+                let fpath = get_part_path(tid, cid, ptk, dp)?;
+                let fd = open_file_as_fd(&fpath)?;
+                let ompath = gen_ompath_from_part_path(&fpath)?;
+                let fd_om = open_file_as_fd(&ompath)?;
+                dump_buf(
+                    fd,
+                    siz_in_bytes,
+                    bb.len(),
+                    bb.as_ptr() as *const c_void,
+                );
+                dump_buf(
+                    fd_om,
+                    prid * mem::size_of::<u64>(),
+                    om.len() * mem::size_of::<u64>(),
+                    om.as_ptr() as *const c_void,
+                );
+
+                ps.insert_copa_int_ptk(cid, ptk, siz_in_bytes + bb.len())?;
+            }
+            _ => {
+                let cdata = &cchk.data;
+                let ctyp_siz = ctyp.size()? as usize;
+                let pt_len_in_bytes = pt_len * ctyp_siz;
+                let offset_in_bytes = prid * ctyp_siz;
+                let bb = gather_into_buf(
+                    &idxs,
+                    pt_len_in_bytes,
+                    cdata.as_ptr(),
+                    ctyp_siz,
+                );
+
+                let fpath = get_part_path(tid, cid, ptk, dp)?;
+                let fd = open_file_as_fd(&fpath)?;
+                dump_buf(
+                    fd,
+                    offset_in_bytes,
+                    pt_len_in_bytes,
+                    bb.as_ptr() as *const c_void,
+                );
+
+                ps.insert_copa_int_ptk(
+                    cid,
+                    ptk,
+                    offset_in_bytes + pt_len_in_bytes,
+                )?;
+            }
+        }
+    }
+    ps.release_lock(tid)?;
+
     ps.set_copa_size_int_ptk(tid, ptk, prid + pt_len)?;
 
     Ok(())
@@ -683,5 +850,4 @@ mod unit_tests {
 
         Ok(())
     }
-
 }

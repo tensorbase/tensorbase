@@ -36,7 +36,7 @@ pub fn query(
     )?;
     log::debug!("query run time cost {:?}", timer.elapsed());
 
-    log::debug!("res: {:?}", res);
+    // log::debug!("res: {:?}", res);
     // arrow::util::pretty::print_batches(&res)?;
 
     let mut blks = Vec::with_capacity(res.len());
