@@ -88,7 +88,49 @@ async fn basic_test_insert() -> errors::Result<()> {
 }
 
 #[tokio::test]
-async fn basic_insert_decimal() -> errors::Result<()> {
+async fn basic_insert_decimal32() -> errors::Result<()> {
+    let pool = get_pool();
+    let mut conn = pool.connection().await?;
+
+    conn.execute("create database if not exists test_db")
+        .await?;
+    conn.execute("use test_db").await?;
+
+    conn.execute(format!("DROP TABLE IF EXISTS test_tab_dec"))
+        .await?;
+    conn.execute(format!("CREATE TABLE test_tab_dec(a Decimal(9,2))"))
+        .await?;
+
+    let data_a = vec![Decimal::from(12300_i32, 2), Decimal::from(1002_i32, 2)];
+    let checks = vec!["123.00", "10.02"];
+    let block = Block::new("test_tab_dec").add("a", data_a);
+
+    let mut insert = conn.insert(&block).await?;
+    insert.commit().await?;
+
+    drop(insert);
+    {
+        let sql = "select a from test_tab_dec";
+        let mut query_result = conn.query(sql).await?;
+
+        while let Some(block) = query_result.next().await? {
+            let mut i = 0;
+
+            for row in block.iter_rows() {
+                let res = row.value::<Decimal<i32>>(0)?.unwrap();
+                assert_eq!(res.to_string(), checks[i]);
+                i += 1;
+            }
+        }
+
+    }
+
+    // conn.execute("drop database if exists test_db").await?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn basic_insert_decimal64() -> errors::Result<()> {
     let pool = get_pool();
     let mut conn = pool.connection().await?;
 
@@ -103,7 +145,7 @@ async fn basic_insert_decimal() -> errors::Result<()> {
 
     let data_a = vec![Decimal::from(12300_i64, 2), Decimal::from(100_200_300_120_i64, 2)];
     let checks = vec!["123.00", "1002003001.20"];
-    let block = { Block::new("test_tab_dec").add("a", data_a) };
+    let block = Block::new("test_tab_dec").add("a", data_a);
 
     let mut insert = conn.insert(&block).await?;
     insert.commit().await?;
@@ -189,8 +231,7 @@ async fn basic_insert_lcstring() -> errors::Result<()> {
 
     let data_s = vec!["a", "b", "c", "a", "b", "a"];
     let _count_res = data_s.len() as i64;
-    let block = { Block::new("test_tab").add("s", data_s) };
-
+    let block = Block::new("test_tab").add("s", data_s);
     let mut insert = conn.insert(&block).await?;
     insert.commit().await?;
 
@@ -199,6 +240,90 @@ async fn basic_insert_lcstring() -> errors::Result<()> {
     Ok(())
 }
 
+
+#[tokio::test]
+async fn basic_insert_string() -> errors::Result<()> {
+    let pool = get_pool();
+    let mut conn = pool.connection().await?;
+
+    conn.execute("create database if not exists test_db")
+        .await?;
+    conn.execute("use test_db").await?;
+
+    conn.execute(format!("DROP TABLE IF EXISTS test_tab"))
+        .await?;
+    conn.execute(format!("CREATE TABLE test_tab(s String)"))
+        .await?;
+
+    let data_s = vec!["a", "ab", "abc"];
+    // let count_res = data_s.len() as i64;
+    let block = Block::new("test_tab").add("s", data_s.clone());
+
+    let mut insert = conn.insert(&block).await?;
+    insert.commit().await?;
+
+    drop(insert);
+    {
+        let sql = "select s from test_tab";
+        let mut query_result = conn.query(sql).await?;
+
+        while let Some(block) = query_result.next().await? {
+            let mut i = 0;
+
+            for row in block.iter_rows() {
+                let res: &str = row.value(0)?.unwrap();
+                assert_eq!(res.to_string(), data_s[i]);
+                i += 1;
+            }
+        }
+    }
+
+    // conn.execute("drop database if exists test_db").await?;
+    Ok(())
+}
+
+
+// #[tokio::test]
+// async fn basic_insert_fixedstring() -> errors::Result<()> {
+//     let pool = get_pool();
+//     let mut conn = pool.connection().await?;
+
+//     conn.execute("create database if not exists test_db")
+//         .await?;
+//     conn.execute("use test_db").await?;
+
+//     conn.execute(format!("DROP TABLE IF EXISTS test_tab"))
+//         .await?;
+//     conn.execute(format!("CREATE TABLE test_tab(s FixedString(3)) ENGINE=Memory"))
+//         .await?;
+
+//     let data_s = vec![b"a  ", b"ab ", b"abc"];
+//     // let count_res = data_s.len() as i64;
+//     let block = Block::new("test_tab").add("s", data_s.clone());
+
+//     let mut insert = conn.insert(&block).await?;
+//     insert.commit().await?;
+
+//     drop(insert);
+//     {
+//         let sql = "select s from test_tab";
+//         let mut query_result = conn.query(sql).await?;
+
+//         while let Some(block) = query_result.next().await? {
+//             let mut i = 0;
+
+//             for row in block.iter_rows() {
+//                 let res: &str = row.value(0)?.unwrap();
+//                 // assert_eq!(res.to_string(), data_s[i]);
+//                 println!("{}", res.to_string());
+//                 i += 1;
+//             }
+//         }
+//     }
+
+//     // conn.execute("drop database if exists test_db").await?;
+//     Ok(())
+// }
 // #[tokio::test]
 // async fn test_insert_large_block() -> errors::Result<()> {
 //     let pool = get_pool();

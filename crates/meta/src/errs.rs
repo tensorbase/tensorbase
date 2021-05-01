@@ -72,11 +72,14 @@ pub enum MetaError {
     #[error("Get offset error in ps")]
     GetOffsetErrorInPartStore,
 
-    #[error("Error when getting pi")]
-    GetPIError,
+    #[error("Error when getting part info")]
+    GetPartInfoError,
 
-    #[error("Can not find pt error")]
-    CanNotFindPTError,
+    #[error("Error when inserting part info")]
+    InsertPartInfoError,
+
+    #[error("Can not find part error")]
+    CanNotFindPartError,
 
     // #[error("Error when getting fd size from ps")]
     // GetFdSizeError,
@@ -92,6 +95,15 @@ pub enum MetaError {
 
     #[error("No enough space for cache")]
     NoEnoughCacheSpace,
+
+    #[error("Fail to lock table")]
+    FailToLockTable,
+
+    #[error("The entity should has lock but not")]
+    ShouldHasLockButNot,
+
+    #[error("Option is None But should not")]
+    OptionIsNoneButShouldNot,
 }
 
 

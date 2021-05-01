@@ -1,11 +1,12 @@
 use std::{
     ffi::CStr,
     io::{Error, ErrorKind},
+    thread::park_timeout,
+    time::Duration,
 };
 
 use base::{bytes_cat, mem::MemAddr, mmap::mm_file_ro};
 use libc::close;
-use sled::IVec;
 
 use crate::{
     errs::{MetaError, MetaResult},
@@ -15,21 +16,21 @@ use crate::{
 ///
 ///## Basic designs and concepts about Parts:
 ///
-///* Partition Tree: 
-///  store and manage the meta infos to partition data horizontally in TB. 
-///  All tables should have implicit or explicit partition infos 
+///* Partition Tree:
+///  store and manage the meta infos to partition data horizontally in TB.
+///  All tables should have implicit or explicit partition infos
 ///  from their creations.
 ///
 ///* Part Store:
 ///  a implementation for the partition tree.
 ///  currently to use sled is not performant and could be changed in the future
 ///
-///* Copa(Column Partition): 
-///  TB is columnar, so the partition is columnar, which is called as CoPa(is 
+///* Copa(Column Partition):
+///  TB is columnar, so the partition is columnar, which is called as CoPa(is
 ///  short for Column Partition). Data in the CoPa are append-only and unordered.
 ///
-///* Partition Key: 
-///  All tables should specify the partition keys implicitly or explicitly from 
+///* Partition Key:
+///  All tables should specify the partition keys implicitly or explicitly from
 ///  their creations.
 ///
 
@@ -38,22 +39,47 @@ use crate::{
 #[repr(C)]
 pub struct CoPaInfo {
     pub addr: MemAddr,
+    pub addr_om: MemAddr,
     pub size: usize, //WARN size is not the len of bytes, it is the size of that copa
     pub len_in_bytes: usize,
 }
 
 impl CoPaInfo {
-    pub fn len_in_bytes(size: usize, col_typ: BqlType) -> MetaResult<usize> {
-        Ok(size * (col_typ.size()? as usize))
+    #[inline(always)]
+    pub fn len_in_bytes(
+        size: usize,
+        col_typ: BqlType,
+        cid: Id,
+        ptk: u64,
+        ps: &PartStore,
+    ) -> MetaResult<usize> {
+        match col_typ {
+            BqlType::String => Ok(ps
+                .get_copa_siz_in_bytes_int_ptk(cid, ptk)?
+                .unwrap_or_default()),
+            _ => Ok(size * (col_typ.size()? as usize)),
+        }
+    }
+
+    #[inline(always)]
+    pub fn len_in_bytes_om(size: usize) -> usize {
+        size * std::mem::size_of::<u64>()
     }
 }
 
 #[inline(always)]
 pub fn open_file_as_fd(fpath: &Vec<u8>) -> MetaResult<u32> {
-    let part_file =
-        CStr::from_bytes_with_nul(fpath).map_err(|_| MetaError::GetPIError)?;
+    let part_file = CStr::from_bytes_with_nul(fpath)
+        .map_err(|_| MetaError::GetPartInfoError)?;
     open(part_file)
 }
+
+// #[inline(always)]
+// pub fn open_file_as_fd_append(fpath: &Vec<u8>) -> MetaResult<u32> {
+//     let part_file = CStr::from_bytes_with_nul(fpath)
+//         .map_err(|_| MetaError::GetPartInfoError)?;
+//     open_append(part_file)
+// }
 
 #[inline]
 pub fn ensure_table_path_existed(tid: Id, dp: &str) -> MetaResult<()> {
@@ -64,7 +90,7 @@ pub fn ensure_table_path_existed(tid: Id, dp: &str) -> MetaResult<()> {
     n += 1;
     let dir_path = bytes_cat!(dp.as_bytes(), b"/", &bs_dn[..=n]);
     let dir = CStr::from_bytes_with_nul(&dir_path)
-        .map_err(|_e| MetaError::GetPIError)?;
+        .map_err(|_e| MetaError::GetPartInfoError)?;
     mkdir(dir)?;
     // log::debug!("mkdir : {:?} done!", &dir);
     Ok(())
@@ -95,12 +121,27 @@ pub fn get_part_path(
     Ok(fpath)
 }
 
+#[inline]
+pub fn gen_ompath_from_part_path(part_path: &Vec<u8>) -> MetaResult<Vec<u8>> {
+    let mut ompath = Vec::with_capacity(part_path.len() + 2);
+    ompath.extend_from_slice(part_path);
+    let idx = ompath
+        .iter()
+        .position(|&e| e == 0)
+        .ok_or(MetaError::OptionIsNoneButShouldNot)?;
+    ompath.insert(idx, b'm');
+    ompath.insert(idx, b'o');
+    Ok(ompath)
+}
+
 pub struct PartStore<'a> {
     data_dirs: &'a Vec<String>,
-    #[allow(dead_code)] mdb: sled::Db,
+    #[allow(dead_code)]
+    mdb: sled::Db,
     tree_parts: sled::Tree,
     tree_prids: sled::Tree,
     tree_part_size: sled::Tree,
+    tree_locks: sled::Tree,
 }
 
 impl<'a> PartStore<'a> {
@@ -123,6 +164,9 @@ impl<'a> PartStore<'a> {
             mdb.open_tree(b"pt").map_err(|_| MetaError::OpenError)?;
         let tree_prids =
             mdb.open_tree(b"pr").map_err(|_| MetaError::OpenError)?;
+        let tree_locks =
+            mdb.open_tree(b"l").map_err(|_e| MetaError::OpenError)?;
+        tree_locks.clear().map_err(|_e| MetaError::OpenError)?;
 
         Ok(PartStore {
             mdb,
@@ -130,7 +174,72 @@ impl<'a> PartStore<'a> {
             tree_parts,
             tree_prids,
             tree_part_size,
+            tree_locks,
         })
+    }
+
+    //NOTE a table lock is implemented by acquire_lock, release_lock, is_locked
+    pub fn acquire_lock(&self, tid: Id) -> MetaResult<()> {
+        let kbs = tid.to_be_bytes();
+        loop {
+            if self.is_locked(tid)? {
+                park_timeout(Duration::from_micros(1)); //FIXME
+            }
+            //try to lock
+            let res_cas = self
+                .tree_locks
+                .compare_and_swap(kbs, Some(&[0]), Some(&[1]))
+                .map_err(|_| MetaError::FailToLockTable)?;
+            match res_cas {
+                Ok(_) => break,
+                Err(_) => continue,
+            }
+        }
+        Ok(())
+    }
+
+    pub fn release_lock(&self, tid: Id) -> MetaResult<()> {
+        self.tree_locks
+            .insert(tid.to_be_bytes(), &[0])
+            .map_err(|_| MetaError::GetPartInfoError)?;
+
+        Ok(())
+    }
+
+    #[inline]
+    fn is_locked(&self, tid: Id) -> MetaResult<bool> {
+        let kbs = tid.to_be_bytes();
+        let res = self
+            .tree_locks
+            .get(kbs)
+            .map_err(|_| MetaError::FailToLockTable)?;
+        match res {
+            Some(iv) => {
+                let v = *(&*iv).into_ref::<u8>();
+                return Ok(v == 1);
+            }
+            None => {
+                let res_cas = self
+                    .tree_locks
+                    .compare_and_swap(kbs, None as Option<&[u8]>, Some(&[0]))
+                    .map_err(|_| MetaError::FailToLockTable)?;
+                match res_cas {
+                    Ok(_) => return Ok(true),
+                    Err(_) => {
+                        if let Some(iv) = self
+                            .tree_locks
+                            .get(kbs)
+                            .map_err(|_| MetaError::ShouldHasLockButNot)?
+                        {
+                            let v = *(&*iv).into_ref::<u8>();
+                            return Ok(v == 1);
+                        } else {
+                            return Err(MetaError::ShouldHasLockButNot);
+                        }
+                    }
+                }
+            }
+        }
     }
 
     #[inline]
@@ -144,10 +253,7 @@ impl<'a> PartStore<'a> {
         let kbs = k.as_bytes();
         if let Ok(Some(v)) = self.tree_part_size.fetch_and_update(kbs, |old| {
             let old_num = match old {
-                Some(bytes) => {
-                    let v0 = *bytes.into_ref::<usize>();
-                    v0
-                }
+                Some(bytes) => *bytes.into_ref::<usize>(),
                 None => 0,
             };
             Some((old_num + reserved_len).as_bytes().to_vec())
@@ -169,19 +275,40 @@ impl<'a> PartStore<'a> {
         let kbs = k.as_bytes();
         self.tree_prids
             .insert(kbs, part_size.as_bytes())
-            .map_err(|_| MetaError::GetPIError)?;
+            .map_err(|_| MetaError::InsertPartInfoError)?;
         Ok(())
     }
 
     //FIXME possibly add more metadata
     #[inline]
-    pub fn insert_copa_int_ptk(&self, cid: Id, ptk: u64) -> MetaResult<()> {
+    pub fn insert_copa_int_ptk(
+        &self,
+        cid: Id,
+        ptk: u64,
+        siz_in_bytes: usize,
+    ) -> MetaResult<()> {
         let k = (cid.to_be(), ptk.to_be());
         let kbs = k.as_bytes();
         self.tree_parts
-            .insert(kbs, IVec::default())
-            .map_err(|_| MetaError::GetPIError)?;
+            .insert(kbs, siz_in_bytes.as_bytes())
+            .map_err(|_| MetaError::InsertPartInfoError)?;
         Ok(())
+    }
+
+    #[inline]
+    pub fn get_copa_siz_in_bytes_int_ptk(
+        &self,
+        cid: Id,
+        ptk: u64,
+    ) -> MetaResult<Option<usize>> {
+        let k = (cid.to_be(), ptk.to_be());
+        let kbs = k.as_bytes();
+        let rt = self
+            .tree_parts
+            .get(kbs)
+            .map_err(|_| MetaError::GetPartInfoError)?
+            .map(|iv| *(&*iv).into_ref::<usize>());
+        Ok(rt)
     }
 
     pub fn get_part_dir(&self, ptk: u64) -> &String {
@@ -219,27 +346,36 @@ impl<'a> PartStore<'a> {
                     let iv_part_siz = self
                         .tree_prids
                         .get(kbs)
-                        .map_err(|_| MetaError::GetPIError)?
-                        .ok_or(MetaError::CanNotFindPTError)?;
+                        .map_err(|_| MetaError::GetPartInfoError)?
+                        .ok_or(MetaError::CanNotFindPartError)?;
                     let size = *(&*iv_part_siz).into_ref::<usize>();
                     let dp = self.get_part_dir(ptk);
                     let fpath = get_part_path(tid, *cid, ptk, dp)?;
                     // println!("fpath: {}", std::str::from_utf8(&fpath).unwrap());
                     let pfd = open_file_as_fd(&fpath)?;
-                    //FIXME now only for fixed size type
-                    let len_in_bytes = CoPaInfo::len_in_bytes(size, *col_typ)?;
+                    let len_in_bytes =
+                        CoPaInfo::len_in_bytes(size, *col_typ, *cid, ptk, self)?;
                     // log::debug!("copar size: {}, len: {}", size, len);
                     let addr = mm_file_ro(pfd, len_in_bytes)?;
+                    //issue#22 add om
+                    let addr_om = if matches!(*col_typ, BqlType::String) {
+                        let ompath = gen_ompath_from_part_path(&fpath)?;
+                        let fd_om = open_file_as_fd(&ompath)?;
+                        mm_file_ro(fd_om, CoPaInfo::len_in_bytes_om(size))?
+                    } else {
+                        0 as MemAddr
+                    };
                     unsafe {
                         close(pfd as i32);
                     }
                     cps.push(CoPaInfo {
                         addr,
+                        addr_om,
                         size,
                         len_in_bytes,
                     })
                 } else {
-                    return Err(MetaError::GetPIError);
+                    return Err(MetaError::GetPartInfoError);
                 }
             }
             copass_ret.push(cps);
@@ -260,7 +396,7 @@ impl<'a> PartStore<'a> {
         Ok(())
     }
 
-    #[allow(dead_code)] 
+    #[allow(dead_code)]
     fn pretty_print(&self) -> MetaResult<()> {
         let name = &*self.mdb.name();
         println!("psdb: {}", unsafe { std::str::from_utf8_unchecked(&*name) });
@@ -393,15 +529,13 @@ fn open(path: &CStr) -> MetaResult<u32> {
 
 #[cfg(test)]
 mod unit_tests {
-    use baselog::{
-        ConfigBuilder, LevelFilter, TermLogger, TerminalMode,
-    };
+    use baselog::{ConfigBuilder, LevelFilter, TermLogger, TerminalMode};
     use walkdir::WalkDir;
 
     use super::*;
     use crate::errs::MetaResult;
-    use std::path::Path;
     use std::fs::create_dir_all;
+    use std::path::Path;
     use std::{fs::remove_dir_all, time::Instant};
 
     fn prepare_dirs(tmp_dir: &str) -> MetaResult<(String, String)> {
@@ -519,6 +653,9 @@ mod unit_tests {
             for cid in 0..100 {
                 for ptk in 0..1000 {
                     let pp = get_part_path(tid, cid, ptk, data_dir.as_str())?;
+                    let omp = gen_ompath_from_part_path(&pp)?;
+                    let omp_len = omp.len();
+                    assert_eq!(&omp[omp_len - 3..omp_len], b"om\0");
                     bh += pp.len();
                 }
             }
@@ -558,7 +695,7 @@ mod unit_tests {
                 let fd = open_file_as_fd(&fpath)?;
                 assert!(fd > 0);
                 ps.set_copa_size_int_ptk(tid, ptk, ptk as usize)?;
-                ps.insert_copa_int_ptk(*cid, ptk)?;
+                ps.insert_copa_int_ptk(*cid, ptk, 0)?;
             }
         }
 
