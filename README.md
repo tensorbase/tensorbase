@@ -7,7 +7,7 @@ During this period, You can put two hours into TensorBase to try to roll out a c
 1. You have the right to get one-hour online mentoring from the committer(s) of TensorBase.
 2. You try to hack a small feature contribution in one next hour.
 
-Easy-to-start issues have been [labeled]((https://github.com/tensorbase/tensorbase/issues?q=is%3Aissue+is%3Aopen+label%3Achallenge%2Ftwo-hour-feat-flash)). But you are welcome to challenge any one, even you can propose a new issue.
+Easy-to-start issues have been [labeled](https://github.com/tensorbase/tensorbase/issues?q=is%3Aissue+is%3Aopen+label%3Achallenge%2Ftwo-hour-feat-flash). But you are welcome to challenge any one, even you can propose a new issue.
 
 Use [kinds of communications](#communications) to order your mentoring time. 
 
