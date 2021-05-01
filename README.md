@@ -1,14 +1,15 @@
 ## Quick News
 
-From 2021.05.01 to 05.05, TensorBase opens a small challenge: "two hour feat flash". 
+From 2021.05.01 to 05.05, TensorBase opens a small challenge: ["two hour feat flash"](https://github.com/tensorbase/tensorbase/issues?q=is%3Aissue+is%3Aopen+label%3Achallenge%2Ftwo-hour-feat-flash). 
 
 During this period, You can put two hours into TensorBase to try to roll out a contribution.
 
 1. You have the right to get one-hour online mentoring from the committer(s) of TensorBase.
 2. You try to hack a small feature contribution in one next hour.
 
-Use [kinds of communications](#communications) to order your mentoring time. 
+Easy-to-start issues have been [labeled]((https://github.com/tensorbase/tensorbase/issues?q=is%3Aissue+is%3Aopen+label%3Achallenge%2Ftwo-hour-feat-flash)). But you are welcome to challenge any one, even you can propose a new issue.
 
+Use [kinds of communications](#communications) to order your mentoring time. 
 
 ## What is TensorBase
 TensorBase is a new big data warehousing with modern efforts.
