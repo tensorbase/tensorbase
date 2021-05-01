@@ -1,6 +1,6 @@
 ## Quick News
 
-From 5.1 to 5.5, TensorBase opens a small challenge: "two hour feat flash". 
+From 2021.05.01 to 05.05, TensorBase opens a small challenge: "two hour feat flash". 
 
 During this period, You can put two hours into TensorBase to try to roll out a contribution.
 
