@@ -1,3 +1,15 @@
+## Quick News
+
+From 5.1 to 5.5, TensorBase opens a small challenge: "two hour feat flash". 
+
+During this period, You can put two hours into TensorBase to try to roll out a contribution.
+
+1. You have the right to get one-hour online mentoring from the committer(s) of TensorBase.
+2. You try to hack a small feature contribution in one next hour.
+
+Use [kinds of communications](#communications) to order your mentoring time. 
+
+
 ## What is TensorBase
 TensorBase is a new big data warehousing with modern efforts.
 
