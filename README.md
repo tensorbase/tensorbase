@@ -1,4 +1,4 @@
-## Quick News
+## :rocket: Quick News
 
 From 2021.05.01 to 05.05, TensorBase opens a small challenge: ["two hour feat flash"](https://github.com/tensorbase/tensorbase/issues?q=is%3Aissue+is%3Aopen+label%3Achallenge%2Ftwo-hour-feat-flash). 
 
