@@ -14,14 +14,12 @@ use crate::ch::protocol::{
 };
 use crate::errs::{BaseRtError, BaseRtResult};
 
-use super::{
-    protocol::{StageKind, LZ4_COMPRESSION_METHOD},
-};
+use super::protocol::{StageKind, LZ4_COMPRESSION_METHOD};
 
 const DBMS_NAME: &'static str = "TensorBase";
 //FIXME to include from path
 const DBMS_VERSION_MAJOR: u64 = 2021;
-const DBMS_VERSION_MINOR: u64 = 3;
+const DBMS_VERSION_MINOR: u64 = 5;
 const REVISION: u64 = 54405; //54441?
 const DBMS_VERSION_PATCH: u64 = 0;
 
@@ -306,9 +304,15 @@ fn response_query(
     //FIXME now just allow empty setting?
     let setting_str = rb.read_str()?;
     if setting_str.len() != 0 {
-        return Err(BaseRtError::UnsupportedFunctionality2(
-            "TensorBase does not support such settings",
-        ));
+        if setting_str != "format_csv_delimiter" {
+            log::error!("setting_str: {}", setting_str);
+            return Err(BaseRtError::UnsupportedFunctionality2(
+                "TensorBase does not support such settings",
+            ));
+        } else {//FIXME temp workaround for tpch
+            let _ = rb.read_str()?;
+            let _ = rb.read_str()?;
+        }
     }
 
     let stage = rb.read_varint()?;
