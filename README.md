@@ -59,7 +59,9 @@ More detail about this benchmark seen [in benchmarks](/docs/benchmarks.md).
 
 ## Roadmap
 
-[Milestones](https://github.com/tensorbase/tensorbase/milestones)
+* [Milestones](https://github.com/tensorbase/tensorbase/milestones)
+* [This Week in TensorBase](https://tensorbase.io/tw/)
+
 ## Dev Meeting
 
 We setup an online dev meeting on Zoom at Wednesday 7:00pm (UTC+8) or at Tencent Meeting at Friday 7:00pm (UTC+8). The meeting url will be shared before the start time in [Discord server](https://discord.gg/E72n2jzgKD) and [Slack Channel](https://join.slack.com/t/tensorbase/shared_invite/zt-ntwmjvpu-TQ9drOdUwNJWmUTXvxMumA) for Zoom, or Wechat group for Tencent Meeting.
