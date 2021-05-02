@@ -10,11 +10,13 @@ In the future, more protocols/dialects may be compatible(e.g. MySQL).
 * UInt8/UInt16/UInt32/UInt64
 * Datetime
 In TensorBase, the Datetime type just means Datetime32. ClickHouse Datetime type uses a mental model with timezone attribute. TensorBase follows this model like ClickHouse.
-* LowCardinality(String)
-* Decimal(WIP)
+* Decimal
 In TensorBase, the Decimal type just means Decimal(9,2). 
 You can use Decimal(P,S) format for further Decimal type customization.
-* String(coming soon)
+* String
+* FixedString(WIP)
+* Date(WIP) 
+* LowCardinality(String) (WIP)
 
 ### Statements
 * create database 
