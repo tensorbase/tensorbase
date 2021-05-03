@@ -12,8 +12,8 @@ Read the [RFCs here](/docs/rfcs.md).
 
 ## Platform Requirements
 
-* OS: Linux (or Linux guest containers supported...not tested)
-* CPU: N/A
+* OS: Linux (Windows 10 WSL2 or VMs/Docker containers) (Macos is not support now)
+* CPU: x86-64 or others (not tested)
 
 ### Tools Recommendation
 
