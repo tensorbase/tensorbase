@@ -52,6 +52,8 @@ The development of TensorBase is same to the idiom of Rust engineering.
 
     TensorBase supports high concurrent ingestions from clickhouse-client and native protocol drivers ( [Rust client driver here](/crates/tests_integ/ch_client)). Welcome to practice!
 
+8. and TensorBase thanks for your contributions, read [Contributing](/docs/CONTRIBUTING.md) for more.
+
 ## Get Started Live Recording
 ---------------------------
 ![play_out_of_the_box](https://user-images.githubusercontent.com/237573/115368682-e5d80400-a1f9-11eb-9a9e-deeb4d5d58d2.gif)
