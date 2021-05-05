@@ -12,12 +12,6 @@ pub enum LangError {
     #[error("Error when AST processing")]
     ASTError,
 
-    #[error("Error when HIR processing")]
-    HIRError,
-
-    #[error("Error when LIR processing")]
-    LIRError,
-
     #[error("Unsupported language feature found")]
     UnsupportedLangFeatureError,
 
@@ -26,12 +20,6 @@ pub enum LangError {
 
     #[error("Unsupported function found")]
     UnsupportedFunction,
-
-    #[error("Error when resolving column")]
-    ColumnResolutionError,
-
-    #[error("Some entity not existed when resolving column")]
-    ColumnResolutionNotExistedError,
 
     #[error(transparent)]
     WrappingMetaError(#[from] meta::errs::MetaError),
@@ -53,10 +41,4 @@ pub enum LangError {
 
     #[error("Unsupported BqlType error")]
     UnsupportedBqlTypeError,
-
-    #[error("Unexpected error which should not happen")]
-    UnexpectedIRError,
-
-    #[error("Error when resolving scalar expr")]
-    ScalarExprResolutionError,
 }
