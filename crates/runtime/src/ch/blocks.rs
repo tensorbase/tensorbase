@@ -1,9 +1,6 @@
 use std::{convert::TryFrom, slice};
 
-use arrow::{
-    datatypes::DataType,
-    record_batch::RecordBatch,
-};
+use arrow::{array::{self, Array}, datatypes::DataType, record_batch::RecordBatch};
 use bytes::{Buf, BufMut, BytesMut};
 use clickhouse_rs_cityhash_sys::city_hash_128;
 use lzzzz::lz4;
@@ -414,9 +411,19 @@ impl TryFrom<RecordBatch> for Block {
             let btype = arrow_type_to_btype(fields[i].data_type())?;
             let name = fields[i].name().as_bytes().to_vec();
             let col = &cols[i];
-            let buf = &col.data().buffers()[0];
+            let cd = col.data();
+            // let array = col.as_any().downcast_ref::<array::Int64Array>().unwrap().values();
+            let buf = &cd.buffers()[0];
+            // log::debug!("cd.get_array_memory_size(): {}", cd.get_array_memory_size());
+            let len_in_bytes = if matches!(btype, BqlType::String) {
+                let arr = col.as_any().downcast_ref::<array::LargeStringArray>().unwrap();
+                let ofs = arr.value_offsets().last().copied().ok_or(BaseRtError::FailToUnwrapOpt)?;
+                ofs as usize
+            } else {
+                btype.size()? as usize * col.len()
+            };
             let data = unsafe {
-                std::slice::from_raw_parts(buf.as_ptr(), buf.len()).to_vec()
+                std::slice::from_raw_parts(buf.as_ptr(), len_in_bytes).to_vec()
             };
             blk.nrows = col.len(); //FIXME all rows are in same size
 
