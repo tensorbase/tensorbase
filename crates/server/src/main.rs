@@ -8,7 +8,7 @@ use std::pin::Pin;
 use std::task::{Context, Poll};
 use std::{env, future::Future};
 
-use runtime::ch::protocol::ConnCtx;
+use runtime::{ch::protocol::ConnCtx, mgmt::READ, read::query};
 use runtime::ch::{
     codecs::{BytesExt, CHMsgWriteAware},
     protocol::StageKind,
@@ -175,6 +175,9 @@ async fn main() -> io::Result<()> {
         conf.server.port.to_string().as_str(),
     ]
     .join(":");
+
+    //init
+    READ.get_or_init(|| query );
 
     // start http server
     Server::build()

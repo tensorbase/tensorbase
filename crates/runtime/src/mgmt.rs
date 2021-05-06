@@ -17,8 +17,14 @@ use meta::{
     types::{BaseChunk, BqlType, Id},
 };
 use std::{
-    env, fs::remove_dir_all, lazy::SyncLazy, panic::panic_any, path::Path,
-    pin::Pin, sync::Mutex, time::Instant,
+    env,
+    fs::remove_dir_all,
+    lazy::{SyncLazy, SyncOnceCell},
+    panic::panic_any,
+    path::Path,
+    pin::Pin,
+    sync::Mutex,
+    time::Instant,
 };
 
 use clap::{App, Arg};
@@ -31,6 +37,23 @@ use crate::{
     },
     errs::{BaseRtError, BaseRtResult},
 };
+
+pub static READ: SyncOnceCell<
+    fn(
+        ms: &MetaStore,
+        ps: &PartStore,
+        query_id: &str,
+        current_db: &str,
+        p: Pair<Rule>,
+        tz_offset: i32,
+    ) -> BaseRtResult<Vec<Block>>,
+> = SyncOnceCell::new();
+
+// pub write: fn(
+//     blk: &Block,
+//     tab_ins: &str,
+//     tid_ins: Id,
+// ) -> BaseRtResult<()>,
 
 pub struct BaseHasher {
     state: u64,
@@ -128,17 +151,6 @@ pub static BMS: SyncLazy<BaseMgmtSys> = SyncLazy::new(|| {
 pub static EXPR_JIT: SyncLazy<Mutex<jit::JIT>> =
     SyncLazy::new(|| Mutex::new(jit::JIT::default()));
 
-// pub fn bms<'a>() -> BaseRtResult<&'a BaseMgmtSys<'a>> {
-//     Ok(BMS.get().ok_or(BaseRtError::BMSNotAvailableError)?)
-// }
-
-// pub fn bms_conf() -> BaseRtResult<&'static Conf> {
-//     Ok(&bms()?.conf)
-// }
-
-// pub fn bms_tz_sys() -> BaseRtResult<&'static str> {
-//     Ok(&bms()?.timezone_sys)
-// }
 //FIXME
 #[derive(Debug)]
 pub enum BaseCommandKind {
@@ -652,7 +664,8 @@ impl<'a> BaseMgmtSys<'a> {
         query_id: &str,
         // raw_query: String,
     ) -> BaseRtResult<BaseCommandKind> {
-        let blks = crate::read::query(
+        let read = READ.get().unwrap();
+        let blks = read(
             &self.meta_store,
             &self.part_store,
             query_id,

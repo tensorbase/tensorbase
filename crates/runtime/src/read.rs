@@ -10,7 +10,7 @@ use crate::{
     errs::BaseRtResult,
 };
 
-pub(crate) fn query(
+pub fn query(
     ms: &MetaStore,
     ps: &PartStore,
     query_id: &str,
