@@ -97,11 +97,11 @@ async fn basic_insert_decimal() -> errors::Result<()> {
 
     conn.execute(format!("DROP TABLE IF EXISTS test_tab_dec"))
         .await?;
-    conn.execute(format!("CREATE TABLE test_tab_dec(a Decimal(9,2))"))
+    conn.execute(format!("CREATE TABLE test_tab_dec(a Decimal(12,2))"))
         .await?;
 
-    let data_a = vec![Decimal::from(12300_i32, 2), Decimal::from(1002_i32, 2)];
-    let checks = vec!["123.00", "10.02"];
+    let data_a = vec![Decimal::from(12300_i64, 2), Decimal::from(100_200_300_120_i64, 2)];
+    let checks = vec!["123.00", "1002003001.20"];
     let block = { Block::new("test_tab_dec").add("a", data_a) };
 
     let mut insert = conn.insert(&block).await?;
@@ -116,7 +116,7 @@ async fn basic_insert_decimal() -> errors::Result<()> {
             let mut i = 0;
 
             for row in block.iter_rows() {
-                let res = row.value::<Decimal<i32>>(0)?.unwrap();
+                let res = row.value::<Decimal<i64>>(0)?.unwrap();
                 assert_eq!(res.to_string(), checks[i]);
                 i += 1;
             }

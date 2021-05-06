@@ -121,7 +121,13 @@ impl BqlType {
             BqlType::Int(siz) => Ok(siz / 8),
             BqlType::UInt(siz) => Ok(siz / 8),
             BqlType::DateTime => Ok(4),
-            BqlType::Decimal(_p, _s) => Ok(4),
+            BqlType::Decimal(p, _s) => {
+                if p < 10 { 
+                    Ok(4) 
+                } else { 
+                    Ok(8)
+                }
+            },
             // BqlType::LowCardinalityString => Ok(128),
             _ => Err(MetaError::NoFixedSizeDataTypeError),
         }
