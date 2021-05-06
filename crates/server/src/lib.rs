@@ -1,34 +1,25 @@
-#![feature(once_cell)]
-
-#[global_allocator]
-static GLOBAL: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
-
-use std::io;
+use std::future::Future;
 use std::pin::Pin;
 use std::task::{Context, Poll};
-use std::{env, future::Future};
 
-use runtime::{ch::protocol::ConnCtx, mgmt::READ, read::query};
+use runtime::ch::messages::response_to;
+use runtime::ch::protocol::ConnCtx;
 use runtime::ch::{
     codecs::{BytesExt, CHMsgWriteAware},
     protocol::StageKind,
 };
 use runtime::errs::BaseRtError;
-use runtime::{ch::messages::response_to, mgmt::BMS};
 
 use actix_codec::{AsyncRead, AsyncWrite};
 use actix_rt::net::TcpStream;
-use actix_server::Server;
-use actix_service::fn_service;
-use baselog::{ConfigBuilder, LevelFilter, TermLogger, TerminalMode};
-use bytes::{Buf, BytesMut};
-use log::*;
 
-struct BaseSrvConn {
-    io: TcpStream,
-    read_buf: BytesMut,
-    write_buf: BytesMut,
-    conn_ctx: ConnCtx,
+use bytes::{Buf, BytesMut};
+
+pub struct BaseSrvConn {
+    pub io: TcpStream,
+    pub read_buf: BytesMut,
+    pub write_buf: BytesMut,
+    pub conn_ctx: ConnCtx,
     // data_packets_processed: bool,
     // use_db: String,
 }
@@ -139,59 +130,4 @@ impl Future for BaseSrvConn {
         }
         Poll::Pending
     }
-}
-
-#[actix_rt::main]
-async fn main() -> io::Result<()> {
-    let enable_dbg_log = match env::var("enable_dbg_log") {
-        Ok(_v) => true,
-        Err(_e) => false,
-    };
-    #[allow(unused_must_use)]
-    {
-        TermLogger::init(
-            if enable_dbg_log {
-                LevelFilter::Debug
-            } else {
-                LevelFilter::Info
-            },
-            ConfigBuilder::new()
-                .add_filter_ignore_str("sled")
-                .add_filter_ignore_str("cranelift")
-                .build(),
-            TerminalMode::Mixed,
-        );
-    }
-
-    #[cfg(debug_assertions)]
-    info!("[Base] built in debug mode");
-
-    #[cfg(not(debug_assertions))]
-    info!("[Base] built in release mode");
-
-    let conf = &BMS.conf;
-    let srv_addr = [
-        conf.server.ip_addr.as_str(),
-        conf.server.port.to_string().as_str(),
-    ]
-    .join(":");
-
-    //init
-    READ.get_or_init(|| query );
-
-    // start http server
-    Server::build()
-        .backlog(1024)
-        .bind("base_srv", srv_addr, || {
-            fn_service(|io: TcpStream| BaseSrvConn {
-                io,
-                read_buf: BytesMut::with_capacity(4096),
-                write_buf: BytesMut::with_capacity(4096),
-                conn_ctx: Default::default(),
-                // data_packets_processed: false,
-                // use_db: "default".to_string(),
-            })
-        })?
-        .start()
-        .await
 }

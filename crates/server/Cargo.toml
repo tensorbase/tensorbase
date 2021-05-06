@@ -19,3 +19,10 @@ baselog = { git = "https://github.com/tensorbase/baselog.git", branch = "main"}
 
 [target.'cfg(not(target_env = "msvc"))'.dependencies]
 tikv-jemallocator = "0.4"
+
+[lib]
+path = "src/lib.rs"
+
+[[bin]]
+name = "server"
+path = "src/server.rs"
