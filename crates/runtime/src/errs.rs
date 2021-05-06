@@ -6,6 +6,9 @@ use thiserror::Error;
 pub type BaseRtResult<T> = std::result::Result<T, BaseRtError>;
 #[derive(Debug, Error)]
 pub enum BaseRtError {
+    #[error("Generic String Error: '{0}'")]
+    GenericStringError(String),
+
     #[error("Generic TensorBase server error")]
     GenericError,
 
@@ -147,7 +150,8 @@ pub enum BaseRtError {
 impl BaseRtError {
     pub fn to_err_code(&self) -> u32 {
         match self {
-            BaseRtError::GenericError => 1,
+            BaseRtError::GenericError => 0,
+            BaseRtError::GenericStringError(_) => 1,
             BaseRtError::IncompletedWireFormat => 2,
             BaseRtError::WrappingLangError(_) => 3,
             BaseRtError::WrappingMetaError(_) => 4,
