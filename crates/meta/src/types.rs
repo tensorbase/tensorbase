@@ -4,7 +4,7 @@ use std::{
     collections::HashMap,
     mem,
     ops::{Deref, DerefMut},
-    slice, todo,
+    slice,
 };
 
 use base::bytes_cat;
@@ -171,7 +171,7 @@ impl BqlType {
             BqlType::Int(len) if len == 32 => Ok("int32_t"),
             BqlType::Int(len) if len == 64 => Ok("int64_t"),
             BqlType::DateTime | BqlType::LowCardinalityString => Ok("uint32_t"),
-            _ => todo!("unsupport bql type"),
+            _ => Err(MetaError::UnsupportedBqlTypeError),
         }
     }
 

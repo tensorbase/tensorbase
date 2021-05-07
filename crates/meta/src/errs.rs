@@ -54,8 +54,8 @@ pub enum MetaError {
     #[error("Error when converting str into BqlType enum")]
     UnknownBqlTypeConversionError,
 
-    #[error("Error when converting from BqlType to CBqlType enum")]
-    UnknownCBqlTypeConversionError,
+    #[error("Unsupported Bql type error")]
+    UnsupportedBqlTypeError,
 
     #[error("Error when converting str into EngineType enum")]
     UnknownEngineTypeConversionError,
