@@ -1,14 +1,12 @@
 
-<p align="center">
 ![base_logo](https://user-images.githubusercontent.com/237573/117401469-37d99300-af37-11eb-8154-71909c9cb8bb.png)
-</p>
 ---------------
 <p align="center">
+<img src="https://img.shields.io/github/license/tensorbase/tensorbase">
 <a href="https://discord.gg/hVfUAXvh">
   <img src="https://img.shields.io/discord/794816685978419210?logo=discord"
   alt="chat on Discord">
 </a>
-<img src="https://img.shields.io/github/license/tensorbase/tensorbase">
 </p>
 
 ## What is TensorBase
