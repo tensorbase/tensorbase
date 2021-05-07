@@ -3,8 +3,6 @@
     <img src="https://user-images.githubusercontent.com/237573/117403590-fba83180-af3a-11eb-9464-276af1ad1b80.png">
 </p>
 
-=====
-
 <p align="center">
 <img src="https://img.shields.io/github/license/tensorbase/tensorbase">
 <a href="https://discord.gg/hVfUAXvh">
