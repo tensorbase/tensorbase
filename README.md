@@ -4,7 +4,7 @@
 </p>
 ---------------
 <p align="center">
-<a href="https://discord.gg/HjJCwm5">
+<a href="https://discord.gg/hVfUAXvh">
   <img src="https://img.shields.io/discord/794816685978419210?logo=discord"
   alt="chat on Discord">
 </a>
