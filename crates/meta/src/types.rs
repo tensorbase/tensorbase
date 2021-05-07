@@ -93,6 +93,7 @@ pub enum BqlType {
     UnInit,
     UInt(u8),
     Int(u8),
+    Float(u8),
     Decimal(u8, u8),
     Date,
     DateTime,
@@ -121,6 +122,7 @@ impl BqlType {
         match self {
             BqlType::Int(siz) => Ok(siz / 8),
             BqlType::UInt(siz) => Ok(siz / 8),
+            BqlType::Float(siz) => Ok(siz / 8),
             BqlType::DateTime => Ok(4),
             BqlType::Date => Ok(2),
             BqlType::Decimal(p, _s) => {
@@ -149,6 +151,12 @@ impl BqlType {
                 let n = itoa::write(&mut bi[..], len)
                     .map_err(|e| MetaError::WrappingIOError(e))?;
                 Ok(bytes_cat!(b"Int", &bi[..n]))
+            }
+            BqlType::Float(len) => {
+                let mut bi = [0u8; 4];
+                let n = itoa::write(&mut bi[..], len)
+                    .map_err(|e| MetaError::WrappingIOError(e))?;
+                Ok(bytes_cat!(b"Float", &bi[..n]))
             }
             BqlType::Decimal(p, s) => {
                 let mut bp = [0u8; 4];
@@ -179,6 +187,9 @@ impl BqlType {
             BqlType::Int(len) if len == 16 => Ok("int16_t"),
             BqlType::Int(len) if len == 32 => Ok("int32_t"),
             BqlType::Int(len) if len == 64 => Ok("int64_t"),
+            // BqlType::Float(len) if len == 16 => Ok("half"),
+            BqlType::Float(len) if len == 32 => Ok("float"),
+            BqlType::Float(len) if len == 64 => Ok("double"),
             BqlType::DateTime | BqlType::Date | 
             BqlType::LowCardinalityString => Ok("uint32_t"),
             _ => Err(MetaError::UnsupportedBqlTypeError),
@@ -200,6 +211,9 @@ impl BqlType {
             b"UInt16" => Ok(BqlType::UInt(16)),
             b"UInt32" => Ok(BqlType::UInt(32)),
             b"UInt64" => Ok(BqlType::UInt(64)),
+            b"Float16" => Ok(BqlType::Float(16)),
+            b"Float32" => Ok(BqlType::Float(32)),
+            b"Float64" => Ok(BqlType::Float(64)),
             b"DateTime" => Ok(BqlType::DateTime),
             b"Date" => Ok(BqlType::Date),
             b"String" => Ok(BqlType::String),
@@ -642,6 +656,9 @@ mod unit_tests {
         assert_eq!(BqlType::from_str("Int32")?, BqlType::Int(32));
         assert_eq!(BqlType::from_str("UInt32")?, BqlType::UInt(32));
         assert_eq!(BqlType::from_str("UInt64")?, BqlType::UInt(64));
+        assert_eq!(BqlType::from_str("Float16")?, BqlType::Float(16));
+        assert_eq!(BqlType::from_str("Float32")?, BqlType::Float(32));
+        assert_eq!(BqlType::from_str("Float64")?, BqlType::Float(64));
 
         assert_eq!(
             BqlType::from_str("LowCardinality(String)")?,
@@ -665,6 +682,9 @@ mod unit_tests {
         assert_eq!(b"Int32".to_vec(), BqlType::Int(32).to_vec()?);
         assert_eq!(b"UInt32".to_vec(), BqlType::UInt(32).to_vec()?);
         assert_eq!(b"UInt64".to_vec(), BqlType::UInt(64).to_vec()?);
+        assert_eq!(b"Float16".to_vec(), BqlType::Float(16).to_vec()?);
+        assert_eq!(b"Float32".to_vec(), BqlType::Float(32).to_vec()?);
+        assert_eq!(b"Float64".to_vec(), BqlType::Float(64).to_vec()?);
         assert_eq!(
             b"LowCardinality(String)".to_vec(),
             BqlType::LowCardinalityString.to_vec()?
