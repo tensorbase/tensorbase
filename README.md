@@ -15,7 +15,7 @@
 ## What is TensorBase
 TensorBase is a new big data warehousing with modern efforts.
 
-TensorBase is building on top of Rust, Apache Arrow/DataFusion.
+TensorBase is building on top of [Rust](https://www.rust-lang.org/), [Apache Arrow](https://github.com/apache/arrow-rs) and [Arrow DataFusion](https://github.com/apache/arrow-datafusion).
 
 TensorBase hopes to change the status quo of bigdata system as follows:
   * low efficient (in the name of 'scalable')
@@ -25,7 +25,7 @@ TensorBase hopes to change the status quo of bigdata system as follows:
 ## Features
 
 * Out-of-the-box to play ( [get started just now](#quick-start) )
-* Lighting fast architectural performance In Rust ( [real-world benchmarks](#benchmarks) )
+* Lighting fast architectural performance in Rust ( [real-world benchmarks](#benchmarks) )
 * Modern redesigned columnar storage 
 * Top performance network transport server  
 * ClickHouse compatible syntax
