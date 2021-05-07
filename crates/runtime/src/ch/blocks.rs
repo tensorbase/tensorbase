@@ -1,6 +1,6 @@
 use std::{convert::TryFrom, slice};
 
-use arrow::{array::{self, Array}, datatypes::DataType, record_batch::RecordBatch};
+use arrow::{array, datatypes::DataType, record_batch::RecordBatch};
 use bytes::{Buf, BufMut, BytesMut};
 use clickhouse_rs_cityhash_sys::city_hash_128;
 use lzzzz::lz4;
@@ -391,7 +391,7 @@ fn arrow_type_to_btype(typ: &DataType) -> BaseRtResult<BqlType> {
         DataType::Int32 => Ok(BqlType::Int(32)),
         DataType::Int64 => Ok(BqlType::Int(64)),
         DataType::Timestamp32(_) => Ok(BqlType::DateTime),
-        DataType::Decimal(p,s)=>  Ok(BqlType::Decimal(*p as u8, *s as u8)),
+        DataType::Decimal(p, s) => Ok(BqlType::Decimal(*p as u8, *s as u8)),
         // BqlType::String => Ok(DataType::Utf8),
         _ => Err(BaseRtError::UnsupportedConversionToBqlType),
     }
@@ -416,8 +416,15 @@ impl TryFrom<RecordBatch> for Block {
             let buf = &cd.buffers()[0];
             // log::debug!("cd.get_array_memory_size(): {}", cd.get_array_memory_size());
             let len_in_bytes = if matches!(btype, BqlType::String) {
-                let arr = col.as_any().downcast_ref::<array::LargeStringArray>().unwrap();
-                let ofs = arr.value_offsets().last().copied().ok_or(BaseRtError::FailToUnwrapOpt)?;
+                let arr = col
+                    .as_any()
+                    .downcast_ref::<array::LargeStringArray>()
+                    .unwrap();
+                let ofs = arr
+                    .value_offsets()
+                    .last()
+                    .copied()
+                    .ok_or(BaseRtError::FailToUnwrapOpt)?;
                 ofs as usize
             } else {
                 btype.size()? as usize * col.len()
