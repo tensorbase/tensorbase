@@ -88,6 +88,59 @@ async fn basic_test_insert() -> errors::Result<()> {
 }
 
 #[tokio::test]
+async fn basic_insert_float() -> errors::Result<()> {
+    let pool = get_pool();
+    let mut conn = pool.connection().await?;
+
+    conn.execute("create database if not exists test_db")
+        .await?;
+    conn.execute("use test_db").await?;
+
+    conn.execute(format!("DROP TABLE IF EXISTS test_tab"))
+        .await?;
+    conn.execute(format!("CREATE TABLE test_tab(a Float64)"))
+        .await?;
+
+    let data_a = vec![1.1, 1.2, 1.3];
+    let count_res = data_a.len() as i64;
+    let sum_res = data_a.iter().sum::<f64>() as f64;
+    let block = { Block::new("test_tab").add("a", data_a) };
+
+    let mut insert = conn.insert(&block).await?;
+    insert.commit().await?;
+
+    drop(insert);
+
+    {
+        let sql = "select count(a) from test_tab";
+        let mut query_result = conn.query(sql).await?;
+
+        while let Some(block) = query_result.next().await? {
+            for row in block.iter_rows() {
+                let agg_res: i64 = row.value::<u64>(0)?.unwrap() as i64;
+                assert_eq!(agg_res, count_res);
+            }
+        }
+    }
+
+    {
+        let sql = "select sum(a) from test_tab";
+        let mut query_result = conn.query(sql).await?;
+
+        while let Some(block) = query_result.next().await? {
+            for row in block.iter_rows() {
+                let agg_res: f64 = row.value::<f64>(0)?.unwrap() as f64;
+                // println!("{}", agg_res);
+                assert_eq!(agg_res, sum_res);
+            }
+        }
+    }
+
+    // conn.execute("drop database if exists test_db").await?;
+    Ok(())
+}
+
+#[tokio::test]
 async fn basic_insert_decimal32() -> errors::Result<()> {
     let pool = get_pool();
     let mut conn = pool.connection().await?;

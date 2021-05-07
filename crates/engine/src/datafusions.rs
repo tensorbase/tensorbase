@@ -4,7 +4,8 @@ use arrow::{
     array::{
         ArrayData, ArrayRef, Date16Array, DecimalArray, GenericStringArray,
         Int8Array, Int16Array, Int32Array, Int64Array, Timestamp32Array,
-        UInt8Array, UInt16Array, UInt32Array, UInt64Array,
+        UInt8Array, UInt16Array, UInt32Array, UInt64Array, Float32Array,
+        Float64Array,
     },
     buffer::Buffer,
     datatypes::{DataType, Field, Schema},
@@ -41,6 +42,9 @@ fn btype_to_arrow_type(typ: BqlType) -> EngineResult<DataType> {
         BqlType::Int(bits) if bits == 16 => Ok(DataType::Int16),
         BqlType::Int(bits) if bits == 32 => Ok(DataType::Int32),
         BqlType::Int(bits) if bits == 64 => Ok(DataType::Int64),
+        BqlType::Float(bits) if bits == 16 => Ok(DataType::Float16),
+        BqlType::Float(bits) if bits == 32 => Ok(DataType::Float32),
+        BqlType::Float(bits) if bits == 64 => Ok(DataType::Float64),
         BqlType::DateTime => Ok(DataType::Timestamp32(None)),
         BqlType::Date => Ok(DataType::Date16),
         BqlType::Decimal(p, s) => Ok(DataType::Decimal(p as usize, s as usize)),
@@ -170,6 +174,16 @@ fn setup_tables(
                 DataType::UInt64 => {
                     cols.push(Arc::new(UInt64Array::from(data)));
                 }
+                // TODO: arrow::array does not have Float16Array
+                // DataType::Float16 => {
+                //     cols.push(Arc::new(Float16Array::from(data)));
+                // }
+                DataType::Float32 => {
+                    cols.push(Arc::new(Float32Array::from(data)));
+                }
+                DataType::Float64 => {
+                    cols.push(Arc::new(Float64Array::from(data)));
+                }
                 DataType::Timestamp32(_) => {
                     cols.push(Arc::new(Timestamp32Array::from(data)));
                 }
@@ -184,9 +198,6 @@ fn setup_tables(
                 }
                 // DataType::Null => {}
                 // DataType::Boolean => {}
-                // DataType::Float16 => {}
-                // DataType::Float32 => {}
-                // DataType::Float64 => {}
                 // DataType::Timestamp(_, _) => {}
                 // DataType::Date64 => {}
                 // DataType::Time32(_) => {}
