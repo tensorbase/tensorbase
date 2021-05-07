@@ -232,6 +232,7 @@ pub fn make_array(data: ArrayData) -> ArrayRef {
         DataType::Float16 => panic!("Float16 datatype not supported"),
         DataType::Float32 => Arc::new(Float32Array::from(data)) as ArrayRef,
         DataType::Float64 => Arc::new(Float64Array::from(data)) as ArrayRef,
+        DataType::Date16 => Arc::new(Date16Array::from(data)) as ArrayRef,
         DataType::Date32 => Arc::new(Date32Array::from(data)) as ArrayRef,
         DataType::Date64 => Arc::new(Date64Array::from(data)) as ArrayRef,
         DataType::Time32(TimeUnit::Second) => {
@@ -353,6 +354,7 @@ pub fn new_null_array(data_type: &DataType, length: usize) -> ArrayRef {
         DataType::Int16 => new_null_sized_array::<Int16Type>(data_type, length),
         DataType::UInt16 => new_null_sized_array::<UInt16Type>(data_type, length),
         DataType::Float16 => unreachable!(),
+        DataType::Date16 => new_null_sized_array::<Date16Type>(data_type, length),
         DataType::Int32 => new_null_sized_array::<Int32Type>(data_type, length),
         DataType::UInt32 => new_null_sized_array::<UInt32Type>(data_type, length),
         DataType::Float32 => new_null_sized_array::<Float32Type>(data_type, length),

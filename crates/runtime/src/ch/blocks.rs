@@ -391,7 +391,8 @@ fn arrow_type_to_btype(typ: &DataType) -> BaseRtResult<BqlType> {
         DataType::Int32 => Ok(BqlType::Int(32)),
         DataType::Int64 => Ok(BqlType::Int(64)),
         DataType::Timestamp32(_) => Ok(BqlType::DateTime),
-        DataType::Decimal(p, s) => Ok(BqlType::Decimal(*p as u8, *s as u8)),
+        DataType::Date16 => Ok(BqlType::Date),
+        DataType::Decimal(p,s)=>  Ok(BqlType::Decimal(*p as u8, *s as u8)),
         // BqlType::String => Ok(DataType::Utf8),
         _ => Err(BaseRtError::UnsupportedConversionToBqlType),
     }

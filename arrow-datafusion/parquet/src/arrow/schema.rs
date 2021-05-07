@@ -400,6 +400,10 @@ fn arrow_to_parquet_type(field: &Field) -> Result<Type> {
         })))
         .with_repetition(repetition)
         .build(),
+        DataType::Date16 => Type::primitive_type_builder(name, PhysicalType::INT32)
+            .with_logical_type(Some(LogicalType::DATE(Default::default())))
+            .with_repetition(repetition)
+            .build(),
         DataType::Date32 => Type::primitive_type_builder(name, PhysicalType::INT32)
             .with_logical_type(Some(LogicalType::DATE(Default::default())))
             .with_repetition(repetition)

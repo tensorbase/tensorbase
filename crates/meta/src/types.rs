@@ -94,6 +94,7 @@ pub enum BqlType {
     UInt(u8),
     Int(u8),
     Decimal(u8, u8),
+    Date,
     DateTime,
     String,
     LowCardinalityString,
@@ -121,6 +122,7 @@ impl BqlType {
             BqlType::Int(siz) => Ok(siz / 8),
             BqlType::UInt(siz) => Ok(siz / 8),
             BqlType::DateTime => Ok(4),
+            BqlType::Date => Ok(2),
             BqlType::Decimal(p, _s) => {
                 if p < 10 { 
                     Ok(4) 
@@ -158,6 +160,7 @@ impl BqlType {
                 Ok(bytes_cat!(b"Decimal(", &bp[..np], b",", &bs[..ns], b")"))
             }
             BqlType::DateTime => Ok(b"DateTime".to_vec()),
+            BqlType::Date => Ok(b"Date".to_vec()),
             BqlType::String => Ok(b"String".to_vec()),
             BqlType::LowCardinalityString => {
                 Ok(b"LowCardinality(String)".to_vec())
@@ -176,7 +179,8 @@ impl BqlType {
             BqlType::Int(len) if len == 16 => Ok("int16_t"),
             BqlType::Int(len) if len == 32 => Ok("int32_t"),
             BqlType::Int(len) if len == 64 => Ok("int64_t"),
-            BqlType::DateTime | BqlType::LowCardinalityString => Ok("uint32_t"),
+            BqlType::DateTime | BqlType::Date | 
+            BqlType::LowCardinalityString => Ok("uint32_t"),
             _ => Err(MetaError::UnsupportedBqlTypeError),
         }
     }
@@ -197,6 +201,7 @@ impl BqlType {
             b"UInt32" => Ok(BqlType::UInt(32)),
             b"UInt64" => Ok(BqlType::UInt(64)),
             b"DateTime" => Ok(BqlType::DateTime),
+            b"Date" => Ok(BqlType::Date),
             b"String" => Ok(BqlType::String),
             b"LowCardinality(String)" => Ok(BqlType::LowCardinalityString),
             [b'D', b'e', b'c', b'i', b'm', b'a', b'l', b'(', ps @ .., b')'] => {
@@ -665,6 +670,7 @@ mod unit_tests {
             BqlType::LowCardinalityString.to_vec()?
         );
         assert_eq!(b"DateTime".to_vec(), BqlType::DateTime.to_vec()?);
+        assert_eq!(b"Date".to_vec(), BqlType::Date.to_vec()?);
 
         Ok(())
     }

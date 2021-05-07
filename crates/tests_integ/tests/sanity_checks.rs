@@ -3,6 +3,7 @@ use ch_client::prelude::*;
 mod common;
 use common::get_pool;
 use ch_client::prelude::types::Decimal;
+use chrono::{DateTime, Utc, TimeZone};
 // macro_rules! get {
 //     ($row:ident, $idx: expr, $msg: expr) => {
 //         $row.value($idx)?.expect($msg)
@@ -121,6 +122,49 @@ async fn basic_insert_decimal() -> errors::Result<()> {
                 i += 1;
             }
         }
+
+    }
+
+    // conn.execute("drop database if exists test_db").await?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn basic_insert_date() -> errors::Result<()> {
+    let pool = get_pool();
+    let mut conn = pool.connection().await?;
+
+    conn.execute("create database if not exists test_db")
+        .await?;
+    conn.execute("use test_db").await?;
+
+    conn.execute(format!("DROP TABLE IF EXISTS test_tab_date"))
+        .await?;
+    conn.execute(format!("CREATE TABLE test_tab_date(a Date)"))
+        .await?;
+
+    let data_a = vec![Utc.ymd(2010, 10, 20), Utc.ymd(2020, 1, 7)];
+    let checks = vec!["2010-10-20", "2020-01-07"];
+    let block = { Block::new("test_tab_date").add("a", data_a) };
+
+    let mut insert = conn.insert(&block).await?;
+    insert.commit().await?;
+
+    drop(insert);
+    {
+        let sql = "select a from test_tab_date";
+        let mut query_result = conn.query(sql).await?;
+
+        while let Some(block) = query_result.next().await? {
+            let mut i = 0;
+
+            for row in block.iter_rows() {
+                println!("{:?}",row);
+                let res: DateTime<Utc> = row.value(0)?.unwrap();
+                assert_eq!(res.date().naive_utc().to_string(), checks[i]);
+                i += 1;
+            }
+        }
     
     }
 
@@ -144,7 +188,7 @@ async fn basic_insert_lcstring() -> errors::Result<()> {
         .await?;
 
     let data_s = vec!["a", "b", "c", "a", "b", "a"];
-    let count_res = data_s.len() as i64;
+    let _count_res = data_s.len() as i64;
     let block = { Block::new("test_tab").add("s", data_s) };
 
     let mut insert = conn.insert(&block).await?;

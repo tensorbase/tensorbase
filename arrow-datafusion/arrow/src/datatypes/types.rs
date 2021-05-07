@@ -73,6 +73,7 @@ make_type!(
     i64,
     DataType::Timestamp(TimeUnit::Nanosecond, None)
 );
+make_type!(Date16Type, u16, DataType::Date16);
 make_type!(Date32Type, i32, DataType::Date32);
 make_type!(Date64Type, i64, DataType::Date64);
 make_type!(Time32SecondType, i32, DataType::Time32(TimeUnit::Second));
@@ -149,6 +150,7 @@ impl ArrowTemporalType for TimestampSecondType {}
 impl ArrowTemporalType for TimestampMillisecondType {}
 impl ArrowTemporalType for TimestampMicrosecondType {}
 impl ArrowTemporalType for TimestampNanosecondType {}
+impl ArrowTemporalType for Date16Type {}
 impl ArrowTemporalType for Date32Type {}
 impl ArrowTemporalType for Date64Type {}
 impl ArrowTemporalType for Time32SecondType {}

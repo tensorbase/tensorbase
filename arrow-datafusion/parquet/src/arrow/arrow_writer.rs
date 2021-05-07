@@ -137,6 +137,7 @@ fn write_leaves(
         | ArrowDataType::Float64
         | ArrowDataType::Timestamp32(_)
         | ArrowDataType::Timestamp(_, _)
+        | ArrowDataType::Date16
         | ArrowDataType::Date32
         | ArrowDataType::Date64
         | ArrowDataType::Time32(_)
