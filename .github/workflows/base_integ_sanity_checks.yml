@@ -23,7 +23,8 @@ jobs:
             override: true
     - name: TensorBase Run server
       run: |
-           cargo run --bin server -- -s "$BASE_CONF"
+           mkdir ${{ github.workspace }}/tb_data
+           nohup cargo run --bin server -- -s "$BASE_CONF" > /dev/null 2>&1 &
       env:
           BASE_CONF: |
             [system]                  
@@ -44,3 +45,4 @@ jobs:
            time: 1s
     - name: TensorBase integ sanity checks
       run: cargo test --package tests_integ  --test sanity_checks -- --test-threads=1
+
