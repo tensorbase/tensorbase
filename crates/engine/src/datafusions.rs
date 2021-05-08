@@ -4,7 +4,7 @@ use arrow::{
     array::{
         ArrayData, ArrayRef, Int8Array, Int16Array, Int32Array,
         Int64Array, Timestamp32Array, UInt8Array, UInt16Array, 
-        UInt32Array, UInt64Array, DecimalArray,
+        UInt32Array, UInt64Array, DecimalArray, Date16Array
     },
     buffer::Buffer,
     datatypes::{
@@ -46,6 +46,7 @@ fn btype_to_arrow_type(typ: BqlType) -> EngineResult<DataType> {
         BqlType::Int(bits) if bits == 32 => Ok(DataType::Int32),
         BqlType::Int(bits) if bits == 64 => Ok(DataType::Int64),
         BqlType::DateTime => Ok(DataType::Timestamp32(None)),
+        BqlType::Date => Ok(DataType::Date16),
         BqlType::Decimal(p, s) => Ok(DataType::Decimal(p as usize, s as usize)),
         // BqlType::String => Ok(DataType::Utf8),
         _ => Err(EngineError::UnsupportedBqlType),
@@ -184,6 +185,9 @@ fn setup_tables(
                 }
                 DataType::Timestamp32(_) => {
                     cols.push(Arc::new(Timestamp32Array::from(data)));
+                }
+                DataType::Date16 => {
+                    cols.push(Arc::new(Date16Array::from(data)));
                 }
                 // DataType::Null => {}
                 // DataType::Boolean => {}
