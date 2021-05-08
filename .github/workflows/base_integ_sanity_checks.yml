@@ -24,25 +24,4 @@ jobs:
     - name: TensorBase Run server
       run: |
            mkdir ${{ github.workspace }}/tb_data
-           nohup cargo run --bin server -- -s "$BASE_CONF" > /dev/null 2>&1 &
-      env:
-          BASE_CONF: |
-            [system]                  
-            meta_dirs = ["${{ github.workspace }}/tb_schema"] 
-            data_dirs = ["${{ github.workspace }}/tb_data"]   
-            [storage]                          
-            data_dirs_clickhouse = ""          
-            [server]                           
-            ip_addr = "localhost"              
-            port = 9528   
-    - name: TensorBase wait for server up 01
-      run: cargo install wait-for-them
-    - name: TensorBase wait for server up 02
-      run: wait-for-them 127.0.0.1:9528
-    - name: TensorBase wait for server up 03
-      uses: juliangruber/sleep-action@v1
-      with:
-           time: 1s
-    - name: TensorBase integ sanity checks
-      run: cargo test --package tests_integ  --test sanity_checks -- --test-threads=1
-
+           cargo run --bin server -- -s "$BASE_CONF"
