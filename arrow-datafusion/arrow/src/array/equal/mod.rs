@@ -154,7 +154,8 @@ fn equal_values(
         DataType::UInt8 => primitive_equal::<u8>(
             lhs, rhs, lhs_nulls, rhs_nulls, lhs_start, rhs_start, len,
         ),
-        DataType::UInt16 => primitive_equal::<u16>(
+        DataType::UInt16
+        | DataType::Date16 => primitive_equal::<u16>(
             lhs, rhs, lhs_nulls, rhs_nulls, lhs_start, rhs_start, len,
         ),
         DataType::UInt32 => primitive_equal::<u32>(

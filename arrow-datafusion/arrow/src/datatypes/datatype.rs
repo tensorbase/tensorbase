@@ -91,6 +91,9 @@ pub enum DataType {
     ///   "tzdata"), such as "America/New_York"
     /// * An absolute time zone offset of the form +XX:XX or -XX:XX, such as +07:30
     Timestamp32(Option<String>),
+    /// A 16-bit date representing the elapsed time since UNIX epoch (1970-01-01)
+    /// in days (16 bits unsigned).
+    Date16,
     /// A 32-bit date representing the elapsed time since UNIX epoch (1970-01-01)
     /// in days (32 bits).
     Date32,
@@ -249,6 +252,7 @@ impl DataType {
                     Ok(DataType::Timestamp32(tz?))
                 }
                 Some(s) if s == "date" => match map.get("unit") {
+                    Some(p) if p == "UDAY" => Ok(DataType::Date16),
                     Some(p) if p == "DAY" => Ok(DataType::Date32),
                     Some(p) if p == "MILLISECOND" => Ok(DataType::Date64),
                     _ => Err(ArrowError::ParseError(
@@ -414,6 +418,9 @@ impl DataType {
                     TimeUnit::Microsecond => "MICROSECOND",
                     TimeUnit::Nanosecond => "NANOSECOND",
                 }})
+            }
+            DataType::Date16 => {
+                json!({"name": "date", "unit": "UDAY"})
             }
             DataType::Date32 => {
                 json!({"name": "date", "unit": "DAY"})
