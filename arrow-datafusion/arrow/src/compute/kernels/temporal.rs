@@ -42,9 +42,9 @@ where
                 }
             }
         }
-        &DataType::Date32 
-        | &DataType::Date64 
-        | &DataType::Timestamp32(_) 
+        &DataType::Date32
+        | &DataType::Date64
+        | &DataType::Timestamp32(_)
         | &DataType::Timestamp(_, _) => {
             for i in 0..array.len() {
                 if array.is_null(i) {
@@ -78,9 +78,9 @@ where
 {
     let mut b = Int32Builder::new(array.len());
     match array.data_type() {
-        &DataType::Date32 
-        | &DataType::Date64 
-        | &DataType::Timestamp32(_) 
+        &DataType::Date32
+        | &DataType::Date64
+        | &DataType::Timestamp32(_)
         | &DataType::Timestamp(_, _) => {
             for i in 0..array.len() {
                 if array.is_null(i) {

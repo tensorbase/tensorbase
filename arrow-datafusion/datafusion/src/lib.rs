@@ -25,7 +25,7 @@
     clippy::upper_case_acronyms
 )]
 
-//! [DataFusion](https://github.com/apache/arrow/tree/master/rust/datafusion)
+//! [DataFusion](https://github.com/apache/arrow-datafusion)
 //! is an extensible query execution framework that uses
 //! [Apache Arrow](https://arrow.apache.org) as its in-memory format.
 //!
@@ -183,7 +183,6 @@
 //!
 //! you can find examples of each of them in examples section.
 
-extern crate arrow;
 extern crate sqlparser;
 
 pub mod catalog;
@@ -200,6 +199,10 @@ pub mod scalar;
 pub mod sql;
 pub mod variable;
 
+// re-export dependencies from arrow-rs to minimise version maintenance for crate users
+pub use arrow;
+pub use parquet;
+
 #[cfg(test)]
 pub mod test;
 
@@ -208,4 +211,4 @@ pub mod test;
 extern crate lazy_static;
 
 #[cfg(doctest)]
-doc_comment::doctest!("../README.md", readme_example_test);
+doc_comment::doctest!("../../README.md", readme_example_test);

@@ -51,7 +51,9 @@ use std::sync::Arc;
 
 use csv as csv_crate;
 
-use crate::array::{ArrayRef, BooleanArray, PrimitiveArray, StringArray};
+use crate::array::{
+    ArrayRef, BooleanArray, DictionaryArray, PrimitiveArray, StringArray,
+};
 use crate::datatypes::*;
 use crate::error::{ArrowError, Result};
 use crate::record_batch::RecordBatch;
@@ -351,7 +353,7 @@ impl<R: Read> Reader<R> {
         }
 
         // Initialize batch_records with StringRecords so they
-        // can be reused accross batches
+        // can be reused across batches
         let mut batch_records = Vec::with_capacity(batch_size);
         batch_records.resize_with(batch_size, Default::default);
 
@@ -385,7 +387,7 @@ impl<R: Read> Iterator for Reader<R> {
                         "Error parsing line {}: {:?}",
                         self.line_number + i,
                         e
-                    ))))
+                    ))));
                 }
             }
         }
@@ -429,63 +431,105 @@ fn parse(
             let i = *i;
             let field = &fields[i];
             match field.data_type() {
-                &DataType::Boolean => build_boolean_array(line_number, rows, i),
-                &DataType::Int8 => {
-                    build_primitive_array::<Int8Type>(line_number, rows, i)
-                }
-                &DataType::Int16 => {
+                DataType::Boolean => build_boolean_array(line_number, rows, i),
+                DataType::Int8 => build_primitive_array::<Int8Type>(line_number, rows, i),
+                DataType::Int16 => {
                     build_primitive_array::<Int16Type>(line_number, rows, i)
                 }
-                &DataType::Int32 => {
+                DataType::Int32 => {
                     build_primitive_array::<Int32Type>(line_number, rows, i)
                 }
-                &DataType::Int64 => {
+                DataType::Int64 => {
                     build_primitive_array::<Int64Type>(line_number, rows, i)
                 }
-                &DataType::UInt8 => {
+                DataType::UInt8 => {
                     build_primitive_array::<UInt8Type>(line_number, rows, i)
                 }
-                &DataType::UInt16 => {
+                DataType::UInt16 => {
                     build_primitive_array::<UInt16Type>(line_number, rows, i)
                 }
-                &DataType::UInt32 => {
+                DataType::UInt32 => {
                     build_primitive_array::<UInt32Type>(line_number, rows, i)
                 }
-                &DataType::UInt64 => {
+                DataType::UInt64 => {
                     build_primitive_array::<UInt64Type>(line_number, rows, i)
                 }
-                &DataType::Float32 => {
+                DataType::Float32 => {
                     build_primitive_array::<Float32Type>(line_number, rows, i)
                 }
-                &DataType::Float64 => {
+                DataType::Float64 => {
                     build_primitive_array::<Float64Type>(line_number, rows, i)
                 }
-                &DataType::Date32 => {
+                DataType::Date32 => {
                     build_primitive_array::<Date32Type>(line_number, rows, i)
                 }
-                &DataType::Date64 => {
+                DataType::Date64 => {
                     build_primitive_array::<Date64Type>(line_number, rows, i)
                 }
-                &DataType::Timestamp32(_) => {
-                    build_primitive_array::<Timestamp32Type>(
-                        line_number,
-                        rows,
-                        i,
-                    )
+                DataType::Timestamp32(_) => {
+                    build_primitive_array::<Timestamp32Type>(line_number,rows, i)
                 }
-                &DataType::Timestamp(TimeUnit::Microsecond, _) => {
-                    build_primitive_array::<TimestampMicrosecondType>(
-                        line_number,
-                        rows,
-                        i,
-                    )
-                }
-                &DataType::Timestamp(TimeUnit::Nanosecond, _) => {
+                DataType::Timestamp(TimeUnit::Microsecond, _) => build_primitive_array::<
+                    TimestampMicrosecondType,
+                >(
+                    line_number, rows, i
+                ),
+                DataType::Timestamp(TimeUnit::Nanosecond, _) => {
                     build_primitive_array::<TimestampNanosecondType>(line_number, rows, i)
                 }
-                &DataType::Utf8 => Ok(Arc::new(
+                DataType::Utf8 => Ok(Arc::new(
                     rows.iter().map(|row| row.get(i)).collect::<StringArray>(),
                 ) as ArrayRef),
+                DataType::Dictionary(key_type, value_type)
+                    if value_type.as_ref() == &DataType::Utf8 =>
+                {
+                    match key_type.as_ref() {
+                        DataType::Int8 => Ok(Arc::new(
+                            rows.iter()
+                                .map(|row| row.get(i))
+                                .collect::<DictionaryArray<Int8Type>>(),
+                        ) as ArrayRef),
+                        DataType::Int16 => Ok(Arc::new(
+                            rows.iter()
+                                .map(|row| row.get(i))
+                                .collect::<DictionaryArray<Int16Type>>(),
+                        ) as ArrayRef),
+                        DataType::Int32 => Ok(Arc::new(
+                            rows.iter()
+                                .map(|row| row.get(i))
+                                .collect::<DictionaryArray<Int32Type>>(),
+                        ) as ArrayRef),
+                        DataType::Int64 => Ok(Arc::new(
+                            rows.iter()
+                                .map(|row| row.get(i))
+                                .collect::<DictionaryArray<Int64Type>>(),
+                        ) as ArrayRef),
+                        DataType::UInt8 => Ok(Arc::new(
+                            rows.iter()
+                                .map(|row| row.get(i))
+                                .collect::<DictionaryArray<UInt8Type>>(),
+                        ) as ArrayRef),
+                        DataType::UInt16 => Ok(Arc::new(
+                            rows.iter()
+                                .map(|row| row.get(i))
+                                .collect::<DictionaryArray<UInt16Type>>(),
+                        ) as ArrayRef),
+                        DataType::UInt32 => Ok(Arc::new(
+                            rows.iter()
+                                .map(|row| row.get(i))
+                                .collect::<DictionaryArray<UInt32Type>>(),
+                        ) as ArrayRef),
+                        DataType::UInt64 => Ok(Arc::new(
+                            rows.iter()
+                                .map(|row| row.get(i))
+                                .collect::<DictionaryArray<UInt64Type>>(),
+                        ) as ArrayRef),
+                        _ => Err(ArrowError::ParseError(format!(
+                            "Unsupported dictionary key type {:?}",
+                            key_type
+                        ))),
+                    }
+                }
                 other => Err(ArrowError::ParseError(format!(
                     "Unsupported data type {:?}",
                     other
@@ -517,6 +561,7 @@ impl Parser for Float32Type {
         lexical_core::parse(string.as_bytes()).ok()
     }
 }
+
 impl Parser for Float64Type {
     fn parse(string: &str) -> Option<f64> {
         lexical_core::parse(string.as_bytes()).ok()
@@ -538,6 +583,18 @@ impl Parser for Int32Type {}
 impl Parser for Int16Type {}
 
 impl Parser for Int8Type {}
+
+impl Parser for Timestamp32Type {
+    fn parse(string: &str) -> Option<i32> {
+        match Self::DATA_TYPE {
+            DataType::Timestamp32(None) => {
+                let date_time = string.parse::<chrono::NaiveDateTime>().ok()?;
+                Self::Native::from_i32(date_time.timestamp() as i32)
+            }
+            _ => None,
+        }
+    }
+}
 
 /// Number of days between 0001-01-01 and 1970-01-01
 const EPOCH_DAYS_FROM_CE: i32 = 719_163;
@@ -586,18 +643,6 @@ impl Parser for TimestampMicrosecondType {
             DataType::Timestamp(TimeUnit::Microsecond, None) => {
                 let date_time = string.parse::<chrono::NaiveDateTime>().ok()?;
                 Self::Native::from_i64(date_time.timestamp_nanos() / 1000)
-            }
-            _ => None,
-        }
-    }
-}
-
-impl Parser for Timestamp32Type {
-    fn parse(string: &str) -> Option<i32> {
-        match Self::DATA_TYPE {
-            DataType::Timestamp32(None) => {
-                let date_time = string.parse::<chrono::NaiveDateTime>().ok()?;
-                Self::Native::from_i32(date_time.timestamp() as i32)
             }
             _ => None,
         }
@@ -833,6 +878,7 @@ mod tests {
     use tempfile::NamedTempFile;
 
     use crate::array::*;
+    use crate::compute::cast;
     use crate::datatypes::Field;
 
     #[test]
@@ -1038,6 +1084,51 @@ mod tests {
         assert_eq!(projected_schema, batch.schema());
         assert_eq!(37, batch.num_rows());
         assert_eq!(2, batch.num_columns());
+    }
+
+    #[test]
+    fn test_csv_with_dictionary() {
+        let schema = Schema::new(vec![
+            Field::new(
+                "city",
+                DataType::Dictionary(Box::new(DataType::Int32), Box::new(DataType::Utf8)),
+                false,
+            ),
+            Field::new("lat", DataType::Float64, false),
+            Field::new("lng", DataType::Float64, false),
+        ]);
+
+        let file = File::open("test/data/uk_cities.csv").unwrap();
+
+        let mut csv = Reader::new(
+            file,
+            Arc::new(schema),
+            false,
+            None,
+            1024,
+            None,
+            Some(vec![0, 1]),
+        );
+        let projected_schema = Arc::new(Schema::new(vec![
+            Field::new(
+                "city",
+                DataType::Dictionary(Box::new(DataType::Int32), Box::new(DataType::Utf8)),
+                false,
+            ),
+            Field::new("lat", DataType::Float64, false),
+        ]));
+        assert_eq!(projected_schema, csv.schema());
+        let batch = csv.next().unwrap().unwrap();
+        assert_eq!(projected_schema, batch.schema());
+        assert_eq!(37, batch.num_rows());
+        assert_eq!(2, batch.num_columns());
+
+        let strings = cast(batch.column(0), &DataType::Utf8).unwrap();
+        let strings = strings.as_any().downcast_ref::<StringArray>().unwrap();
+
+        assert_eq!(strings.value(0), "Elgin, Scotland, the UK");
+        assert_eq!(strings.value(4), "Eastbourne, East Sussex, UK");
+        assert_eq!(strings.value(29), "Uckfield, East Sussex, UK");
     }
 
     #[test]

@@ -17,12 +17,12 @@
 
 use std::{any::Any, sync::Arc};
 
-use arrow::array::{self, *};
-use arrow::datatypes::{DataType, Schema};
-use arrow::record_batch::RecordBatch;
-
 use crate::error::{DataFusionError, Result};
 use crate::physical_plan::{ColumnarValue, PhysicalExpr};
+use arrow::array::{self, *};
+use arrow::compute::{eq, eq_utf8};
+use arrow::datatypes::{DataType, Schema};
+use arrow::record_batch::RecordBatch;
 
 /// The CASE expression is similar to a series of nested if/else and there are two forms that
 /// can be used. The first form consists of a series of boolean "when" expressions with
@@ -234,38 +234,8 @@ fn if_then_else(
     }
 }
 
-macro_rules! make_null_array {
-    ($TY:ty, $N:expr) => {{
-        let mut builder = <$TY>::new($N);
-        for _ in 0..$N {
-            builder.append_null()?;
-        }
-        Ok(Arc::new(builder.finish()))
-    }};
-}
-
-fn build_null_array(data_type: &DataType, num_rows: usize) -> Result<ArrayRef> {
-    match data_type {
-        DataType::UInt8 => make_null_array!(array::UInt8Builder, num_rows),
-        DataType::UInt16 => make_null_array!(array::UInt16Builder, num_rows),
-        DataType::UInt32 => make_null_array!(array::UInt32Builder, num_rows),
-        DataType::UInt64 => make_null_array!(array::UInt64Builder, num_rows),
-        DataType::Int8 => make_null_array!(array::Int8Builder, num_rows),
-        DataType::Int16 => make_null_array!(array::Int16Builder, num_rows),
-        DataType::Int32 => make_null_array!(array::Int32Builder, num_rows),
-        DataType::Int64 => make_null_array!(array::Int64Builder, num_rows),
-        DataType::Float32 => make_null_array!(array::Float32Builder, num_rows),
-        DataType::Float64 => make_null_array!(array::Float64Builder, num_rows),
-        DataType::Utf8 => make_null_array!(array::StringBuilder, num_rows),
-        other => Err(DataFusionError::Execution(format!(
-            "CASE does not support '{:?}'",
-            other
-        ))),
-    }
-}
-
 macro_rules! array_equals {
-    ($TY:ty, $L:expr, $R:expr) => {{
+    ($TY:ty, $L:expr, $R:expr, $eq_fn:expr) => {{
         let when_value = $L
             .as_ref()
             .as_any()
@@ -278,15 +248,7 @@ macro_rules! array_equals {
             .downcast_ref::<$TY>()
             .expect("array_equals downcast failed");
 
-        let mut builder = BooleanBuilder::new(when_value.len());
-        for row in 0..when_value.len() {
-            if when_value.is_valid(row) && base_value.is_valid(row) {
-                builder.append_value(when_value.value(row) == base_value.value(row))?;
-            } else {
-                builder.append_null()?;
-            }
-        }
-        Ok(builder.finish())
+        $eq_fn(when_value, base_value).map_err(DataFusionError::from)
     }};
 }
 
@@ -296,17 +258,39 @@ fn array_equals(
     base_value: ArrayRef,
 ) -> Result<BooleanArray> {
     match data_type {
-        DataType::UInt8 => array_equals!(array::UInt8Array, when_value, base_value),
-        DataType::UInt16 => array_equals!(array::UInt16Array, when_value, base_value),
-        DataType::UInt32 => array_equals!(array::UInt32Array, when_value, base_value),
-        DataType::UInt64 => array_equals!(array::UInt64Array, when_value, base_value),
-        DataType::Int8 => array_equals!(array::Int8Array, when_value, base_value),
-        DataType::Int16 => array_equals!(array::Int16Array, when_value, base_value),
-        DataType::Int32 => array_equals!(array::Int32Array, when_value, base_value),
-        DataType::Int64 => array_equals!(array::Int64Array, when_value, base_value),
-        DataType::Float32 => array_equals!(array::Float32Array, when_value, base_value),
-        DataType::Float64 => array_equals!(array::Float64Array, when_value, base_value),
-        DataType::Utf8 => array_equals!(array::StringArray, when_value, base_value),
+        DataType::UInt8 => {
+            array_equals!(array::UInt8Array, when_value, base_value, eq)
+        }
+        DataType::UInt16 => {
+            array_equals!(array::UInt16Array, when_value, base_value, eq)
+        }
+        DataType::UInt32 => {
+            array_equals!(array::UInt32Array, when_value, base_value, eq)
+        }
+        DataType::UInt64 => {
+            array_equals!(array::UInt64Array, when_value, base_value, eq)
+        }
+        DataType::Int8 => {
+            array_equals!(array::Int8Array, when_value, base_value, eq)
+        }
+        DataType::Int16 => {
+            array_equals!(array::Int16Array, when_value, base_value, eq)
+        }
+        DataType::Int32 => {
+            array_equals!(array::Int32Array, when_value, base_value, eq)
+        }
+        DataType::Int64 => {
+            array_equals!(array::Int64Array, when_value, base_value, eq)
+        }
+        DataType::Float32 => {
+            array_equals!(array::Float32Array, when_value, base_value, eq)
+        }
+        DataType::Float64 => {
+            array_equals!(array::Float64Array, when_value, base_value, eq)
+        }
+        DataType::Utf8 => {
+            array_equals!(array::StringArray, when_value, base_value, eq_utf8)
+        }
         other => Err(DataFusionError::Execution(format!(
             "CASE does not support '{:?}'",
             other
@@ -333,7 +317,7 @@ impl CaseExpr {
         let mut current_value: Option<ArrayRef> = if let Some(e) = &self.else_expr {
             Some(e.evaluate(batch)?.into_array(batch.num_rows()))
         } else {
-            Some(build_null_array(&return_type, batch.num_rows())?)
+            Some(new_null_array(&return_type, batch.num_rows()))
         };
 
         // walk backwards through the when/then expressions
@@ -374,7 +358,7 @@ impl CaseExpr {
         let mut current_value: Option<ArrayRef> = if let Some(e) = &self.else_expr {
             Some(e.evaluate(batch)?.into_array(batch.num_rows()))
         } else {
-            Some(build_null_array(&return_type, batch.num_rows())?)
+            Some(new_null_array(&return_type, batch.num_rows()))
         };
 
         // walk backwards through the when/then expressions

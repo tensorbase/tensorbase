@@ -21,7 +21,9 @@ use crate::{
         catalog::{CatalogList, MemoryCatalogList},
         information_schema::CatalogWithInformationSchema,
     },
-    optimizer::hash_build_probe_order::HashBuildProbeOrder,
+    optimizer::{
+        eliminate_limit::EliminateLimit, hash_build_probe_order::HashBuildProbeOrder,
+    },
     physical_optimizer::optimizer::PhysicalOptimizerRule,
 };
 use log::debug;
@@ -636,6 +638,7 @@ impl ExecutionConfig {
             batch_size: 8192,
             optimizers: vec![
                 Arc::new(ConstantFolding::new()),
+                Arc::new(EliminateLimit::new()),
                 Arc::new(ProjectionPushDown::new()),
                 Arc::new(FilterPushDown::new()),
                 Arc::new(HashBuildProbeOrder::new()),
@@ -840,10 +843,11 @@ mod tests {
     use crate::variable::VarType;
     use crate::{
         assert_batches_eq, assert_batches_sorted_eq,
-        logical_plan::{col, create_udf, sum},
+        logical_plan::{col, create_udf, sum, Expr},
     };
     use crate::{
-        datasource::MemTable, logical_plan::create_udaf,
+        datasource::{MemTable, TableType},
+        logical_plan::create_udaf,
         physical_plan::expressions::AvgAccumulator,
     };
     use arrow::array::{
@@ -1647,6 +1651,57 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn group_by_largeutf8() {
+        {
+            let mut ctx = ExecutionContext::new();
+
+            // input data looks like:
+            // A, 1
+            // B, 2
+            // A, 2
+            // A, 4
+            // C, 1
+            // A, 1
+
+            let str_array: LargeStringArray = vec!["A", "B", "A", "A", "C", "A"]
+                .into_iter()
+                .map(Some)
+                .collect();
+            let str_array = Arc::new(str_array);
+
+            let val_array: Int64Array = vec![1, 2, 2, 4, 1, 1].into();
+            let val_array = Arc::new(val_array);
+
+            let schema = Arc::new(Schema::new(vec![
+                Field::new("str", str_array.data_type().clone(), false),
+                Field::new("val", val_array.data_type().clone(), false),
+            ]));
+
+            let batch =
+                RecordBatch::try_new(schema.clone(), vec![str_array, val_array]).unwrap();
+
+            let provider = MemTable::try_new(schema.clone(), vec![vec![batch]]).unwrap();
+            ctx.register_table("t", Arc::new(provider)).unwrap();
+
+            let results =
+                plan_and_collect(&mut ctx, "SELECT str, count(val) FROM t GROUP BY str")
+                    .await
+                    .expect("ran plan correctly");
+
+            let expected = vec![
+                "+-----+------------+",
+                "| str | COUNT(val) |",
+                "+-----+------------+",
+                "| A   | 4          |",
+                "| B   | 1          |",
+                "| C   | 1          |",
+                "+-----+------------+",
+            ];
+            assert_batches_sorted_eq!(expected, &results);
+        }
+    }
+
+    #[tokio::test]
     async fn group_by_dictionary() {
         async fn run_test_case<K: ArrowDictionaryKeyType>() {
             let mut ctx = ExecutionContext::new();
@@ -1709,6 +1764,25 @@ mod tests {
                 "| 2   | 2           |",
                 "| 4   | 1           |",
                 "+-----+-------------+",
+            ];
+            assert_batches_sorted_eq!(expected, &results);
+
+            // Now, use dict as an aggregate
+            let results = plan_and_collect(
+                &mut ctx,
+                "SELECT val, count(distinct dict) FROM t GROUP BY val",
+            )
+            .await
+            .expect("ran plan correctly");
+
+            let expected = vec![
+                "+-----+----------------------+",
+                "| val | COUNT(DISTINCT dict) |",
+                "+-----+----------------------+",
+                "| 1   | 2                    |",
+                "| 2   | 2                    |",
+                "| 4   | 1                    |",
+                "+-----+----------------------+",
             ];
             assert_batches_sorted_eq!(expected, &results);
         }
@@ -2576,6 +2650,68 @@ mod tests {
             "| my_other_catalog | information_schema | tables     | VIEW       |",
             "| my_other_catalog | my_other_schema    | t3         | BASE TABLE |",
             "+------------------+--------------------+------------+------------+",
+        ];
+        assert_batches_sorted_eq!(expected, &result);
+    }
+
+    #[tokio::test]
+    async fn information_schema_tables_table_types() {
+        struct TestTable(TableType);
+
+        impl TableProvider for TestTable {
+            fn as_any(&self) -> &dyn std::any::Any {
+                self
+            }
+
+            fn table_type(&self) -> TableType {
+                self.0
+            }
+
+            fn schema(&self) -> SchemaRef {
+                unimplemented!()
+            }
+
+            fn scan(
+                &self,
+                _: &Option<Vec<usize>>,
+                _: usize,
+                _: &[Expr],
+                _: Option<usize>,
+            ) -> Result<Arc<dyn ExecutionPlan>> {
+                unimplemented!()
+            }
+
+            fn statistics(&self) -> crate::datasource::datasource::Statistics {
+                unimplemented!()
+            }
+        }
+
+        let mut ctx = ExecutionContext::with_config(
+            ExecutionConfig::new().with_information_schema(true),
+        );
+
+        ctx.register_table("physical", Arc::new(TestTable(TableType::Base)))
+            .unwrap();
+        ctx.register_table("query", Arc::new(TestTable(TableType::View)))
+            .unwrap();
+        ctx.register_table("temp", Arc::new(TestTable(TableType::Temporary)))
+            .unwrap();
+
+        let result =
+            plan_and_collect(&mut ctx, "SELECT * from information_schema.tables")
+                .await
+                .unwrap();
+
+        let expected = vec![
+            "+---------------+--------------------+------------+-----------------+",
+            "| table_catalog | table_schema       | table_name | table_type      |",
+            "+---------------+--------------------+------------+-----------------+",
+            "| datafusion    | information_schema | tables     | VIEW            |",
+            "| datafusion    | information_schema | columns    | VIEW            |",
+            "| datafusion    | public             | physical   | BASE TABLE      |",
+            "| datafusion    | public             | query      | VIEW            |",
+            "| datafusion    | public             | temp       | LOCAL TEMPORARY |",
+            "+---------------+--------------------+------------+-----------------+",
         ];
         assert_batches_sorted_eq!(expected, &result);
     }

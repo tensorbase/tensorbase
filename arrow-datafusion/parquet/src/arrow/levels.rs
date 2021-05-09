@@ -97,10 +97,20 @@ impl LevelInfo {
     /// Compute nested levels of the Arrow array, recursing into lists and structs.
     ///
     /// Returns a list of `LevelInfo`, where each level is for nested primitive arrays.
+    ///
+    /// The parent struct's nullness is tracked, as it determines whether the child
+    /// max_definition should be incremented.
+    /// The 'is_parent_struct' variable asks "is this field's parent a struct?".
+    /// * If we are starting at a [RecordBatch], this is `false`.
+    /// * If we are calculating a list's child, this is `false`.
+    /// * If we are calculating a struct (i.e. `field.data_type90 == Struct`),
+    /// this depends on whether the struct is a child of a struct.
+    /// * If we are calculating a field inside a [StructArray], this is 'true'.
     pub(crate) fn calculate_array_levels(
         &self,
         array: &ArrayRef,
         field: &Field,
+        is_parent_struct: bool,
     ) -> Vec<Self> {
         let (array_offsets, array_mask) = Self::get_array_offsets_and_masks(array);
         match array.data_type() {
@@ -145,6 +155,7 @@ impl LevelInfo {
                     array_offsets,
                     array_mask,
                     false,
+                    is_parent_struct,
                     field.is_nullable(),
                 )]
             }
@@ -154,6 +165,8 @@ impl LevelInfo {
                     array_offsets,
                     array_mask,
                     true,
+                    // the list could come from a struct, but its children will all be false
+                    is_parent_struct,
                     field.is_nullable(),
                 );
 
@@ -199,11 +212,12 @@ impl LevelInfo {
                             child_offsets,
                             child_mask,
                             false,
+                            false, // always false
                             list_field.is_nullable(),
                         )]
                     }
                     DataType::List(_) | DataType::LargeList(_) | DataType::Struct(_) => {
-                        list_level.calculate_array_levels(&child_array, list_field)
+                        list_level.calculate_array_levels(&child_array, list_field, false)
                     }
                     DataType::FixedSizeList(_, _) => unimplemented!(),
                     DataType::Union(_) => unimplemented!(),
@@ -219,6 +233,8 @@ impl LevelInfo {
                     array_offsets,
                     array_mask,
                     false,
+                    // struct's own parent could be a struct
+                    is_parent_struct,
                     field.is_nullable(),
                 );
                 let mut struct_levels = vec![];
@@ -227,8 +243,12 @@ impl LevelInfo {
                     .into_iter()
                     .zip(struct_fields)
                     .for_each(|(child_array, child_field)| {
-                        let mut levels =
-                            struct_level.calculate_array_levels(child_array, child_field);
+                        let mut levels = struct_level.calculate_array_levels(
+                            child_array,
+                            child_field,
+                            // this is the only place where this is always true
+                            true,
+                        );
                         struct_levels.append(&mut levels);
                     });
                 struct_levels
@@ -243,6 +263,7 @@ impl LevelInfo {
                     array_offsets,
                     array_mask,
                     false,
+                    is_parent_struct,
                     field.is_nullable(),
                 )]
             }
@@ -299,6 +320,7 @@ impl LevelInfo {
         array_offsets: Vec<i64>,
         array_mask: Vec<bool>,
         is_list: bool,
+        is_parent_struct: bool,
         is_nullable: bool,
     ) -> Self {
         let min_len = *(array_offsets.last().unwrap()) as usize;
@@ -315,11 +337,20 @@ impl LevelInfo {
                 } else if self.is_list {
                     // second exception, always increment after a list
                     self.max_definition + 1
+                } else if is_parent_struct && !self.is_nullable {
+                    // if the parent is a non-null struct, don't increment
+                    self.max_definition
                 } else {
                     self.max_definition + is_nullable as i16
                 }
             }
-            true => self.max_definition + 1 + is_nullable as i16,
+            true => {
+                if is_parent_struct && !self.is_nullable {
+                    self.max_definition + is_nullable as i16
+                } else {
+                    self.max_definition + 1 + is_nullable as i16
+                }
+            }
         };
 
         match (self.is_list, is_list) {
@@ -734,6 +765,7 @@ mod tests {
             array_mask,
             true,
             false,
+            false,
         );
         //
         let expected_levels = LevelInfo {
@@ -764,6 +796,7 @@ mod tests {
             array_offsets.clone(),
             array_mask,
             true,
+            false,
             false,
         );
         let expected_levels = LevelInfo {
@@ -805,6 +838,7 @@ mod tests {
             array_mask.clone(),
             false,
             false,
+            false,
         );
         let expected_levels = LevelInfo {
             definition: vec![1; 10],
@@ -836,6 +870,7 @@ mod tests {
         let levels = parent_levels.calculate_child_levels(
             array_offsets.clone(),
             array_mask.clone(),
+            false,
             false,
             true,
         );
@@ -871,6 +906,7 @@ mod tests {
             array_offsets.clone(),
             array_mask,
             true,
+            false,
             true,
         );
         // array: [[0, 0], _1_, [2, 2], [3, 3, 3, 3], [4, 4, 4]]
@@ -932,6 +968,7 @@ mod tests {
             array_offsets.clone(),
             array_mask,
             true,
+            false,
             true,
         );
         let expected_levels = LevelInfo {
@@ -969,6 +1006,7 @@ mod tests {
             array_offsets.clone(),
             array_mask,
             true,
+            false,
             true,
         );
         let expected_levels = LevelInfo {
@@ -1049,6 +1087,7 @@ mod tests {
             array_offsets.clone(),
             array_mask,
             true,
+            false,
             true,
         );
         // 0: [null], level 1 is defined, but not 2
@@ -1089,6 +1128,7 @@ mod tests {
             array_offsets.clone(),
             array_mask,
             true,
+            false,
             true,
         );
         // We have 7 array values, and at least 15 primitives (from array_offsets)
@@ -1157,7 +1197,7 @@ mod tests {
             is_nullable: true,
         };
         let b_levels =
-            a_levels.calculate_child_levels(b_offsets.clone(), b_mask, false, true);
+            a_levels.calculate_child_levels(b_offsets.clone(), b_mask, false, true, true);
         assert_eq!(&b_expected_levels, &b_levels);
 
         // c's offset and mask
@@ -1173,7 +1213,8 @@ mod tests {
             is_list: false,
             is_nullable: true,
         };
-        let c_levels = b_levels.calculate_child_levels(c_offsets, c_mask, false, true);
+        let c_levels =
+            b_levels.calculate_child_levels(c_offsets, c_mask, false, true, true);
         assert_eq!(&c_expected_levels, &c_levels);
     }
 
@@ -1222,7 +1263,8 @@ mod tests {
             .iter()
             .zip(batch.schema().fields())
             .for_each(|(array, field)| {
-                let mut array_levels = batch_level.calculate_array_levels(array, field);
+                let mut array_levels =
+                    batch_level.calculate_array_levels(array, field, false);
                 levels.append(&mut array_levels);
             });
         assert_eq!(levels.len(), 1);
@@ -1254,6 +1296,8 @@ mod tests {
     fn mixed_struct_list() {
         // this tests the level generation from the equivalent arrow_writer_complex test
 
+        // TODO: Investigate failure if struct is null. See https://github.com/apache/arrow-rs/issues/245
+
         // define schema
         let struct_field_d = Field::new("d", DataType::Float64, true);
         let struct_field_f = Field::new("f", DataType::Float32, true);
@@ -1273,7 +1317,7 @@ mod tests {
             Field::new(
                 "c",
                 DataType::Struct(vec![struct_field_d.clone(), struct_field_e.clone()]),
-                false,
+                true, // https://github.com/apache/arrow-rs/issues/245
             ),
         ]);
 
@@ -1336,7 +1380,8 @@ mod tests {
             .iter()
             .zip(batch.schema().fields())
             .for_each(|(array, field)| {
-                let mut array_levels = batch_level.calculate_array_levels(array, field);
+                let mut array_levels =
+                    batch_level.calculate_array_levels(array, field, false);
                 levels.append(&mut array_levels);
             });
         assert_eq!(levels.len(), 5);
@@ -1413,5 +1458,66 @@ mod tests {
         let expected = vec![0, 1, 2, 3, 4, 5];
         let filter = level.filter_array_indices();
         assert_eq!(expected, filter);
+    }
+
+    #[test]
+    fn test_null_vs_nonnull_struct() {
+        // define schema
+        let offset_field = Field::new("offset", DataType::Int32, true);
+        let schema = Schema::new(vec![Field::new(
+            "some_nested_object",
+            DataType::Struct(vec![offset_field.clone()]),
+            false,
+        )]);
+
+        // create some data
+        let offset = Int32Array::from(vec![1, 2, 3, 4, 5]);
+
+        let some_nested_object =
+            StructArray::from(vec![(offset_field, Arc::new(offset) as ArrayRef)]);
+
+        // build a record batch
+        let batch =
+            RecordBatch::try_new(Arc::new(schema), vec![Arc::new(some_nested_object)])
+                .unwrap();
+
+        let batch_level = LevelInfo::new_from_batch(&batch);
+        let struct_null_level = batch_level.calculate_array_levels(
+            batch.column(0),
+            batch.schema().field(0),
+            false,
+        );
+
+        // create second batch
+        // define schema
+        let offset_field = Field::new("offset", DataType::Int32, true);
+        let schema = Schema::new(vec![Field::new(
+            "some_nested_object",
+            DataType::Struct(vec![offset_field.clone()]),
+            true,
+        )]);
+
+        // create some data
+        let offset = Int32Array::from(vec![1, 2, 3, 4, 5]);
+
+        let some_nested_object =
+            StructArray::from(vec![(offset_field, Arc::new(offset) as ArrayRef)]);
+
+        // build a record batch
+        let batch =
+            RecordBatch::try_new(Arc::new(schema), vec![Arc::new(some_nested_object)])
+                .unwrap();
+
+        let batch_level = LevelInfo::new_from_batch(&batch);
+        let struct_non_null_level = batch_level.calculate_array_levels(
+            batch.column(0),
+            batch.schema().field(0),
+            false,
+        );
+
+        // The 2 levels should not be the same
+        if struct_non_null_level == struct_null_level {
+            panic!("Levels should not be equal, to reflect the difference in struct nullness");
+        }
     }
 }

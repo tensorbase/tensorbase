@@ -29,7 +29,7 @@ use arrow::{
 };
 use arrow::{
     array::{
-        Date32Array, Date64Array, Timestamp32Array, 
+        Date32Array, Date64Array, Timestamp32Array,
         TimestampMicrosecondArray, TimestampMillisecondArray,
         TimestampNanosecondArray, TimestampSecondArray,
     },

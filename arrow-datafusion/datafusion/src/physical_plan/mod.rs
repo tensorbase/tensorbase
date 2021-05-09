@@ -18,6 +18,7 @@
 //! Traits for physical query plan, supporting parallel execution for partitioned relations.
 
 use std::fmt::{Debug, Display};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::{any::Any, pin::Pin};
 
@@ -52,38 +53,59 @@ pub type SendableRecordBatchStream = Pin<Box<dyn RecordBatchStream + Send + Sync
 pub enum MetricType {
     /// Simple counter
     Counter,
+    /// Wall clock time in nanoseconds
+    TimeNanos,
 }
 
 /// SQL metric such as counter (number of input or output rows) or timing information about
 /// a physical operator.
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct SQLMetric {
-    /// Metric name
-    name: String,
     /// Metric value
-    value: usize,
+    value: AtomicUsize,
     /// Metric type
     metric_type: MetricType,
 }
 
-impl SQLMetric {
-    /// Create a new SQLMetric
-    pub fn new(name: &str, metric_type: MetricType) -> Self {
+impl Clone for SQLMetric {
+    fn clone(&self) -> Self {
         Self {
-            name: name.to_owned(),
-            value: 0,
+            value: AtomicUsize::new(self.value.load(Ordering::Relaxed)),
+            metric_type: self.metric_type.clone(),
+        }
+    }
+}
+
+impl SQLMetric {
+    // relaxed ordering for operations on `value` poses no issues
+    // we're purely using atomic ops with no associated memory ops
+
+    /// Create a new metric for tracking a counter
+    pub fn counter() -> Arc<SQLMetric> {
+        Arc::new(SQLMetric::new(MetricType::Counter))
+    }
+
+    /// Create a new metric for tracking time in nanoseconds
+    pub fn time_nanos() -> Arc<SQLMetric> {
+        Arc::new(SQLMetric::new(MetricType::TimeNanos))
+    }
+
+    /// Create a new SQLMetric
+    pub fn new(metric_type: MetricType) -> Self {
+        Self {
+            value: AtomicUsize::new(0),
             metric_type,
         }
     }
 
     /// Add to the value
-    pub fn add(&mut self, n: usize) {
-        self.value += n;
+    pub fn add(&self, n: usize) {
+        self.value.fetch_add(n, Ordering::Relaxed);
     }
 
     /// Get the current value
     pub fn value(&self) -> usize {
-        self.value
+        self.value.load(Ordering::Relaxed)
     }
 }
 
@@ -252,6 +274,7 @@ pub trait AggregateExpr: Send + Sync + Debug {
     /// Returns the aggregate expression as [`Any`](std::any::Any) so that it can be
     /// downcast to a specific implementation.
     fn as_any(&self) -> &dyn Any;
+
     /// the field of the final result of this aggregation.
     fn field(&self) -> Result<Field>;
 
@@ -323,6 +346,7 @@ pub mod aggregates;
 pub mod array_expressions;
 pub mod coalesce_batches;
 pub mod common;
+pub mod cross_join;
 #[cfg(feature = "crypto_expressions")]
 pub mod crypto_expressions;
 pub mod csv;

@@ -81,15 +81,18 @@ async fn nyc() -> Result<()> {
     let optimized_plan = ctx.optimize(&logical_plan)?;
 
     match &optimized_plan {
-        LogicalPlan::Aggregate { input, .. } => match input.as_ref() {
-            LogicalPlan::TableScan {
-                ref projected_schema,
-                ..
-            } => {
-                assert_eq!(2, projected_schema.fields().len());
-                assert_eq!(projected_schema.field(0).name(), "passenger_count");
-                assert_eq!(projected_schema.field(1).name(), "fare_amount");
-            }
+        LogicalPlan::Projection { input, .. } => match input.as_ref() {
+            LogicalPlan::Aggregate { input, .. } => match input.as_ref() {
+                LogicalPlan::TableScan {
+                    ref projected_schema,
+                    ..
+                } => {
+                    assert_eq!(2, projected_schema.fields().len());
+                    assert_eq!(projected_schema.field(0).name(), "passenger_count");
+                    assert_eq!(projected_schema.field(1).name(), "fare_amount");
+                }
+                _ => unreachable!(),
+            },
             _ => unreachable!(),
         },
         _ => unreachable!(false),
@@ -373,6 +376,94 @@ async fn csv_query_group_by_float32() -> Result<()> {
 }
 
 #[tokio::test]
+async fn select_all() -> Result<()> {
+    let mut ctx = ExecutionContext::new();
+    register_aggregate_simple_csv(&mut ctx)?;
+
+    let sql = "SELECT c1 FROM aggregate_simple order by c1";
+    let actual_no_all = execute(&mut ctx, sql).await;
+
+    let sql_all = "SELECT ALL c1 FROM aggregate_simple order by c1";
+    let actual_all = execute(&mut ctx, sql_all).await;
+
+    assert_eq!(actual_no_all, actual_all);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn select_distinct() -> Result<()> {
+    let mut ctx = ExecutionContext::new();
+    register_aggregate_simple_csv(&mut ctx)?;
+
+    let sql = "SELECT DISTINCT * FROM aggregate_simple";
+    let mut actual = execute(&mut ctx, sql).await;
+    actual.sort();
+
+    let mut dedup = actual.clone();
+    dedup.dedup();
+
+    assert_eq!(actual, dedup);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn select_distinct_simple() -> Result<()> {
+    let mut ctx = ExecutionContext::new();
+    register_aggregate_simple_csv(&mut ctx)?;
+
+    let sql = "SELECT DISTINCT c1 FROM aggregate_simple order by c1";
+    let actual = execute(&mut ctx, sql).await;
+
+    let expected = vec![
+        vec!["0.00001"],
+        vec!["0.00002"],
+        vec!["0.00003"],
+        vec!["0.00004"],
+        vec!["0.00005"],
+    ];
+    assert_eq!(actual, expected);
+
+    let sql = "SELECT DISTINCT c1, c2 FROM aggregate_simple order by c1";
+    let actual = execute(&mut ctx, sql).await;
+
+    let expected = vec![
+        vec!["0.00001", "0.000000000001"],
+        vec!["0.00002", "0.000000000002"],
+        vec!["0.00003", "0.000000000003"],
+        vec!["0.00004", "0.000000000004"],
+        vec!["0.00005", "0.000000000005"],
+    ];
+    assert_eq!(actual, expected);
+
+    let sql = "SELECT distinct c3 FROM aggregate_simple order by c3";
+    let actual = execute(&mut ctx, sql).await;
+
+    let expected = vec![vec!["false"], vec!["true"]];
+    assert_eq!(actual, expected);
+
+    let sql = "SELECT distinct c1+c2 as a FROM aggregate_simple";
+    let actual = execute(&mut ctx, sql).await;
+
+    assert_eq!(actual.len(), 5);
+    Ok(())
+}
+
+#[tokio::test]
+async fn projection_same_fields() -> Result<()> {
+    let mut ctx = ExecutionContext::new();
+
+    let sql = "select (1+1) as a from (select 1 as a);";
+    let actual = execute(&mut ctx, sql).await;
+
+    let expected = vec![vec!["2"]];
+    assert_eq!(actual, expected);
+
+    Ok(())
+}
+
+#[tokio::test]
 async fn csv_query_group_by_float64() -> Result<()> {
     let mut ctx = ExecutionContext::new();
     register_aggregate_simple_csv(&mut ctx)?;
@@ -470,6 +561,20 @@ async fn csv_query_group_by_and_having_and_where() -> Result<()> {
     let mut actual = execute(&mut ctx, sql).await;
     actual.sort();
     let expected = vec![vec!["a", "-101"]];
+    assert_eq!(expected, actual);
+    Ok(())
+}
+
+#[tokio::test]
+async fn all_where_empty() -> Result<()> {
+    let mut ctx = ExecutionContext::new();
+    register_aggregate_csv(&mut ctx)?;
+    let sql = "SELECT *
+               FROM aggregate_test_100
+               WHERE 1=2";
+    let mut actual = execute(&mut ctx, sql).await;
+    actual.sort();
+    let expected: Vec<Vec<String>> = vec![];
     assert_eq!(expected, actual);
     Ok(())
 }
@@ -1289,15 +1394,57 @@ async fn equijoin_implicit_syntax_reversed() -> Result<()> {
 }
 
 #[tokio::test]
-async fn cartesian_join() -> Result<()> {
-    let ctx = create_join_context("t1_id", "t2_id")?;
+async fn cross_join() {
+    let mut ctx = create_join_context("t1_id", "t2_id").unwrap();
+
     let sql = "SELECT t1_id, t1_name, t2_name FROM t1, t2 ORDER BY t1_id";
-    let maybe_plan = ctx.create_logical_plan(&sql);
+    let actual = execute(&mut ctx, sql).await;
+
+    assert_eq!(4 * 4, actual.len());
+
+    let sql = "SELECT t1_id, t1_name, t2_name FROM t1, t2 WHERE 1=1 ORDER BY t1_id";
+    let actual = execute(&mut ctx, sql).await;
+
+    assert_eq!(4 * 4, actual.len());
+
+    let sql = "SELECT t1_id, t1_name, t2_name FROM t1 CROSS JOIN t2";
+    let actual = execute(&mut ctx, sql).await;
+
+    assert_eq!(4 * 4, actual.len());
+
     assert_eq!(
-        "This feature is not implemented: Cartesian joins are not supported",
-        &format!("{}", maybe_plan.err().unwrap())
+        actual,
+        [
+            ["11", "a", "z"],
+            ["11", "a", "y"],
+            ["11", "a", "x"],
+            ["11", "a", "w"],
+            ["22", "b", "z"],
+            ["22", "b", "y"],
+            ["22", "b", "x"],
+            ["22", "b", "w"],
+            ["33", "c", "z"],
+            ["33", "c", "y"],
+            ["33", "c", "x"],
+            ["33", "c", "w"],
+            ["44", "d", "z"],
+            ["44", "d", "y"],
+            ["44", "d", "x"],
+            ["44", "d", "w"]
+        ]
     );
-    Ok(())
+
+    // Two partitions (from UNION) on the left
+    let sql = "SELECT * FROM (SELECT t1_id, t1_name FROM t1 UNION ALL SELECT t1_id, t1_name FROM t1) t1 CROSS JOIN t2";
+    let actual = execute(&mut ctx, sql).await;
+
+    assert_eq!(4 * 4 * 2, actual.len());
+
+    // Two partitions (from UNION) on the right
+    let sql = "SELECT t1_id, t1_name, t2_name FROM t1 CROSS JOIN (SELECT t2_name FROM t2 UNION ALL SELECT t2_name FROM t2)";
+    let actual = execute(&mut ctx, sql).await;
+
+    assert_eq!(4 * 4 * 2, actual.len());
 }
 
 fn create_join_context(
@@ -2627,12 +2774,11 @@ async fn inner_join_qualified_names() -> Result<()> {
 }
 
 #[tokio::test]
-#[ignore = "https://issues.apache.org/jira/browse/ARROW-12266"]
 async fn inner_join_nulls() {
     let sql = "SELECT * FROM (SELECT null AS id1) t1
             INNER JOIN (SELECT null AS id2) t2 ON id1 = id2";
 
-    let expected: &[&[&str]] = &[&[]];
+    let expected: &[&[&str]] = &[];
 
     let mut ctx = create_join_context_qualified().unwrap();
     let actual = execute(&mut ctx, sql).await;

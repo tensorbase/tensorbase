@@ -76,7 +76,7 @@ pub fn get_temp_file(file_name: &str, content: &[u8]) -> fs::File {
 /// assert!(std::path::PathBuf::from(csvdata).exists());
 /// ```
 pub fn arrow_test_data() -> String {
-    match get_data_dir("ARROW_TEST_DATA", "../../testing/data") {
+    match get_data_dir("ARROW_TEST_DATA", "../testing/data") {
         Ok(pb) => pb.display().to_string(),
         Err(err) => panic!("failed to get arrow data dir: {}", err),
     }
@@ -84,7 +84,7 @@ pub fn arrow_test_data() -> String {
 
 /// Returns the parquest test data directory, which is by default
 /// stored in a git submodule rooted at
-/// `arrow/cpp/submodules/parquest-testing/data`.
+/// `arrow/parquest-testing/data`.
 ///
 /// The default can be overridden by the optional environment variable
 /// `PARQUET_TEST_DATA`
@@ -98,10 +98,7 @@ pub fn arrow_test_data() -> String {
 /// assert!(std::path::PathBuf::from(filename).exists());
 /// ```
 pub fn parquet_test_data() -> String {
-    match get_data_dir(
-        "PARQUET_TEST_DATA",
-        "../../cpp/submodules/parquet-testing/data",
-    ) {
+    match get_data_dir("PARQUET_TEST_DATA", "../parquet-testing/data") {
         Ok(pb) => pb.display().to_string(),
         Err(err) => panic!("failed to get parquet data dir: {}", err),
     }
