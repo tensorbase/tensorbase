@@ -51,6 +51,7 @@ To contribute to the TensorBase code base, please follow the workflow as defined
 4. Make sure your commit messages are in the proper format (TBD).
 5. Push your changes to a topic branch in your fork of the repository.
 6. Submit a pull request.
+7. If you want core committers to help you easier, select ["Allow edits from maintainers" in the UI of your pull request](https://docs.github.com/en/github/collaborating-with-issues-and-pull-requests/allowing-changes-to-a-pull-request-branch-created-from-a-fork).
 
 Thanks for your contributions!
 
