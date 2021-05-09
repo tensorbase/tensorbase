@@ -65,13 +65,15 @@ pub(crate) fn run(
 ) -> EngineResult<Vec<RecordBatch>> {
     // let t = Instant::now();
     let mut ctx = ExecutionContext::new();
+    let mut res_schemas = Vec::new();
     for tab in tabs {
         let qn1 = [current_db, &tab].join(".");
         let qtn = if tab.contains('.') { &tab } else { &qn1 };
         let tid = ms.tid_by_qname(&qtn).ok_or(EngineError::TableNotExist)?;
         // *cid, ci.data_type
         let mut cis = Vec::new();
-        let mut fields = Vec::new();
+        let mut run_fields = Vec::new();
+        let mut res_fields = Vec::new();
         for cn in &cols {
             let qcn = if cn.contains('.') {
                 // ms.cid_by_qname(&cn).ok_or(EngineError::ColumnNotExist)?
@@ -83,20 +85,38 @@ pub(crate) fn run(
             if qcn.contains(qtn) {
                 if let Some(cid) = ms.cid_by_qname(&qcn) {
                     if let Some(ci) = ms.get_column_info(cid)? {
-                        cis.push((cid, ci.data_type));
-                        fields.push(Field::new(
+                        let btyp = ci.data_type;
+                        cis.push((cid, btyp));
+                        log::debug!("btyp: {:?}", btyp);
+                        let res_field_typ = btype_to_arrow_type(ci.data_type)?;
+                        run_fields.push(Field::new(
                             cn,
-                            btype_to_arrow_type(ci.data_type)?,
+                            //FIXME issues #62: workaround for no decimal kernel
+                            match btyp {
+                                BqlType::Decimal(p, _s) => {
+                                    if p < 10 {
+                                        DataType::Int32
+                                    } else {
+                                        DataType::Int64
+                                    }
+                                }
+                                _ => res_field_typ.clone(),
+                            },
                             false,
                         ));
+                        //FIXME issues #62: workaround for no decimal kernel
+                        res_fields.push(Field::new(cn, res_field_typ, false));
                     } else {
                         return Err(EngineError::ColumnInfoNotExist);
                     }
                 }
             }
         }
+        if res_fields.len() > 0 {
+            res_schemas.push(res_fields);
+        }
         //log::debug!("[df][Schema] - fields: {:?}", fields);
-        let schema = Arc::new(Schema::new(fields));
+        let schema = Arc::new(Schema::new(run_fields));
         let copasss = &mut qs.copasss;
         let mut copass = Vec::new();
         ps.fill_copainfos_int_by_ptk_range(
@@ -129,6 +149,10 @@ pub(crate) fn run(
         // arrow::util::pretty::print_batches(&result)?;
         Ok(result)
     });
+
+    // let plan = ctx.create_logical_plan(raw_query)?;
+    // log::debug!("plan: {:?}", plan);
+
     Ok(res?)
 }
 
@@ -147,7 +171,17 @@ fn setup_tables(
         for j in 0..nc {
             let copa = &copass[j];
             let cpi = &copa[i];
-            let typ = btype_to_arrow_type(cis[j].1)?;
+            let btyp = cis[j].1;
+            let typ = match btyp {
+                BqlType::Decimal(p, _s) => {
+                    if p < 10 {
+                        DataType::Int32
+                    } else {
+                        DataType::Int64
+                    }
+                }
+                _ => btype_to_arrow_type(btyp)?,
+            };
             let data = gen_arrow_arraydata(cpi, &typ)?;
             match typ {
                 DataType::Int8 => {
