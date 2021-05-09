@@ -93,12 +93,12 @@ pub enum BqlType {
     UnInit,
     UInt(u8),
     Int(u8),
-    Float(u8),
     Decimal(u8, u8),
     Date,
     DateTime,
     String,
     LowCardinalityString,
+    Float(u8),
 }
 
 impl Default for BqlType {
