@@ -50,14 +50,11 @@ TensorBase hopes to change the status quo of bigdata system as follows:
 
 ## Benchmarks
 
-For query, TensorBase is faster in simple aggregation, but soon slower in more complex cases. Great start!
+TensorBase has **enabled full workflow for TPC-H benchmarks from data ingestion to query**. TensorBase are becoming good sharp for single node.
 
-|Query |ClickHouse (v21.2.5.5)      | TensorBase (main branch)  | Speedup Ratio of TB   |
-|:----:|:---------------------------:|:-----------------------: | :--------------------------: |
-| select sum(trip_id) from trips_lite | 0.248 sec  |  0.079 sec | 3.1 (TB is faster) |
-| select date_part('year',pickup_datetime), count(1) from trips_lite group by date_part('year',pickup_datetime)* | 0.514 sec |  3.375 sec  | 0.15 (TB is slower)  |
+TensorBase is **lighting fast**. TensorBase has shown better performance than that of ClickHouse in simple aggregation query on 1.47-billion rows NYC Taxi Dataset.
 
-More detail about this benchmark seen [in benchmarks](/docs/benchmarks.md).
+More detail about all benchmarks seen [in benchmarks](https://github.com/tensorbase/benchmarks).
 
 ## Roadmap
 
