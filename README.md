@@ -50,9 +50,9 @@ TensorBase hopes to change the status quo of bigdata system as follows:
 
 ## Benchmarks
 
-TensorBase has **enabled full workflow for TPC-H benchmarks from data ingestion to query**. TensorBase are becoming good sharp for single node.
-
 TensorBase is **lighting fast**. TensorBase has shown better performance than that of ClickHouse in simple aggregation query on 1.47-billion rows NYC Taxi Dataset.
+
+TensorBase has **enabled full workflow for TPC-H benchmarks from data ingestion to query**.
 
 More detail about all benchmarks seen [in benchmarks](https://github.com/tensorbase/benchmarks).
 
