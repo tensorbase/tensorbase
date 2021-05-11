@@ -1,0 +1,13 @@
+# See https://docs.github.com/en/code-security/supply-chain-security/configuration-options-for-dependency-updates
+
+version: 2
+updates:
+  # Enable version updates for cargo
+  - package-ecosystem: "cargo"
+    # Look for `Cargo.toml` files in the `root` directory
+    directory: "/"
+    # Check the cargo registry for updates every day (weekdays)
+    schedule:
+      interval: "daily"
+    # Allow up to 10 open pull requests for cargo dependencies
+    open-pull-requests-limit: 10
