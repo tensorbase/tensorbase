@@ -145,6 +145,7 @@ macro_rules! typed_sum_u64_delta_batch {
     }};
 }
 
+#[allow(unused_macros)]
 macro_rules! typed_sum_f64_delta_batch {
     ($VALUES:expr, $ARRAYTYPE:ident, $SCALAR:ident) => {{
         let array = $VALUES.as_any().downcast_ref::<$ARRAYTYPE>().unwrap();

@@ -215,7 +215,6 @@ impl<W: Write> Writer<W> {
                         .to_string()
                 }
                 DataType::Timestamp32(_) => {
-                    use TimeUnit::*;
                     let datetime = col
                         .as_any()
                         .downcast_ref::<Timestamp32Array>()
