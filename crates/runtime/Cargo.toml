@@ -27,7 +27,7 @@ arrow = { path = "../../arrow-datafusion/arrow" }
 [dev-dependencies]
 test_utils = { path = "../test_utils" }
 toml = "0.5"
-zerocopy = "0.3"
+zerocopy = "0.5"
 anyhow = "1.0"
 rand = "0.8"
 walkdir = "2.3"
