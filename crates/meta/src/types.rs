@@ -132,7 +132,7 @@ impl BqlType {
                     Ok(8)
                 }
             },
-            // BqlType::LowCardinalityString => Ok(128),
+            BqlType::LowCardinalityString => Ok(4),
             _ => Err(MetaError::NoFixedSizeDataTypeError),
         }
     }
