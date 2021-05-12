@@ -24,7 +24,7 @@ Feel free to seek more helps from the Base community.
 ## Clients/Drivers/Frontends
 
 * Official clickhouse-client command (in default settings)
-* Basic Client Supports
+* Other Language Driver Supports
   + [Rust ClickHouse driver](https://github.com/tensorbase/tensorbase/tree/main/crates/tests_integ/ch_client) (forked and owned by TB team, if you have problem, directly report issues in TensorBase)
   + [C/C++ ClickHouse Driver](https://github.com/ClickHouse/clickhouse-cpp)
   + [Java Native JDBC driver](https://github.com/housepower/ClickHouse-Native-JDBC)
