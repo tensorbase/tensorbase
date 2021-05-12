@@ -24,7 +24,7 @@ In the future, more protocols/dialects may be compatible(e.g. MySQL).
 CREATE DATABASE IF NOT EXISTS db_name
 ```
 * create table
-  * When using `clickhouse_client` to connect to TB server, the `ENGINE` attribute should be always inclued and the attribute value should be `BaseStorage`.
+  * When using `clickhouse-client` to connect to TB server, the `ENGINE` attribute should be always inclued and the attribute value should be `BaseStorage`. Because this attribute is explicitly checked by `clickhouse-client`. This attribute is not necessary when using with language drivers(such as Rust driver or Java JDBC driver).
 ```sql
 CREATE TABLE IF NOT EXISTS [db.]table_name
 (
