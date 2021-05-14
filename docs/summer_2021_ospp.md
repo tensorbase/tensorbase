@@ -25,4 +25,6 @@ It is excited to announce that TensorBase has joined the ["Summer 2021 of Open S
 
 * Task #4: New Type Multi-level High Availability
 
+* Task #...
 
+  You are welcome to propose your ideas.
