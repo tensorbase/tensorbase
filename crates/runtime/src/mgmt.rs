@@ -49,11 +49,9 @@ pub static READ: SyncOnceCell<
     ) -> BaseRtResult<Vec<Block>>,
 > = SyncOnceCell::new();
 
-// pub write: fn(
-//     blk: &Block,
-//     tab_ins: &str,
-//     tid_ins: Id,
-// ) -> BaseRtResult<()>,
+pub static WRITE: SyncOnceCell<
+    fn(blk: &Block, tab_ins: &str, tid_ins: Id) -> BaseRtResult<()>,
+> = SyncOnceCell::new();
 
 pub struct BaseHasher {
     state: u64,
