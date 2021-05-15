@@ -22,41 +22,6 @@ use crate::{
     errs::{BaseRtError, BaseRtResult},
     mgmt::BMS,
 };
-/*
-*
-*/
-// pub fn write_part<T>(part_key: T) -> BaseRtResult<()> {
-//     //get the part file
-
-//     //if none, create and save it back
-
-//     //append the block to the end of part
-
-// }
-
-// #[thread_local]
-// static WB_BUF: Vec<u8> = Vec::<u8>::new();
-
-// pub struct MemPart {
-//     pub btype: BqlType,
-//     pub data: Vec<u8>,
-//     pub null_map: Option<Vec<u8>>,
-//     pub offset_map: Option<Vec<u32>>,
-//     // pub lc_dict_size: usize,
-//     pub lc_dict_data: Option<Vec<u8>>,
-// }
-
-// struct MemColumn<T> {
-//     cid: Id,
-//     parts: DashMap<T, MemPart>, //TODO configurable
-// }
-
-// struct MemTable<T> {
-//     tid: Id,
-//     pid: T,
-//     cols: Vec<MemColumn<T>>,
-//     has_flushed: bool,
-// }
 
 pub fn write_block(
     blk: &Block,
