@@ -2,10 +2,7 @@ use bytes::{Buf, BufMut, BytesMut};
 use lzzzz::lz4;
 use std::str;
 
-use crate::{
-    mgmt::{BaseCommandKind, BMS},
-    write::write_block,
-};
+use crate::mgmt::{BaseCommandKind, BMS, WRITE};
 
 use crate::ch::blocks::Block;
 use crate::ch::codecs::{BytesExt, CHMsgReadAware, CHMsgWriteAware};
@@ -118,11 +115,8 @@ pub fn response_to(
                 rb1.advance(ndec);
                 if blk.has_decoded() {
                     log::debug!("_ got block[{:p}]", &blk);
-                    write_block(
-                        &blk,
-                        &cctx.current_tab_ins,
-                        cctx.current_tid_ins,
-                    )?;
+                    let write = WRITE.get().unwrap();
+                    write(&blk, &cctx.current_tab_ins, cctx.current_tid_ins)?;
                     // log::debug!("blk.columns[0].data.1..100: {:?}", b1);
                 } else {
                     cctx.stage = StageKind::DataBlk;
@@ -148,7 +142,8 @@ pub fn response_to(
             rb1.advance(ndec);
             if blk.has_decoded() {
                 log::debug!("got block[{:p}]", &blk);
-                write_block(&blk, &cctx.current_tab_ins, cctx.current_tid_ins)?;
+                let write = WRITE.get().unwrap();
+                write(&blk, &cctx.current_tab_ins, cctx.current_tid_ins)?;
                 cctx.stage = StageKind::DataPacket;
             }
 
@@ -309,7 +304,8 @@ fn response_query(
             return Err(BaseRtError::UnsupportedFunctionality2(
                 "TensorBase does not support such settings",
             ));
-        } else {//FIXME temp workaround for tpch
+        } else {
+            //FIXME temp workaround for tpch
             let _ = rb.read_str()?;
             let _ = rb.read_str()?;
         }
@@ -349,7 +345,8 @@ fn response_query(
             | BaseCommandKind::Optimize,
         ) => Ok(()),
         Ok(BaseCommandKind::InsertFormatInlineValues(blk, qtn, tid)) => {
-            write_block(&blk, qtn.as_str(), tid)?;
+            let write = WRITE.get().unwrap();
+            write(&blk, qtn.as_str(), tid)?;
             Ok(())
         }
         Ok(
