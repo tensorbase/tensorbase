@@ -43,6 +43,7 @@ pub(crate) enum GroupByScalar {
     TimeMicrosecond(i64),
     TimeNanosecond(i64),
     Timestamp32(i32),
+    Date16(u16),
     Date32(i32),
 }
 
@@ -137,6 +138,7 @@ impl From<&GroupByScalar> for ScalarValue {
             GroupByScalar::Timestamp32(v) => {
                 ScalarValue::Timestamp32(Some(*v))
             }
+            GroupByScalar::Date16(v) => ScalarValue::Date16(Some(*v)),
             GroupByScalar::Date32(v) => ScalarValue::Date32(Some(*v)),
         }
     }
