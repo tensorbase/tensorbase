@@ -34,7 +34,7 @@ use arrow::{
         UInt16Builder, UInt32Builder, UInt64Builder, UInt8Builder,
     },
     datatypes::{
-        Timestamp32Type,
+        Timestamp32Type, Date16Type,
         TimestampMicrosecondType, TimestampMillisecondType, TimestampSecondType,
     },
 };
@@ -77,6 +77,8 @@ pub enum ScalarValue {
     LargeBinary(Option<Vec<u8>>),
     /// list of nested ScalarValue
     List(Option<Vec<ScalarValue>>, DataType),
+    /// Date stored as a signed 16bit unsigned int
+    Date16(Option<u16>),
     /// Date stored as a signed 32bit int
     Date32(Option<i32>),
     /// Date stored as a signed 64bit int
@@ -182,6 +184,7 @@ impl ScalarValue {
             ScalarValue::List(_, data_type) => {
                 DataType::List(Box::new(Field::new("item", data_type.clone(), true)))
             }
+            ScalarValue::Date16(_) => DataType::Date16,
             ScalarValue::Date32(_) => DataType::Date32,
             ScalarValue::Date64(_) => DataType::Date64,
             ScalarValue::IntervalYearMonth(_) => {
@@ -379,6 +382,10 @@ impl ScalarValue {
                 }
                 _ => panic!("Unexpected DataType for list"),
             }),
+            ScalarValue::Date16(e) => match e {
+                Some(value) => Arc::new(Date16Array::from_value(*value, size)),
+                None => new_null_array(&DataType::Date16, size),
+            },
             ScalarValue::Date32(e) => match e {
                 Some(value) => Arc::new(Date32Array::from_value(*value, size)),
                 None => new_null_array(&DataType::Date32, size),
@@ -434,6 +441,9 @@ impl ScalarValue {
                     }
                 };
                 ScalarValue::List(value, nested_type.data_type().clone())
+            }
+            DataType::Date16 => {
+                typed_cast!(array, index, Date16Array, Date16)
             }
             DataType::Date32 => {
                 typed_cast!(array, index, Date32Array, Date32)
@@ -638,7 +648,24 @@ impl TryFrom<ScalarValue> for i64 {
 }
 
 impl_try_from!(UInt8, u8);
-impl_try_from!(UInt16, u16);
+
+// special implementation for u16 because of Date16
+impl TryFrom<ScalarValue> for u16 {
+    type Error = DataFusionError;
+
+    fn try_from(value: ScalarValue) -> Result<Self> {
+        match value {
+            ScalarValue::UInt16(Some(inner_value))
+            | ScalarValue::Date16(Some(inner_value)) => Ok(inner_value),
+            _ => Err(DataFusionError::Internal(format!(
+                "Cannot convert {:?} to {}",
+                value,
+                std::any::type_name::<Self>()
+            ))),
+        }
+    }
+}
+
 impl_try_from!(UInt32, u32);
 impl_try_from!(UInt64, u64);
 impl_try_from!(Float32, f32);
@@ -754,6 +781,7 @@ impl fmt::Display for ScalarValue {
                 )?,
                 None => write!(f, "NULL")?,
             },
+            ScalarValue::Date16(e) => format_option!(f, e)?,
             ScalarValue::Date32(e) => format_option!(f, e)?,
             ScalarValue::Date64(e) => format_option!(f, e)?,
             ScalarValue::IntervalDayTime(e) => format_option!(f, e)?,
@@ -797,6 +825,7 @@ impl fmt::Debug for ScalarValue {
             ScalarValue::LargeBinary(None) => write!(f, "LargeBinary({})", self),
             ScalarValue::LargeBinary(Some(_)) => write!(f, "LargeBinary(\"{}\")", self),
             ScalarValue::List(_, _) => write!(f, "List([{}])", self),
+            ScalarValue::Date16(_) => write!(f, "Date16(\"{}\")", self),
             ScalarValue::Date32(_) => write!(f, "Date32(\"{}\")", self),
             ScalarValue::Date64(_) => write!(f, "Date64(\"{}\")", self),
             ScalarValue::IntervalDayTime(_) => {
@@ -813,6 +842,12 @@ impl fmt::Debug for ScalarValue {
 pub trait ScalarType<T: ArrowNativeType> {
     /// returns a scalar from an optional T
     fn scalar(r: Option<T>) -> ScalarValue;
+}
+
+impl ScalarType<u16> for Date16Type {
+    fn scalar(r: Option<u16>) -> ScalarValue {
+        ScalarValue::Date16(r)
+    }
 }
 
 impl ScalarType<f32> for Float32Type {

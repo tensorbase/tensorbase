@@ -256,6 +256,9 @@ macro_rules! binary_array_op_scalar {
             DataType::Timestamp(TimeUnit::Nanosecond, None) => {
                 compute_op_scalar!($LEFT, $RIGHT, $OP, TimestampNanosecondArray)
             }
+            DataType::Date16 => {
+                compute_op_scalar!($LEFT, $RIGHT, $OP, Date16Array)
+            }
             DataType::Date32 => {
                 compute_op_scalar!($LEFT, $RIGHT, $OP, Date32Array)
             }
@@ -287,6 +290,9 @@ macro_rules! binary_array_op {
             DataType::Utf8 => compute_utf8_op!($LEFT, $RIGHT, $OP, StringArray),
             DataType::Timestamp(TimeUnit::Nanosecond, None) => {
                 compute_op!($LEFT, $RIGHT, $OP, TimestampNanosecondArray)
+            }
+            DataType::Date16 => {
+                compute_op!($LEFT, $RIGHT, $OP, Date16Array)
             }
             DataType::Date32 => {
                 compute_op!($LEFT, $RIGHT, $OP, Date32Array)

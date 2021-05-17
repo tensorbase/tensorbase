@@ -43,7 +43,7 @@ use arrow::{
     compute,
 };
 use arrow::{
-    array::{BooleanArray, Date32Array, DictionaryArray},
+    array::{BooleanArray, Date16Array, Date32Array, DictionaryArray},
     compute::cast,
     datatypes::{
         ArrowDictionaryKeyType, ArrowNativeType, Int16Type, Int32Type, Int64Type,
@@ -549,6 +549,10 @@ fn create_key_for_col(col: &ArrayRef, row: usize, vec: &mut Vec<u8>) -> Result<(
             // store the string value
             vec.extend_from_slice(value.as_bytes());
         }
+        DataType::Date16 => {
+            let array = col.as_any().downcast_ref::<Date16Array>().unwrap();
+            vec.extend_from_slice(&array.value(row).to_le_bytes());
+        }
         DataType::Date32 => {
             let array = col.as_any().downcast_ref::<Date32Array>().unwrap();
             vec.extend_from_slice(&array.value(row).to_le_bytes());
@@ -978,6 +982,7 @@ fn create_batch_from_map(
                     GroupByScalar::TimeNanosecond(n) => {
                         Arc::new(TimestampNanosecondArray::from_vec(vec![*n], None))
                     }
+                    GroupByScalar::Date16(n) => Arc::new(Date16Array::from(vec![*n])),
                     GroupByScalar::Date32(n) => Arc::new(Date32Array::from(vec![*n])),
                 })
                 .collect::<Vec<ArrayRef>>();
@@ -1153,6 +1158,10 @@ fn create_group_by_value(col: &ArrayRef, row: usize) -> Result<GroupByScalar> {
                 .downcast_ref::<TimestampNanosecondArray>()
                 .unwrap();
             Ok(GroupByScalar::TimeNanosecond(array.value(row)))
+        }
+        DataType::Date16 => {
+            let array = col.as_any().downcast_ref::<Date16Array>().unwrap();
+            Ok(GroupByScalar::Date16(array.value(row)))
         }
         DataType::Date32 => {
             let array = col.as_any().downcast_ref::<Date32Array>().unwrap();
