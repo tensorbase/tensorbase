@@ -162,6 +162,7 @@ impl<T: ArrowPrimitiveType> Array for PrimitiveArray<T> {
 
 fn as_datetime<T: ArrowPrimitiveType>(v: i64) -> Option<NaiveDateTime> {
     match T::DATA_TYPE {
+        DataType::Date16 => Some(temporal_conversions::date16_to_datetime(v as u16)),
         DataType::Date32 => Some(temporal_conversions::date32_to_datetime(v as i32)),
         DataType::Date64 => Some(temporal_conversions::date64_to_datetime(v)),
         DataType::Time32(_) | DataType::Time64(_) => None,
@@ -207,7 +208,7 @@ fn as_time<T: ArrowPrimitiveType>(v: i64) -> Option<NaiveTime> {
             _ => None,
         },
         DataType::Timestamp(_, _) => as_datetime::<T>(v).map(|datetime| datetime.time()),
-        DataType::Date32 | DataType::Date64 => Some(NaiveTime::from_hms(0, 0, 0)),
+        DataType::Date16 | DataType::Date32 | DataType::Date64 => Some(NaiveTime::from_hms(0, 0, 0)),
         DataType::Interval(_) => None,
         _ => None,
     }
@@ -252,7 +253,7 @@ where
 
     /// Returns a value as a chrono `NaiveTime`
     ///
-    /// `Date32` and `Date64` return UTC midnight as they do not have time resolution
+    /// `Date16`, `Date32` and `Date64` return UTC midnight as they do not have time resolution
     pub fn value_as_time(&self, i: usize) -> Option<NaiveTime> {
         as_time::<T>(i64::from(self.value(i)))
     }
@@ -269,7 +270,7 @@ impl<T: ArrowPrimitiveType> fmt::Debug for PrimitiveArray<T> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "PrimitiveArray<{:?}>\n[\n", T::DATA_TYPE)?;
         print_long_array(self, f, |array, index, f| match T::DATA_TYPE {
-            DataType::Date32 | DataType::Date64 => {
+            DataType::Date16 | DataType::Date32 | DataType::Date64 => {
                 let v = self.value(index).to_isize().unwrap() as i64;
                 match as_date::<T>(v) {
                     Some(date) => write!(f, "{:?}", date),
@@ -409,6 +410,7 @@ def_numeric_from_vec!(UInt64Type);
 def_numeric_from_vec!(Float32Type);
 def_numeric_from_vec!(Float64Type);
 
+def_numeric_from_vec!(Date16Type);
 def_numeric_from_vec!(Date32Type);
 def_numeric_from_vec!(Date64Type);
 def_numeric_from_vec!(Time32SecondType);
