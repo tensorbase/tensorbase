@@ -38,9 +38,23 @@ It is excited to announce that TensorBase has joined the ["Summer 2021 of Open S
 
 * Task #3: Top Performance MySQL Protocol Server in Rust
 
-* Task #5: Systematic Enhancement to Apache Arrow and DataFusion
+  + Outline
+  
+    You add a top performance MySQL protocol server into TensorBase to make TensorBase to talk with MySQL client.
+    
+    You need to understand current top performance TensorBase ClickHouse compatible server and network side things, the frontend of query process, and contribute to the key path.
+  
+  + Skills
 
-* Task #4: New Type Multi-level High Availability
+    C/Rust, Linux Kernel, web, server, tcp, network
+
+  + Note
+
+    *Rust skill is not must-have*. Welcome any students if you have a good master of programming languages such as C/C++.
+
+* Task #4: Systematic Enhancement to Apache Arrow and DataFusion
+
+* Task #5: New Type Multi-level High Availability
 
 * Task #...
 
