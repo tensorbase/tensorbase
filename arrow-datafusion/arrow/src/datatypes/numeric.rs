@@ -338,6 +338,7 @@ make_numeric_type!(TimestampSecondType, i64, i64x8, m64x8);
 make_numeric_type!(TimestampMillisecondType, i64, i64x8, m64x8);
 make_numeric_type!(TimestampMicrosecondType, i64, i64x8, m64x8);
 make_numeric_type!(TimestampNanosecondType, i64, i64x8, m64x8);
+make_numeric_type!(Date16Type, u16, u16x32, m16x32);
 make_numeric_type!(Date32Type, i32, i32x16, m32x16);
 make_numeric_type!(Date64Type, i64, i64x8, m64x8);
 make_numeric_type!(Timestamp32Type, i32, i32x16, m32x16);

@@ -236,7 +236,10 @@ fn build_extend(array: &ArrayData) -> Extend {
         DataType::Null => null::build_extend(array),
         DataType::Boolean => boolean::build_extend(array),
         DataType::UInt8 => primitive::build_extend::<u8>(array),
-        DataType::UInt16 => primitive::build_extend::<u16>(array),
+        DataType::UInt16 
+        | DataType::Date16 => { 
+            primitive::build_extend::<u16>(array)
+        }
         DataType::UInt32 => primitive::build_extend::<u32>(array),
         DataType::UInt64 => primitive::build_extend::<u64>(array),
         DataType::Int8 => primitive::build_extend::<i8>(array),
@@ -282,7 +285,8 @@ fn build_extend_nulls(data_type: &DataType) -> ExtendNulls {
         DataType::Null => null::extend_nulls,
         DataType::Boolean => boolean::extend_nulls,
         DataType::UInt8 => primitive::extend_nulls::<u8>,
-        DataType::UInt16 => primitive::extend_nulls::<u16>,
+        DataType::UInt16 
+        | DataType::Date16 => primitive::extend_nulls::<u16>,
         DataType::UInt32 => primitive::extend_nulls::<u32>,
         DataType::UInt64 => primitive::extend_nulls::<u64>,
         DataType::Int8 => primitive::extend_nulls::<i8>,
@@ -358,6 +362,7 @@ impl<'a> MutableArrayData<'a> {
             | DataType::Int64
             | DataType::Float32
             | DataType::Float64
+            | DataType::Date16
             | DataType::Date32
             | DataType::Date64
             | DataType::Time32(_)
