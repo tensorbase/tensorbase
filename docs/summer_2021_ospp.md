@@ -23,6 +23,8 @@ It is excited to announce that TensorBase has joined the ["Summer 2021 of Open S
 
 * Task #3: Top Performance MySQL Protocol Server in Rust
 
+* Task #5: Systematic Enhancement to Apache Arrow and DataFusion
+
 * Task #4: New Type Multi-level High Availability
 
 * Task #...
