@@ -40,7 +40,7 @@ pub use expr::{
     octet_length, or, regexp_match, regexp_replace, repeat, replace, reverse, right,
     round, rpad, rtrim, sha224, sha256, sha384, sha512, signum, sin, split_part, sqrt,
     starts_with, strpos, substr, sum, tan, to_hex, translate, trim, trunc, upper, when,
-    Expr, ExprRewriter, ExpressionVisitor, Literal, Recursion,
+    Expr, ExprRewriter, ExpressionVisitor, Literal, Recursion, to_date,
 };
 pub use extension::UserDefinedLogicalNode;
 pub use operators::Operator;
