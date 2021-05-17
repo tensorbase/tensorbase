@@ -194,6 +194,8 @@ pub enum BuiltinScalarFunction {
     ToHex,
     /// to_timestamp
     ToTimestamp,
+    /// to_date 
+    ToDate,
     /// translate
     Translate,
     /// trim
@@ -273,10 +275,12 @@ impl FromStr for BuiltinScalarFunction {
             "substr" => BuiltinScalarFunction::Substr,
             "to_hex" => BuiltinScalarFunction::ToHex,
             "to_timestamp" => BuiltinScalarFunction::ToTimestamp,
+            "to_date" => BuiltinScalarFunction::ToDate,
             "translate" => BuiltinScalarFunction::Translate,
             "trim" => BuiltinScalarFunction::Trim,
             "upper" => BuiltinScalarFunction::Upper,
             "regexp_match" => BuiltinScalarFunction::RegexpMatch,
+
             _ => {
                 return Err(DataFusionError::Plan(format!(
                     "There is no built-in function named {}",
@@ -581,6 +585,9 @@ pub fn return_type(
         }),
         BuiltinScalarFunction::ToTimestamp => {
             Ok(DataType::Timestamp(TimeUnit::Nanosecond, None))
+        }
+        BuiltinScalarFunction::ToDate => {
+            Ok(DataType::Date16)
         }
         BuiltinScalarFunction::Translate => Ok(match arg_types[0] {
             DataType::LargeUtf8 => DataType::LargeUtf8,
@@ -1083,6 +1090,7 @@ pub fn create_physical_expr(
             ))),
         },
         BuiltinScalarFunction::ToTimestamp => datetime_expressions::to_timestamp,
+        BuiltinScalarFunction::ToDate => datetime_expressions::to_date,
         BuiltinScalarFunction::Translate => |args| match args[0].data_type() {
             DataType::Utf8 => {
                 let func = invoke_if_unicode_expressions_feature_flag!(
@@ -1200,12 +1208,14 @@ fn signature(fun: &BuiltinScalarFunction) -> Signature {
             Signature::Exact(vec![DataType::Utf8, DataType::Int64]),
             Signature::Exact(vec![DataType::LargeUtf8, DataType::Int64]),
         ]),
-        BuiltinScalarFunction::ToTimestamp => Signature::Uniform(1, vec![DataType::Utf8]),
+        BuiltinScalarFunction::ToTimestamp 
+        | BuiltinScalarFunction::ToDate => Signature::Uniform(1, vec![DataType::Utf8]),
         BuiltinScalarFunction::DateTrunc => Signature::Exact(vec![
             DataType::Utf8,
             DataType::Timestamp(TimeUnit::Nanosecond, None),
         ]),
         BuiltinScalarFunction::DatePart => Signature::OneOf(vec![
+            Signature::Exact(vec![DataType::Utf8, DataType::Date16]),
             Signature::Exact(vec![DataType::Utf8, DataType::Date32]),
             Signature::Exact(vec![DataType::Utf8, DataType::Date64]),
             Signature::Exact(vec![
@@ -1483,9 +1493,7 @@ mod tests {
                 Err(expected_error) => {
                     // evaluate is expected error - cannot use .expect_err() due to Debug not being implemented
                     match expr.evaluate(&batch) {
-                        Ok(_) => assert!(false, "expected error"),
-                        Err(error) => {
-                            assert_eq!(error.to_string(), expected_error.to_string());
+                        Ok(_) => assert!(false, "expected error"), Err(error) => { assert_eq!(error.to_string(), expected_error.to_string());
                         }
                     }
                 }

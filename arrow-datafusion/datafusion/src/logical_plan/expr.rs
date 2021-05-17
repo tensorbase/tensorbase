@@ -1126,6 +1126,7 @@ unary_scalar_expr!(ToHex, to_hex);
 unary_scalar_expr!(Translate, translate);
 unary_scalar_expr!(Trim, trim);
 unary_scalar_expr!(Upper, upper);
+unary_scalar_expr!(ToDate, to_date);
 
 /// returns an array of fixed size with each argument on it.
 pub fn array(args: Vec<Expr>) -> Expr {

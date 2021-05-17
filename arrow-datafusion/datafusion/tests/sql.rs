@@ -1938,6 +1938,42 @@ async fn to_timestamp() -> Result<()> {
     Ok(())
 }
 
+fn make_date16_table() -> Result<Arc<MemTable>> {
+    let schema = Arc::new(Schema::new(vec![
+        Field::new("date", DataType::Date16, false),
+        Field::new("value", DataType::Int32, true),
+    ]));
+
+    let mut builder = Date16Array::builder(3);
+
+    builder.append_value(18764)?; // 2021-05-17
+    builder.append_value(18648)?; // 2021-01-21
+    builder.append_value(14828)?; // 2010-08-07
+
+    let data = RecordBatch::try_new(
+        schema.clone(),
+        vec![
+            Arc::new(builder.finish()),
+            Arc::new(Int32Array::from(vec![Some(1), Some(2), Some(3)])),
+        ],
+    )?;
+    let table = MemTable::try_new(schema, vec![vec![data]])?;
+    Ok(Arc::new(table))
+}
+
+#[tokio::test]
+async fn to_date() -> Result<()> {
+    let mut ctx = ExecutionContext::new();
+    ctx.register_table("date_data", make_date16_table()?)?;
+
+    let sql = "SELECT COUNT(*) FROM date_data where date > to_date('2015-09-08')";
+    let actual = execute(&mut ctx, sql).await;
+
+    let expected = vec![vec!["2"]];
+    assert_eq!(expected, actual);
+    Ok(())
+}
+
 #[tokio::test]
 async fn query_is_null() -> Result<()> {
     let schema = Arc::new(Schema::new(vec![Field::new("c1", DataType::Float64, true)]));

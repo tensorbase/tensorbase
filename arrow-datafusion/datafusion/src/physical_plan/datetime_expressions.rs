@@ -25,11 +25,11 @@ use crate::{
 };
 use arrow::{
     array::{Array, ArrayRef, GenericStringArray, PrimitiveArray, StringOffsetSizeTrait},
-    datatypes::{ArrowPrimitiveType, DataType, TimestampNanosecondType},
+    datatypes::{ArrowPrimitiveType, DataType, TimestampNanosecondType, Date16Type},
 };
 use arrow::{
     array::{
-        Date32Array, Date64Array, Timestamp32Array,
+        Date16Array, Date32Array, Date64Array, Timestamp32Array,
         TimestampMicrosecondArray, TimestampMillisecondArray,
         TimestampNanosecondArray, TimestampSecondArray,
     },
@@ -152,6 +152,41 @@ fn string_to_timestamp_nanos(s: &str) -> Result<i64> {
     // be more confusing than helpful
     Err(DataFusionError::Execution(format!(
         "Error parsing '{}' as timestamp",
+        s
+    )))
+}
+
+
+/// to_date SQL function
+pub fn to_date(args: &[ColumnarValue]) -> Result<ColumnarValue> {
+    handle::<Date16Type, _, Date16Type>(
+        args,
+        string_to_date16,
+        "to_date",
+    )
+}
+
+#[inline]
+fn string_to_date16(s: &str) -> Result<u16> {
+
+    if let Ok(date) = NaiveDate::parse_from_str(s, "%Y-%m-%d") {
+
+        if date.year() > 2148 {
+            return Err(DataFusionError::Execution(format!(
+                "Date '{}' Error: Year must be lowwer than 2149.",
+                s
+            )))
+        }
+
+        let secs = date.and_hms(0, 0, 0)
+        .timestamp();
+
+        let days = (secs / 86_400) as u16;
+        return Ok(days);
+    }
+
+    Err(DataFusionError::Execution(format!(
+        "Error parsing '{}' as date",
         s
     )))
 }
@@ -351,6 +386,10 @@ pub fn date_trunc(args: &[ColumnarValue]) -> Result<ColumnarValue> {
 macro_rules! extract_date_part {
     ($ARRAY: expr, $FN:expr) => {
         match $ARRAY.data_type() {
+            DataType::Date16 => {
+                let array = $ARRAY.as_any().downcast_ref::<Date16Array>().unwrap();
+                Ok($FN(array)?)
+            }
             DataType::Date32 => {
                 let array = $ARRAY.as_any().downcast_ref::<Date32Array>().unwrap();
                 Ok($FN(array)?)
