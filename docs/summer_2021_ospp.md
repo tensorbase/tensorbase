@@ -46,7 +46,7 @@ It is excited to announce that TensorBase has joined the ["Summer 2021 of Open S
   
   + Skills
 
-    C/Rust, Linux Kernel, web, server, tcp, network
+    C/Rust, Linux, web, server, tcp, network
 
   + Note
 
@@ -54,6 +54,20 @@ It is excited to announce that TensorBase has joined the ["Summer 2021 of Open S
 
 * Task #4: Systematic Enhancement to Apache Arrow and DataFusion
 
+  + Outline
+  
+    There are different designs between Apache Arrow/DataFusion and TensorBase. These make Apache Arrow/DataFusion lacking some important stuffs which is good or needed for a data warehouse.
+    
+    You need to understand current Apache Arrow and DataFusion's code, working mechanism of TensorBase, and contribute to the key path of Arrow and DataFusion.
+  
+  + Skills
+
+    C/Rust, Linux, Query engine
+
+  + Note
+
+    *Rust skill is not must-have*. Welcome any students if you have a good master of programming languages such as C/C++.
+    
 * Task #5: New Type Multi-level High Availability
 
 * Task #...
