@@ -7,7 +7,7 @@
 <img src="https://img.shields.io/github/license/tensorbase/tensorbase">
 <img src="https://img.shields.io/github/issues/tensorbase/tensorbase">
 <img src="https://img.shields.io/github/workflow/status/tensorbase/tensorbase/Base%20Integ%20Sanity%20Checks">
-<a href="https://discord.gg/uStfUJ3dAD">
+<a href="https://discord.com/invite/E72n2jzgKD">
   <img src="https://img.shields.io/discord/794816685978419210?logo=discord"
   alt="chat on Discord">
 </a>
