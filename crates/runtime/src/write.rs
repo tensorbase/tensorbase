@@ -183,7 +183,7 @@ impl std::hash::BuildHasher for BuildBaseHasher {
     }
 }
 
-#[inline]
+#[inline(always)]
 pub unsafe fn transmute<A, B>(a: A) -> B {
     let b = ::core::ptr::read(&a as *const A as *const B);
     ::core::mem::forget(a);
