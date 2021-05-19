@@ -6,6 +6,9 @@ use thiserror::Error;
 pub type BaseRtResult<T> = std::result::Result<T, BaseRtError>;
 #[derive(Debug, Error)]
 pub enum BaseRtError {
+    #[error("Generic Error: '{0}'")]
+    GenericStrError(&'static str),
+
     #[error("Generic String Error: '{0}'")]
     GenericStringError(String),
 
@@ -151,14 +154,15 @@ impl BaseRtError {
     pub fn to_err_code(&self) -> u32 {
         match self {
             BaseRtError::GenericError => 0,
-            BaseRtError::GenericStringError(_) => 1,
-            BaseRtError::IncompletedWireFormat => 2,
-            BaseRtError::WrappingLangError(_) => 3,
-            BaseRtError::WrappingMetaError(_) => 4,
-            BaseRtError::WrappingIoError(_) => 5,
-            BaseRtError::WrappingEngineError(_) => 6,
-            BaseRtError::WrappingBaseError(_) => 7,
-            BaseRtError::WrappingArrowError(_) => 8,
+            BaseRtError::GenericStrError(_) => 1,
+            BaseRtError::GenericStringError(_) => 2,
+            BaseRtError::IncompletedWireFormat => 3,
+            BaseRtError::WrappingLangError(_) => 4,
+            BaseRtError::WrappingMetaError(_) => 5,
+            BaseRtError::WrappingIoError(_) => 6,
+            BaseRtError::WrappingEngineError(_) => 7,
+            BaseRtError::WrappingBaseError(_) => 8,
+            BaseRtError::WrappingArrowError(_) => 9,
 
             BaseRtError::UnsupportedClientMessage => 21,
             BaseRtError::UnsupportedClientVersion => 22,
