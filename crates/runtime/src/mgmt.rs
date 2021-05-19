@@ -50,7 +50,7 @@ pub static READ: SyncOnceCell<
 > = SyncOnceCell::new();
 
 pub static WRITE: SyncOnceCell<
-    fn(blk: &Block, tab_ins: &str, tid_ins: Id) -> BaseRtResult<()>,
+    fn(blk: &mut Block, tab_ins: &str, tid_ins: Id) -> BaseRtResult<()>,
 > = SyncOnceCell::new();
 
 pub struct BaseHasher {

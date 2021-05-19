@@ -116,7 +116,7 @@ pub fn response_to(
                 if blk.has_decoded() {
                     log::debug!("_ got block[{:p}]", &blk);
                     let write = WRITE.get().unwrap();
-                    write(&blk, &cctx.current_tab_ins, cctx.current_tid_ins)?;
+                    write(blk, &cctx.current_tab_ins, cctx.current_tid_ins)?;
                     // log::debug!("blk.columns[0].data.1..100: {:?}", b1);
                 } else {
                     cctx.stage = StageKind::DataBlk;
@@ -143,7 +143,7 @@ pub fn response_to(
             if blk.has_decoded() {
                 log::debug!("got block[{:p}]", &blk);
                 let write = WRITE.get().unwrap();
-                write(&blk, &cctx.current_tab_ins, cctx.current_tid_ins)?;
+                write(blk, &cctx.current_tab_ins, cctx.current_tid_ins)?;
                 cctx.stage = StageKind::DataPacket;
             }
 
@@ -344,9 +344,9 @@ fn response_query(
             | BaseCommandKind::Drop
             | BaseCommandKind::Optimize,
         ) => Ok(()),
-        Ok(BaseCommandKind::InsertFormatInlineValues(blk, qtn, tid)) => {
+        Ok(BaseCommandKind::InsertFormatInlineValues(mut blk, qtn, tid)) => {
             let write = WRITE.get().unwrap();
-            write(&blk, qtn.as_str(), tid)?;
+            write(&mut blk, qtn.as_str(), tid)?;
             Ok(())
         }
         Ok(

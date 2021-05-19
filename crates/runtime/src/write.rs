@@ -24,7 +24,7 @@ use crate::{
 };
 
 pub fn write_block(
-    blk: &Block,
+    blk: &mut Block,
     tab_ins: &str,
     tid_ins: Id,
 ) -> BaseRtResult<()> {
