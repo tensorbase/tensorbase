@@ -291,18 +291,6 @@ fn gather_into_blob_buf(
     for i in 0..om.len() {
         om[i] += siz_part;
     }
-    let len_blob = bb.len();
-    // unsafe {
-    //     libc::pwrite(fd as i32, bb.as_ptr() as *const c_void, len_blob, 0);
-    //     libc::pwrite(
-    //         fd_om as i32,
-    //         om.as_ptr() as *const c_void,
-    //         om.len() * size_of::<u64>(),
-    //         0,
-    //     );
-    //     close(fd as i32);
-    //     close(fd_om as i32);
-    // }
     (bb, om)
 }
 
