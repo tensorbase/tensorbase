@@ -179,8 +179,8 @@ fn ZERO_PART_KEY_EXPR_FN() -> u64 {
 
 pub struct BaseMgmtSys<'a> {
     pub conf: Pin<&'a Conf>,
-    pub(crate) meta_store: MetaStore,
-    pub(crate) part_store: PartStore<'a>,
+    pub meta_store: MetaStore,
+    pub part_store: PartStore<'a>,
     pub ptk_exprs_reg: DashMap<Id, SyncPointer<u8>, BuildPtkExprsHasher>,
     pub timezone_sys: String,
     pub timezone_sys_offset: i32,
