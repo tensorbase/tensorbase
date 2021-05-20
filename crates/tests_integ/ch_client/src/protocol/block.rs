@@ -10,7 +10,7 @@ use super::column::{AsInColumn, ColumnDataAdapter, Deserialize, Row};
 use super::encoder::Encoder;
 use super::value::IntoColumn;
 use super::ServerWriter;
-use crate::client::ServerInfo;
+use crate::{client::ServerInfo, types::SqlType};
 use crate::compression::LZ4CompressionWrapper;
 use crate::types::{Field, FIELD_NONE, FIELD_NULLABLE};
 use chrono_tz::Tz;
@@ -202,7 +202,8 @@ impl fmt::Debug for BlockColumnHeader {
 }
 
 /// input Block column data.
-pub struct BlockColumn {
+pub struct 
+BlockColumn {
     pub(crate) header: BlockColumnHeader,
     pub(crate) data: Box<dyn AsInColumn>,
 }
@@ -210,6 +211,10 @@ pub struct BlockColumn {
 impl BlockColumn {
     pub(crate) fn into_header(self) -> BlockColumnHeader {
         self.header
+    }
+
+    pub fn sqltype(&self) -> SqlType {
+        self.header.field.get_sqltype()
     }
 }
 

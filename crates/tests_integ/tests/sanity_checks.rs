@@ -1,4 +1,4 @@
-use ch_client::prelude::errors;
+use ch_client::{prelude::errors, types::SqlType};
 use ch_client::prelude::*;
 mod common;
 use common::get_pool;
@@ -44,12 +44,12 @@ async fn basic_test_insert() -> errors::Result<()> {
 
     conn.execute(format!("DROP TABLE IF EXISTS test_tab"))
         .await?;
-    conn.execute(format!("CREATE TABLE test_tab(a UInt64)"))
+    conn.execute(format!("CREATE TABLE test_tab(a Int64)"))
         .await?;
 
-    let data_a = vec![1u64, 3, 5, 7, 9, 11];
+    let data_a = vec![1i64, 3, 5, 7, 9, 11];
     let count_res = data_a.len() as i64;
-    let sum_res = data_a.iter().sum::<u64>() as i64;
+    let sum_res = data_a.iter().sum::<i64>() as i64;
     let block = { Block::new("test_tab").add("a", data_a) };
 
     let mut insert = conn.insert(&block).await?;
@@ -63,8 +63,7 @@ async fn basic_test_insert() -> errors::Result<()> {
 
         while let Some(block) = query_result.next().await? {
             for row in block.iter_rows() {
-                let agg_res: i64 = row.value::<u64>(0)?.unwrap() as i64;
-                assert_eq!(agg_res, count_res);
+                assert_results(row, count_res)?;
             }
         }
     
@@ -76,7 +75,7 @@ async fn basic_test_insert() -> errors::Result<()> {
 
         while let Some(block) = query_result.next().await? {
             for row in block.iter_rows() {
-                let agg_res: i64 = row.value::<u64>(0)?.unwrap() as i64;
+                let agg_res: i64 = row.value::<i64>(0)?.unwrap() as i64;
                 // println!("{}", agg_res);
                 assert_eq!(agg_res, sum_res);
             }
@@ -84,6 +83,17 @@ async fn basic_test_insert() -> errors::Result<()> {
     }
 
     // conn.execute("drop database if exists test_db").await?;
+    Ok(())
+}
+
+fn assert_results(row: Row, count_res: i64) -> errors::Result<()> {
+    let rd = row.column_descr(0).unwrap();
+    let styp = rd.sqltype();
+    let agg_res: i64 = match styp {
+        SqlType::UInt64 => row.value::<u64>(0)?.unwrap() as i64,
+        _ => row.value::<i64>(0)?.unwrap(),
+    };
+    assert_eq!(agg_res, count_res);
     Ok(())
 }
 

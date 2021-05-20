@@ -51,7 +51,7 @@ pub mod prelude;
 #[macro_use]
 mod protocol;
 mod sync;
-mod types;
+pub mod types;
 
 #[allow(dead_code)]
 const MAX_STRING_LEN: usize = 64 * 1024;

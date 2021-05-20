@@ -98,6 +98,9 @@ impl Clone for Field {
 }
 
 impl Field {
+    pub fn get_sqltype(&self) -> SqlType {
+        self.sql_type
+    }
     pub fn get_meta(&self) -> Option<&FieldMeta> {
         self.meta.as_ref()
     }
