@@ -68,8 +68,19 @@ It is excited to announce that TensorBase has joined the ["Summer 2021 of Open S
 
     *Rust skill is not must-have*. Welcome any students if you have a good master of programming languages such as C/C++.
     
-* Task #5: New Type Multi-level High Availability
+* Task #5: Top Performance ClickHouse HTTP Protocol Server in Rust
 
-* Task #...
+  + Outline
+  
+    You add a top performance ClickHouse HTTP server into TensorBase to make TensorBase to talk with ClickHouse HTTP client.
+    
+    You need to understand current top performance TensorBase ClickHouse compatible server and network side things, the frontend of query process, and contribute to the key path.
+  
+  + Skills
 
-  You are welcome to propose your ideas.
+    C/Rust, Linux, web, server, tcp, network
+
+  + Note
+
+    *Rust skill is not must-have*. Welcome any students if you have a good master of programming languages such as C/C++.
+
