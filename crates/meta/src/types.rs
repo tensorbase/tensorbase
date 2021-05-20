@@ -176,27 +176,6 @@ impl BqlType {
         }
     }
 
-    pub fn to_c_typ_str<'a>(self) -> MetaResult<&'a str> {
-        match self {
-            BqlType::UnInit => Ok("UnInit"),
-            BqlType::UInt(len) if len == 8 => Ok("uint8_t"),
-            BqlType::UInt(len) if len == 16 => Ok("uint16_t"),
-            BqlType::UInt(len) if len == 32 => Ok("uint32_t"),
-            BqlType::UInt(len) if len == 64 => Ok("uint64_t"),
-            BqlType::Int(len) if len == 8 => Ok("int8_t"),
-            BqlType::Int(len) if len == 16 => Ok("int16_t"),
-            BqlType::Int(len) if len == 32 => Ok("int32_t"),
-            BqlType::Int(len) if len == 64 => Ok("int64_t"),
-            // BqlType::Float(len) if len == 16 => Ok("half"),
-            BqlType::Float(len) if len == 32 => Ok("float"),
-            BqlType::Float(len) if len == 64 => Ok("double"),
-            BqlType::DateTime | BqlType::Date | 
-            BqlType::LowCardinalityString => Ok("uint32_t"),
-            _ => Err(MetaError::UnsupportedBqlTypeError),
-        }
-    }
-
-
     pub fn from_str(item: &str) -> MetaResult<Self> {
         Self::from_bytes(item.as_bytes())
     }
