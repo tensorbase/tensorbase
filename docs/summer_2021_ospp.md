@@ -1,6 +1,6 @@
 # Summer 2021 of Open Source Promotion Plan
 
-It is excited to announce that TensorBase has joined the ["Summer 2021 of Open Source Promotion Plan"]().
+It is excited to announce that TensorBase has joined the ["Summer 2021 of Open Source Promotion Plan"](https://summer.iscas.ac.cn/#/homepage?lang=en).
 
 * Task #1: Adaptive Columnar Storage
 
