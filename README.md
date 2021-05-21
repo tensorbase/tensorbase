@@ -40,8 +40,8 @@ TensorBase hopes to change the status quo of bigdata system as follows:
 * ClickHouse compatible syntax
 * Green installation with DBA-Free ops
 * Reliability and high availability (WIP)
-* Cluster (TBD)
-* Cloud neutral and cloud native (TBD)
+* Cluster (WIP, issue #83)
+* Cloud-Native Adaptation (WIP, issue #92)
 * Arrow dataLake (...)
 
 ## Architecture (in 10,000 meters altitude)
