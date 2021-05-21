@@ -23,7 +23,7 @@ TensorBase hopes to change the status quo of bigdata system as follows:
   * hard to use (for end users) and understand (for developers)
   * not evolve with modern infrastructures (OS, hardware, engineering...)
 
-## Quick News
+## :rocket: Quick News
 
 :rocket: TensorBase Join the [Summer 2021 of Open Source Promotion Plan](https://summer.iscas.ac.cn/#/homepage?lang=en)
 
