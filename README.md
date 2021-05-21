@@ -29,7 +29,7 @@ TensorBase hopes to change the status quo of bigdata system as follows:
 
     If you are a student all over the world and interested to contribute to TensorBase with sponsorship, it is a very good opportunity to [apply for this plan](https://summer.iscas.ac.cn/#/org/orgdetail/tensorbase?lang=en) to work together with TensorBase's core contributors. You will have a deep understanding on how to code for one industry level big data infrastructure after the summer journey to TensorBase. 
 
-    See the [idea page here](https://github.com/tensorbase/tensorbase/blob/main/docs/summer_2021_ospp.md). TensorBase is waiting for you!
+    See the [tasks page here](https://github.com/tensorbase/tensorbase/blob/main/docs/summer_2021_ospp.md). TensorBase is waiting for you!
 
 ## Features
 
