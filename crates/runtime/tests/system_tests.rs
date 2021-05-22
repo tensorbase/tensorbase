@@ -16,7 +16,7 @@ fn prepare_bms<'a>() -> BaseRtResult<BaseMgmtSys<'a>> {
         );
     }
 
-    let dir_test = prepare_empty_tmp_dir(Some("/jin/tmp/system_test"));
+    let dir_test = prepare_empty_tmp_dir(Some("/tmp/system_test"));
     let conf_test: Conf = toml::from_str(&format!(
         r#"[system]
         meta_dirs = ["{}/test_sys"]
