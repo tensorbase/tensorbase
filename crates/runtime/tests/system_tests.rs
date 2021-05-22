@@ -101,14 +101,14 @@ fn test_run_commands() -> BaseRtResult<()> {
     let res = bms.run_commands("insert into default.payment11 values".to_string(), &mut cctx)?;
     assert!(matches!(res, BaseCommandKind::InsertFormatInline(_, _, _)));
 
-    let res = bms.run_commands("insert into default.payment11 values ('a', 1), ('b', 2)".to_string(), &mut cctx)?;
-    match res {
-        BaseCommandKind::InsertFormatInlineValues(rows, _name, _id) => {
-            assert_eq!(rows.ncols, 2);
-            assert_eq!(rows.nrows, 2);
-        }
-        _ => panic!("res should match InsertFormatInlineValues")
-    }
+    // let res = bms.run_commands("insert into default.payment11 values ('a', 1), ('b', 2)".to_string(), &mut cctx)?;
+    // match res {
+    //     BaseCommandKind::InsertFormatInlineValues(rows, _name, _id) => {
+    //         assert_eq!(rows.ncols, 2);
+    //         assert_eq!(rows.nrows, 2);
+    //     }
+    //     _ => panic!("res should match InsertFormatInlineValues")
+    // }
 
     Ok(())
 }

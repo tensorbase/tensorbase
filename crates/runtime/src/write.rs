@@ -583,11 +583,13 @@ mod unit_tests {
 
         let ms = &BMS.meta_store;
         let dbname = &t.dbname;
-        let dbid = ms.new_db(dbname)?;
-        assert_eq!(dbid, 4);
-        println!("dbid: {}", dbid);
-        let tid = ms.create_table(&t)?;
-
+        println!("dbname: {}", dbname);
+        if matches!(ms.dbid_by_name(dbname), None) {
+            let dbid = ms.new_db(dbname)?;
+            assert_eq!(dbid, 4);
+            println!("dbid: {}", dbid);
+            let tid = ms.create_table(&t)?;
+        }
         Ok(())
     }
 
@@ -696,7 +698,7 @@ mod unit_tests {
             .tid_by_qname(qtn)
             .ok_or(BaseRtError::TableNotExist)?;
 
-        write_block(&blk, qtn, tid)?;
+        write_block(&mut blk, qtn, tid)?;
 
         let mut siz_count = 0;
         let mut num_files_count = 0;

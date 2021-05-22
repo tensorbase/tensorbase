@@ -883,7 +883,9 @@ fn parse_literal_as_bytes(
             let v = ut.to_le_bytes();
             rt.extend(&v);
         }
-        // String =>
+        BqlType::String => {
+            todo!()
+        }
         // LowCardinalityString,
         _ => todo!(),
     }

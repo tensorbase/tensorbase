@@ -14,7 +14,7 @@ use chrono::{DateTime, Utc, TimeZone};
 // }
 
 #[tokio::test]
-async fn stress_test_ddl() -> errors::Result<()> {
+async fn tests_integ_stress_test_ddl() -> errors::Result<()> {
     let pool = get_pool();
     let mut conn = pool.connection().await?;
 
@@ -34,7 +34,7 @@ async fn stress_test_ddl() -> errors::Result<()> {
 }
 
 #[tokio::test]
-async fn basic_test_insert() -> errors::Result<()> {
+async fn tests_integ_basic_test_insert() -> errors::Result<()> {
     let pool = get_pool();
     let mut conn = pool.connection().await?;
 
@@ -98,7 +98,7 @@ fn assert_results(row: Row, count_res: i64) -> errors::Result<()> {
 }
 
 #[tokio::test]
-async fn basic_insert_float() -> errors::Result<()> {
+async fn tests_integ_basic_insert_float() -> errors::Result<()> {
     let pool = get_pool();
     let mut conn = pool.connection().await?;
 
@@ -151,7 +151,7 @@ async fn basic_insert_float() -> errors::Result<()> {
 }
 
 #[tokio::test]
-async fn basic_insert_decimal32() -> errors::Result<()> {
+async fn tests_integ_basic_insert_decimal32() -> errors::Result<()> {
     let pool = get_pool();
     let mut conn = pool.connection().await?;
 
@@ -193,7 +193,7 @@ async fn basic_insert_decimal32() -> errors::Result<()> {
 }
 
 #[tokio::test]
-async fn basic_insert_decimal64() -> errors::Result<()> {
+async fn tests_integ_basic_insert_decimal64() -> errors::Result<()> {
     let pool = get_pool();
     let mut conn = pool.connection().await?;
 
@@ -235,7 +235,7 @@ async fn basic_insert_decimal64() -> errors::Result<()> {
 }
 
 #[tokio::test]
-async fn basic_insert_date() -> errors::Result<()> {
+async fn tests_integ_basic_insert_date() -> errors::Result<()> {
     let pool = get_pool();
     let mut conn = pool.connection().await?;
 
@@ -279,7 +279,7 @@ async fn basic_insert_date() -> errors::Result<()> {
 
 #[tokio::test]
 #[ignore = "Rust driver now does not support LCS..."]
-async fn basic_insert_lcstring() -> errors::Result<()> {
+async fn tests_integ_basic_insert_lcstring() -> errors::Result<()> {
     let pool = get_pool();
     let mut conn = pool.connection().await?;
 
@@ -305,7 +305,7 @@ async fn basic_insert_lcstring() -> errors::Result<()> {
 
 
 #[tokio::test]
-async fn basic_insert_string() -> errors::Result<()> {
+async fn tests_integ_basic_insert_string() -> errors::Result<()> {
     let pool = get_pool();
     let mut conn = pool.connection().await?;
 
