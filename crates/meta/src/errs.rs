@@ -54,6 +54,9 @@ pub enum MetaError {
     #[error("Error when converting str into BqlType enum")]
     UnknownBqlTypeConversionError,
 
+    #[error("Invalid precision or scale of decimal type")]
+    InvalidPrecisionOrScaleOfDecimalError,
+
     #[error("Unsupported Bql type error")]
     UnsupportedBqlTypeError,
 
