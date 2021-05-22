@@ -1,4 +1,4 @@
-use std::{collections::HashSet, lazy::SyncLazy, sync::Arc};
+use std::{lazy::SyncLazy, sync::Arc};
 
 use arrow::{
     array::{
