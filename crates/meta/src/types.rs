@@ -234,9 +234,11 @@ impl BqlType {
             _ => return Err(MetaError::UnknownBqlTypeConversionError),
         };
         // Range of precision and scale:
+        // - precision in [1, 76],
+        // - scale in [0, precision],
         //     https://clickhouse.tech/docs/en/sql-reference/data-types/decimal/
-        if precision < 1 || precision > 76 || scale > precision {
-            return Err(MetaError::InvalidPrecisionOrScaleOfDecimalError);
+        if !(1..=76).contains(&precision) || !(0..=precision).contains(&scale) {
+            return Err(MetaError::InvalidPrecisionOrScaleOfDecimalError(precision, scale));
         }
         return Ok(BqlType::Decimal(precision, scale));
     }
@@ -591,7 +593,6 @@ mod unit_tests {
     use base::show_option_size;
 
     use super::*;
-    use crate::types::BqlType;
 
     #[derive(Copy, Clone, Debug, PartialEq)]
     #[repr(C, packed)]
@@ -667,23 +668,23 @@ mod unit_tests {
 
         assert!(matches!(
             BqlType::from_str("Decimal(0, 0)"), // p < 1
-            Err(MetaError::InvalidPrecisionOrScaleOfDecimalError)
+            Err(MetaError::InvalidPrecisionOrScaleOfDecimalError(0, 0))
         ));
         assert!(matches!(
             BqlType::from_str("Decimal(77, 0)"), // p < 76
-            Err(MetaError::InvalidPrecisionOrScaleOfDecimalError)
+            Err(MetaError::InvalidPrecisionOrScaleOfDecimalError(77, 0))
         ));
         assert!(matches!(
             BqlType::from_str("Decimal(4, 9)"), // s > p
-            Err(MetaError::InvalidPrecisionOrScaleOfDecimalError)
+            Err(MetaError::InvalidPrecisionOrScaleOfDecimalError(4, 9))
         ));
         assert!(matches!(
             BqlType::from_str("Decimal32( 10)"), // s > p for Decimal32
-            Err(MetaError::InvalidPrecisionOrScaleOfDecimalError)
+            Err(MetaError::InvalidPrecisionOrScaleOfDecimalError(9, 10))
         ));
         assert!(matches!(
             BqlType::from_str("Decimal64( 19)"), // s > p for Decimal64
-            Err(MetaError::InvalidPrecisionOrScaleOfDecimalError)
+            Err(MetaError::InvalidPrecisionOrScaleOfDecimalError(18, 19))
         ));
 
         assert!(matches!(BqlType::from_str("Decimal(11 , )"), Err(_)));
