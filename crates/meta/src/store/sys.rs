@@ -182,7 +182,7 @@ impl MetaStore {
     //     todo!()
     // }
 
-    #[inline]
+    #[inline(always)]
     fn _new(&self, ks: &str) -> MetaResult<Id> {
         let idopt = self.id(&ks);
         match idopt {
@@ -305,7 +305,7 @@ impl MetaStore {
         tname: &str,
     ) -> MetaResult<Vec<(String, u64, ColumnInfo)>> {
         let cnp = to_qualified_key!(dbname, tname, "");
-        self.get_columns_by_qtn(&cnp)
+        self._get_columns(&cnp)
     }
 
     pub fn get_columns_by_qtn(
@@ -313,7 +313,15 @@ impl MetaStore {
         qtn: &String,
     ) -> MetaResult<Vec<(String, u64, ColumnInfo)>> {
         let cnp = to_qualified_key!(qtn.as_str(), "");
-        let ci_iter = self.tree0.scan_prefix(&cnp);
+        self._get_columns(&cnp)
+    }
+
+    #[inline(always)]
+    fn _get_columns(
+        &self,
+        cnp: &String,
+    ) -> MetaResult<Vec<(String, u64, ColumnInfo)>> {
+        let ci_iter = self.tree0.scan_prefix(cnp);
         let mut rt = vec![];
         for kv in ci_iter {
             let (bs_qcn, bs_cid) = kv.map_err(|_| MetaError::GetError)?;
