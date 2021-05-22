@@ -564,7 +564,7 @@ mod unit_tests {
 
     #[test]
     fn basic_checks_get_offset_int_ptk() -> MetaResult<()> {
-        let (parts_dir, data_dir) = prepare_dirs("/jin/tmp/parts_test")?;
+        let (parts_dir, data_dir) = prepare_dirs("/tmp/parts_test")?;
         let data_dirs = vec![data_dir];
         let ps = PartStore::new(&[parts_dir], &data_dirs)?;
 
@@ -592,7 +592,7 @@ mod unit_tests {
             );
         }
 
-        let (parts_dir, data_dir) = prepare_dirs("/jin/tmp/parts_test")?;
+        let (parts_dir, data_dir) = prepare_dirs("/tmp/parts_test")?;
         let data_dirs = vec![data_dir];
         let ps = PartStore::new(&[parts_dir], &data_dirs)?;
 
@@ -646,7 +646,7 @@ mod unit_tests {
 
     #[test]
     fn test_create_part_path() -> MetaResult<()> {
-        let (_parts_dir, data_dir) = prepare_dirs("/jin/tmp/parts_test")?;
+        let (_parts_dir, data_dir) = prepare_dirs("/tmp/parts_test")?;
         let mut bh = 0;
         let t = Instant::now();
         for tid in 0..10 {
@@ -660,7 +660,7 @@ mod unit_tests {
                 }
             }
         }
-        assert_eq!(bh, 33790000);
+        assert_eq!(bh, 29790000);
         println!("bh: {} in {:?}", bh, t.elapsed());
         Ok(())
     }
@@ -679,7 +679,7 @@ mod unit_tests {
             );
         }
 
-        let (parts_dir, data_dir) = prepare_dirs("/jin/tmp/parts_test")?;
+        let (parts_dir, data_dir) = prepare_dirs("/tmp/parts_test")?;
         let data_dirs = vec![data_dir];
         let ps = PartStore::new(&[parts_dir], &data_dirs)?;
 
