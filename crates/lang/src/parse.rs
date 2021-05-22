@@ -419,9 +419,12 @@ pub fn parse_create_table(pair: Pair<Rule>) -> LangResult<(Table, bool)> {
     Ok((ctx.tab, ctx.fallible))
 }
 
-struct TablesContext {
-    tabs: HashSet<String>,
-    cols: HashSet<String>,
+#[derive(Debug)]
+pub struct TablesContext {
+    pub tabs: HashSet<String>,
+    pub cols: HashSet<String>,
+    pub has_count_all: bool,
+    pub has_select_all: bool,
 }
 
 impl TablesContext {
@@ -437,6 +440,12 @@ impl TablesContext {
             Rule::qualified_name => {
                 self.cols.insert(pair.as_str().trim().to_owned());
             }
+            Rule::select_column_all => {
+                self.has_select_all = true;
+            }
+            Rule::count_tuple_expr => {
+                self.has_count_all = true;
+            }
             _ => {}
         }
 
@@ -444,17 +453,17 @@ impl TablesContext {
     }
 }
 
-pub fn parse_tables(
-    pair: Pair<Rule>,
-) -> LangResult<(HashSet<String>, HashSet<String>)> {
+pub fn parse_tables(pair: Pair<Rule>) -> LangResult<TablesContext> {
     let mut ctx = TablesContext {
         tabs: Default::default(),
         cols: Default::default(),
+        has_count_all: false,
+        has_select_all: false,
     };
     ctx.parse(pair)?;
     // println!("{:?}", ctx.tables);
     //FIXME need to validate all tabs for malicious ddls
-    Ok((ctx.tabs, ctx.cols))
+    Ok(ctx)
 }
 
 pub fn parse_system_numbers_table(tab: &str) -> LangResult<(i64, i64)> {
@@ -535,7 +544,7 @@ fn seek_to<'a, R: pest::RuleType>(
 
 #[cfg(test)]
 mod unit_tests {
-    use crate::errs::{LangError, LangResult};
+    use crate::{errs::{LangError, LangResult}, parse::{TablesContext, parse_tables}};
 
     //FIXME move to test mod?
     // pub(crate) macro assert_parse($s:expr, $c:ident) {
@@ -577,6 +586,52 @@ mod unit_tests {
         // println!("{:?}", di);
         assert_eq!(di.dbname, "a_b_c_01");
         assert_eq!(di.fallible, true);
+
+        Ok(())
+    }
+
+    #[test]
+    pub fn test_parse_table() -> LangResult<()> {
+        let ddl = "select id from tab";
+
+        fn parse_to_tabctx(s: &str) -> LangResult<TablesContext> {
+            let ps = BqlParser::parse(Rule::cmd_list, s)
+                .map_err(|e| LangError::CreateTableParsingError)?;
+            let ct = ps.into_iter().next().ok_or(LangError::GenericError)?;
+            let tctx = parse_tables(ct)?;
+            Ok(tctx)
+        }
+
+        let tctx = parse_to_tabctx(ddl)?;
+        assert!(tctx.tabs.contains("tab"));
+        assert!(tctx.cols.contains("id"));
+        assert_eq!(tctx.has_count_all, false);
+        assert_eq!(tctx.has_select_all, false);
+        // println!("tctx: {:?}", tctx);
+
+        let ddl = "select * from tab";
+        let tctx = parse_to_tabctx(ddl)?;
+        assert!(tctx.tabs.contains("tab"));
+        assert!(tctx.cols.len() == 0);
+        assert_eq!(tctx.has_count_all, false);
+        assert_eq!(tctx.has_select_all, true);
+        // println!("tctx: {:?}", tctx);
+
+        let ddl = "select count(*) from tab";
+        let tctx = parse_to_tabctx(ddl)?;
+        assert!(tctx.tabs.contains("tab"));
+        assert!(tctx.cols.len() == 0);
+        assert_eq!(tctx.has_count_all, true);
+        assert_eq!(tctx.has_select_all, false);
+        // println!("tctx: {:?}", tctx);
+
+        let ddl = "select count(1) from tab";
+        let tctx = parse_to_tabctx(ddl)?;
+        assert!(tctx.tabs.contains("tab"));
+        assert!(tctx.cols.len() == 0);
+        assert_eq!(tctx.has_count_all, true);
+        assert_eq!(tctx.has_select_all, false);
+        // println!("tctx: {:?}", tctx);
 
         Ok(())
     }

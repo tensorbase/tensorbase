@@ -2,10 +2,10 @@ use std::{collections::HashSet, lazy::SyncLazy, sync::Arc};
 
 use arrow::{
     array::{
-        ArrayData, ArrayRef, Date16Array, DecimalArray, GenericStringArray,
-        Int8Array, Int16Array, Int32Array, Int64Array, Timestamp32Array,
-        UInt8Array, UInt16Array, UInt32Array, UInt64Array, Float32Array,
-        Float64Array,
+        ArrayData, ArrayRef, Date16Array, DecimalArray, Float32Array,
+        Float64Array, GenericStringArray, Int8Array, Int16Array, Int32Array,
+        Int64Array, Timestamp32Array, UInt8Array, UInt16Array, UInt32Array,
+        UInt64Array,
     },
     buffer::Buffer,
     datatypes::{DataType, Field, Schema},
@@ -15,6 +15,7 @@ use arrow::{
 use datafusion::{
     datasource::MemTable, error::Result, prelude::ExecutionContext,
 };
+use lang::parse::TablesContext;
 use meta::{
     store::{
         parts::{CoPaInfo, PartStore},
@@ -60,12 +61,13 @@ pub(crate) fn run(
     current_db: &str,
     raw_query: &str,
     _query_id: &str,
-    tabs: HashSet<String>,
-    cols: HashSet<String>,
+    tctx: TablesContext,
     qs: &mut QueryState,
 ) -> EngineResult<Vec<RecordBatch>> {
     // let t = Instant::now();
     let mut ctx = ExecutionContext::new();
+    let tabs = tctx.tabs;
+    let cols = tctx.cols;
     for tab in tabs {
         let qn1 = [current_db, &tab].join(".");
         let qtn = if tab.contains('.') { &tab } else { &qn1 };
@@ -73,27 +75,53 @@ pub(crate) fn run(
         // *cid, ci.data_type
         let mut cis = Vec::new();
         let mut fields = Vec::new();
-        for cn in &cols {
-            let qcn = if cn.contains('.') {
-                // ms.cid_by_qname(&cn).ok_or(EngineError::ColumnNotExist)?
-                //FIXME for t.c, not work for db.t.c
-                [current_db, cn].join(".")
-            } else {
-                [qtn, cn.as_str()].join(".")
-            };
-            if qcn.contains(qtn) {
-                if let Some(cid) = ms.cid_by_qname(&qcn) {
-                    if let Some(ci) = ms.get_column_info(cid)? {
-                        cis.push((cid, ci.data_type));
-                        fields.push(Field::new(
-                            cn,
-                            btype_to_arrow_type(ci.data_type)?,
-                            false,
-                        ));
-                    } else {
-                        return Err(EngineError::ColumnInfoNotExist);
+        if cols.len() != 0 {
+            for cn in &cols {
+                let qcn = if cn.contains('.') {
+                    // ms.cid_by_qname(&cn).ok_or(EngineError::ColumnNotExist)?
+                    //FIXME for t.c, not work for db.t.c
+                    [current_db, cn].join(".")
+                } else {
+                    [qtn, cn.as_str()].join(".")
+                };
+                if qcn.contains(qtn) {
+                    if let Some(cid) = ms.cid_by_qname(&qcn) {
+                        if let Some(ci) = ms.get_column_info(cid)? {
+                            cis.push((cid, ci.data_type));
+                            fields.push(Field::new(
+                                cn,
+                                btype_to_arrow_type(ci.data_type)?,
+                                false,
+                            ));
+                        } else {
+                            return Err(EngineError::ColumnInfoNotExist);
+                        }
                     }
                 }
+            }
+        } else {
+            if tctx.has_count_all {
+                log::debug!("current_db: {}, cn: {}", current_db, &tab);
+                let cs = ms.get_columns_by_qtn(qtn)?;
+                let (cn, cid, ci) = &cs[0];
+                cis.push((*cid, ci.data_type));
+                fields.push(Field::new(
+                    cn.as_str(),
+                    btype_to_arrow_type(ci.data_type)?,
+                    false,
+                ));
+            } else if tctx.has_select_all {
+                let cs = ms.get_columns_by_qtn(qtn)?;
+                for (cn, cid, ci) in cs {
+                    cis.push((cid, ci.data_type));
+                    fields.push(Field::new(
+                        cn.as_str(),
+                        btype_to_arrow_type(ci.data_type)?,
+                        false,
+                    ));
+                }
+            } else {
+                return Err(EngineError::UnsupportedQuery);
             }
         }
         //log::debug!("[df][Schema] - fields: {:?}", fields);

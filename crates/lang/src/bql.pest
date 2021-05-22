@@ -105,7 +105,8 @@ select = {
      select_clause ~ from? ~ where_clause? ~ group_by? ~ order_by? ~ limit?
 }
 select_clause = { ^"select" ~ ^"distinct"? ~ select_column ~ ("," ~ select_column)* }
-select_column = { expr ~ as_qualif? | "*" | table_name ~ "." ~ "*" }
+select_column_all = { "*" }
+select_column = { expr ~ as_qualif? | select_column_all | table_name ~ "." ~ "*" }
 
 //FIXME strictly need to exclude all reserved words from id/name
 as_qualif = { 
@@ -167,7 +168,7 @@ arith_expr = {
 }
 
 //FIXME * is ugly, just allow * for count?
-count_tuple_expr = { ^"count" ~ "(" ~ "*" ~ ")" }
+count_tuple_expr = { ^"count" ~ "(" ~ "*" ~ ")" | ^"count" ~ "(" ~ "1" ~ ")" }
 //FIXME ugly workaround?
 count_distinct_expr = { ^"count" ~ "(" ~ ^"distinct" ~ qualified_name ~ ")" }
 
