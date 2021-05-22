@@ -595,7 +595,7 @@ mod unit_tests {
 
     #[test]
     fn test_get_ptk_exps_fn_ptr() -> BaseRtResult<()> {
-        let bms_path = "/jin/tmp/xxx";
+        let bms_path = "/tmp/xxx";
         let qtn = "test_db.test_tab";
         prepare_bms(bms_path)?;
 
@@ -622,7 +622,7 @@ mod unit_tests {
     #[ignore]
     #[test]
     fn stress_test_get_ptk_exps_fn_ptr() -> BaseRtResult<()> {
-        let bms_path = "/jin/tmp/xxx";
+        let bms_path = "/tmp/xxx";
         let qtn = "test_db.test_tab";
         prepare_bms(bms_path)?;
 
@@ -653,7 +653,7 @@ mod unit_tests {
 
     #[test]
     fn test_write_block_integ() -> BaseRtResult<()> {
-        let bms_path = "/jin/tmp/xxx";
+        let bms_path = "/tmp/xxx";
         let qtn = "test_db.test_tab";
         prepare_bms(bms_path)?;
 
@@ -739,7 +739,7 @@ mod unit_tests {
 
     #[test]
     fn test_gen_part_idxs() -> BaseRtResult<()> {
-        let bms_path = "/jin/tmp/xxx";
+        let bms_path = "/tmp/xxx";
         prepare_bms(bms_path)?;
 
         let mut rng = rand::thread_rng();
