@@ -27,8 +27,8 @@ mod tests {
     fn test_prepare_empty_tmp_dir() {
         assert_eq!(prepare_empty_tmp_dir(None), "/tmp/base_test".to_string());
         assert_eq!(
-            prepare_empty_tmp_dir(Some("/jin/tmp/base_test")),
-            "/jin/tmp/base_test".to_string()
+            prepare_empty_tmp_dir(Some("/tmp/base_test2")),
+            "/tmp/base_test2".to_string()
         );
     }
 }
