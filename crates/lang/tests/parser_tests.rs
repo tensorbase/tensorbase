@@ -15,7 +15,7 @@
  *   limitations under the License.
  */
 
-#![feature(const_fn, const_fn_union, untagged_unions, const_raw_ptr_deref)]
+#![feature(const_fn_union, untagged_unions, const_raw_ptr_deref)]
 
 use lang::parse::pretty_parse_tree;
 use lang::parse::BqlParser;
