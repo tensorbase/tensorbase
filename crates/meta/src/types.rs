@@ -197,33 +197,48 @@ impl BqlType {
             b"Date" => Ok(BqlType::Date),
             b"String" => Ok(BqlType::String),
             b"LowCardinality(String)" => Ok(BqlType::LowCardinalityString),
-            [b'D', b'e', b'c', b'i', b'm', b'a', b'l', b'(', ps @ .., b')'] => {
-                let mut ps_iter = ps.split(|v| *v == b',');
-                let p0 = str::from_utf8(
-                    ps_iter
-                        .next()
-                        .ok_or(MetaError::UnknownBqlTypeConversionError)?,
-                )
-                .map_err(|_e| MetaError::UnknownBqlTypeConversionError)?;
-                let s0 = str::from_utf8(
-                    ps_iter
-                        .next()
-                        .ok_or(MetaError::UnknownBqlTypeConversionError)?,
-                )
-                .map_err(|_e| MetaError::UnknownBqlTypeConversionError)?;
-                let p = p0
-                    .trim()
-                    .parse::<u8>()
-                    .map_err(|_e| MetaError::UnknownBqlTypeConversionError)?;
-                let s = s0
-                    .trim()
-                    .parse::<u8>()
-                    .map_err(|_e| MetaError::UnknownBqlTypeConversionError)?;
-                //FIXME stronger validations
-                Ok(BqlType::Decimal(p, s))
-            }
+            decimal_item if decimal_item.starts_with(b"Decimal") => {
+                Self::_decimal_type(decimal_item)
+            },
             _ => Err(MetaError::UnknownBqlTypeConversionError),
         }
+    }
+
+    fn _decimal_type(decimal_item: &[u8]) -> MetaResult<Self> {
+        fn parse_num(bytes: &[u8]) -> MetaResult<u8> {
+            str::from_utf8(bytes)
+                .map_err(|_e| MetaError::UnknownBqlTypeConversionError)?
+                .trim()
+                .parse::<u8>()
+                .map_err(|_e| MetaError::UnknownBqlTypeConversionError)
+        }
+        let (precision, scale) = match &decimal_item[b"Decimal".len()..] {
+            // Decimal(p, s)
+            [b'(', ps @ .., b')'] => {
+                let mut ps_iter = ps.split(|v| *v == b',');
+                let p = ps_iter
+                    .next()
+                    .ok_or(MetaError::UnknownBqlTypeConversionError)?;
+                let s = ps_iter
+                    .next()
+                    .ok_or(MetaError::UnknownBqlTypeConversionError)?;
+                if ps_iter.next().is_some() {
+                    return Err(MetaError::UnknownBqlTypeConversionError);
+                }
+                (parse_num(p)?, parse_num(s)?)
+            },
+            // Decimal32(s) => Decimal(9, s)
+            [b'3', b'2', b'(', s @ .., b')'] => (9, parse_num(s)?),
+            // Decimal64(s) => Decimal(18, s)
+            [b'6', b'4', b'(', s @ .., b')'] => (18, parse_num(s)?),
+            _ => return Err(MetaError::UnknownBqlTypeConversionError),
+        };
+        // Range of precision and scale:
+        //     https://clickhouse.tech/docs/en/sql-reference/data-types/decimal/
+        if precision < 1 || precision > 76 || scale > precision {
+            return Err(MetaError::InvalidPrecisionOrScaleOfDecimalError);
+        }
+        return Ok(BqlType::Decimal(precision, scale));
     }
 }
 
@@ -576,6 +591,7 @@ mod unit_tests {
     use base::show_option_size;
 
     use super::*;
+    use crate::types::BqlType;
 
     #[derive(Copy, Clone, Debug, PartialEq)]
     #[repr(C, packed)]
@@ -631,6 +647,11 @@ mod unit_tests {
             BqlType::from_str("Decimal( 9, 2)")?,
             BqlType::Decimal(9, 2)
         );
+        assert_eq!(BqlType::from_str("Decimal32( 4 )")?, BqlType::Decimal(9, 4));
+        assert_eq!(BqlType::from_str("Decimal32(  9)")?, BqlType::Decimal(9, 9));
+        assert_eq!(BqlType::from_str("Decimal64( 4 )")?, BqlType::Decimal(18, 4));
+        assert_eq!(BqlType::from_str("Decimal64(9)")?, BqlType::Decimal(18, 9));
+        assert_eq!(BqlType::from_str("Decimal64( 18  )")?, BqlType::Decimal(18, 18));
         assert_eq!(BqlType::from_str("Int8")?, BqlType::Int(8));
         assert_eq!(BqlType::from_str("Int32")?, BqlType::Int(32));
         assert_eq!(BqlType::from_str("UInt32")?, BqlType::UInt(32));
@@ -644,7 +665,33 @@ mod unit_tests {
             BqlType::LowCardinalityString
         );
 
+        assert!(matches!(
+            BqlType::from_str("Decimal(0, 0)"), // p < 1
+            Err(MetaError::InvalidPrecisionOrScaleOfDecimalError)
+        ));
+        assert!(matches!(
+            BqlType::from_str("Decimal(77, 0)"), // p < 76
+            Err(MetaError::InvalidPrecisionOrScaleOfDecimalError)
+        ));
+        assert!(matches!(
+            BqlType::from_str("Decimal(4, 9)"), // s > p
+            Err(MetaError::InvalidPrecisionOrScaleOfDecimalError)
+        ));
+        assert!(matches!(
+            BqlType::from_str("Decimal32( 10)"), // s > p for Decimal32
+            Err(MetaError::InvalidPrecisionOrScaleOfDecimalError)
+        ));
+        assert!(matches!(
+            BqlType::from_str("Decimal64( 19)"), // s > p for Decimal64
+            Err(MetaError::InvalidPrecisionOrScaleOfDecimalError)
+        ));
+
         assert!(matches!(BqlType::from_str("Decimal(11 , )"), Err(_)));
+        assert!(matches!(BqlType::from_str("Decimal(11 , 9, )"), Err(_)));
+        assert!(matches!(BqlType::from_str("Decimal(11, 9, 3)"), Err(_)));
+        assert!(matches!(BqlType::from_str("Decimal(, 11, 9)"), Err(_)));
+        assert!(matches!(BqlType::from_str("Decimal32(4 , )"), Err(_)));
+        assert!(matches!(BqlType::from_str("Decimal64(, 10 )"), Err(_)));
         assert!(matches!(BqlType::from_str("UInt1234"), Err(_)));
 
         Ok(())
