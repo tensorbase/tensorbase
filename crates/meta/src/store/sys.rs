@@ -305,6 +305,14 @@ impl MetaStore {
         tname: &str,
     ) -> MetaResult<Vec<(String, u64, ColumnInfo)>> {
         let cnp = to_qualified_key!(dbname, tname, "");
+        self.get_columns_by_qtn(&cnp)
+    }
+
+    pub fn get_columns_by_qtn(
+        &self,
+        qtn: &String,
+    ) -> MetaResult<Vec<(String, u64, ColumnInfo)>> {
+        let cnp = to_qualified_key!(qtn.as_str(), "");
         let ci_iter = self.tree0.scan_prefix(&cnp);
         let mut rt = vec![];
         for kv in ci_iter {

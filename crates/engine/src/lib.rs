@@ -20,7 +20,7 @@ pub fn run(
     query_id: &str,
     qs: &mut QueryState,
 ) -> EngineResult<Vec<RecordBatch>> {
-    let (tabs, cols) = parse::parse_tables(p)?;
-    log::debug!("projections - tabs: {:?}, cols: {:?}", tabs, cols);
-    datafusions::run(ms, ps, current_db, raw_query, query_id, tabs, cols, qs)
+    let tctx = parse::parse_tables(p)?;
+    log::debug!("projections - {:?}", tctx);
+    datafusions::run(ms, ps, current_db, raw_query, query_id, tctx, qs)
 }

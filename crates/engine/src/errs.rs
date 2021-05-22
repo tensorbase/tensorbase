@@ -22,6 +22,9 @@ pub enum EngineError {
     #[error("Error when unwrappring Option")]
     UnwrapOptionError,
 
+    #[error("Unsupported Query")]
+    UnsupportedQuery,
+
     #[error(transparent)]
     WrappingDFError(#[from] datafusion::error::DataFusionError),
 
