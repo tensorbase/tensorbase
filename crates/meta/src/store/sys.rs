@@ -885,11 +885,9 @@ mod unit_tests {
             let cid = ms.cid_by_qname(&full_colname).unwrap();
             assert!(cid > 1);
             ms._del(&full_colname)?;
+            assert_eq!(ms.get_column_info(cid)?, None);
         }
 
-        ms._del(&full_tabname)?;
-        assert_eq!(ms.id(&full_tabname), None);
-        assert_eq!(ms.full_tabname(tid), None);
         ms._del(&full_tabname)?;
         assert_eq!(ms.id(&full_tabname), None);
         assert_eq!(ms.full_tabname(tid), None);
