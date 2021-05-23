@@ -100,9 +100,9 @@ pub enum BqlType {
     Date,
     DateTime,
     String,
-    FixedString(u32),
     LowCardinalityString,
     Float(u8),
+    FixedString(u8),
 }
 
 impl Default for BqlType {
@@ -122,8 +122,8 @@ impl Display for BqlType {
             BqlType::DateTime => write!(f, "DateTime"),
             BqlType::Date => write!(f, "Date"),
             BqlType::String => write!(f, "String"),
-            BqlType::FixedString(len) => write!(f, "FixedString({})", len),
             BqlType::LowCardinalityString => write!(f, "LowCardinality(String)"),
+            BqlType::FixedString(len) => write!(f, "FixedString({})", len),
         }
     }
 }
@@ -139,11 +139,11 @@ impl Display for BqlType {
 // }
 impl BqlType {
     /// return the data type size in bytes, Err for dynamically sized type
-    pub fn size(self) -> MetaResult<usize> {
+    pub fn size(self) -> MetaResult<u8> {
         match self {
-            BqlType::Int(siz) => Ok((siz / 8) as usize),
-            BqlType::UInt(siz) => Ok((siz / 8) as usize),
-            BqlType::Float(siz) => Ok((siz / 8) as usize),
+            BqlType::Int(siz) => Ok(siz / 8),
+            BqlType::UInt(siz) => Ok(siz / 8),
+            BqlType::Float(siz) => Ok(siz / 8),
             BqlType::DateTime => Ok(4),
             BqlType::Date => Ok(2),
             BqlType::Decimal(p, _s) => {
@@ -155,10 +155,14 @@ impl BqlType {
                     Err(MetaError::UnsupportedBqlTypeError) 
                 }
             },
-            BqlType::FixedString(siz) => Ok(siz as usize),
             BqlType::LowCardinalityString => Ok(4),
+            BqlType::FixedString(siz) => Ok(siz),
             _ => Err(MetaError::NoFixedSizeDataTypeError),
         }
+    }
+
+    pub fn size_in_usize(self) -> MetaResult<usize> {
+        Ok(self.size()? as usize)
     }
 
     pub fn to_vec(self) -> MetaResult<Vec<u8>> {
@@ -186,31 +190,26 @@ impl BqlType {
             b"Date" => Ok(BqlType::Date),
             b"String" => Ok(BqlType::String),
             b"LowCardinality(String)" => Ok(BqlType::LowCardinalityString),
+            decimal_item if decimal_item.starts_with(b"Decimal") => {
+                Self::_decimal_type(decimal_item)
+            },
             fixed_string_item if fixed_string_item.starts_with(b"FixedString") => {
                 match &fixed_string_item[b"FixedString".len()..] {
                     [b'(', len @ .., b')'] => {
-                        let len = Self::_parse_num_in_type(len)?;
-                        // FIXME Arrow's `FixedSizeBinary` supports bytes with a length of `i32::MAX` as most
-                        if len > i32::MAX as u32 {
-                            return Err(MetaError::TooLongLengthForFixedStringError);
-                        }
-                        Ok(BqlType::FixedString(len))
+                        Ok(BqlType::FixedString(Self::_parse_num(len)?))
                     }
                     _ => Err(MetaError::UnknownBqlTypeConversionError),
                 }
             }
-            decimal_item if decimal_item.starts_with(b"Decimal") => {
-                Self::_decimal_type(decimal_item)
-            },
             _ => Err(MetaError::UnknownBqlTypeConversionError),
         }
     }
 
-    fn _parse_num_in_type<Int: FromStr + Integer>(bytes: &[u8]) -> MetaResult<Int> {
+    fn _parse_num(bytes: &[u8]) -> MetaResult<u8> {
         str::from_utf8(bytes)
             .map_err(|_e| MetaError::UnknownBqlTypeConversionError)?
             .trim()
-            .parse::<Int>()
+            .parse::<u8>()
             .map_err(|_e| MetaError::UnknownBqlTypeConversionError)
     }
 
@@ -228,12 +227,12 @@ impl BqlType {
                 if ps_iter.next().is_some() {
                     return Err(MetaError::UnknownBqlTypeConversionError);
                 }
-                (Self::_parse_num_in_type(p)?, Self::_parse_num_in_type(s)?)
+                (Self::_parse_num(p)?, Self::_parse_num(s)?)
             },
             // Decimal32(s) => Decimal(9, s)
-            [b'3', b'2', b'(', s @ .., b')'] => (9, Self::_parse_num_in_type(s)?),
+            [b'3', b'2', b'(', s @ .., b')'] => (9, Self::_parse_num(s)?),
             // Decimal64(s) => Decimal(18, s)
-            [b'6', b'4', b'(', s @ .., b')'] => (18, Self::_parse_num_in_type(s)?),
+            [b'6', b'4', b'(', s @ .., b')'] => (18, Self::_parse_num(s)?),
             _ => return Err(MetaError::UnknownBqlTypeConversionError),
         };
         // Range of precision and scale:
@@ -557,8 +556,8 @@ mod unit_tests {
         assert_eq!(BqlType::from_str("String")?, BqlType::String);
         assert_eq!(BqlType::from_str("FixedString(123)")?, BqlType::FixedString(123));
         assert_eq!(
-            BqlType::from_str("FixedString( 2147483647 )")?,
-            BqlType::FixedString(0x7fff_ffff)
+            BqlType::from_str("FixedString( 255 )")?,
+            BqlType::FixedString(0xff)
         );
         assert_eq!(
             BqlType::from_str("Decimal(11 , 3)")?,
@@ -606,11 +605,8 @@ mod unit_tests {
             BqlType::from_str("Decimal64( 19)"), // s > p for Decimal64
             Err(MetaError::InvalidPrecisionOrScaleOfDecimalError(18, 19))
         ));
-        assert!(matches!(
-            BqlType::from_str("FixedString(2147483648)"),
-            Err(MetaError::TooLongLengthForFixedStringError)
-        ));
 
+        assert!(matches!(BqlType::from_str("FixedString(256)"), Err(_)));
         assert!(matches!(BqlType::from_str("FixedString(11 , )"), Err(_)));
         assert!(matches!(BqlType::from_str("FixedString(,)"), Err(_)));
         assert!(matches!(BqlType::from_str("FixedString()"), Err(_)));
@@ -651,8 +647,8 @@ mod unit_tests {
             BqlType::FixedString(193).to_vec()?
         );
         assert_eq!(
-            b"FixedString(2147483647)".to_vec(),
-            BqlType::FixedString(0x7fff_ffff).to_vec()?
+            b"FixedString(255)".to_vec(),
+            BqlType::FixedString(0xff).to_vec()?
         );
 
         Ok(())
