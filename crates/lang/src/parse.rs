@@ -349,7 +349,8 @@ impl CreateTabContext {
                     // }
                     Some(p)
                         if p.as_rule() == Rule::simple_type
-                            || p.as_rule() == Rule::decimal_type =>
+                            || p.as_rule() == Rule::decimal_type
+                            || p.as_rule() == Rule::fixed_string_type =>
                     {
                         let typ = p.as_str().trim();
                         col.1.data_type = BqlType::from_str(typ)?;

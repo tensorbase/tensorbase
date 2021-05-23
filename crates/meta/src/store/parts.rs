@@ -57,7 +57,7 @@ impl CoPaInfo {
             BqlType::String => Ok(ps
                 .get_copa_siz_in_bytes_int_ptk(cid, ptk)?
                 .unwrap_or_default()),
-            _ => Ok(size * (col_typ.size()? as usize)),
+            _ => Ok(size * (col_typ.size()?)),
         }
     }
 

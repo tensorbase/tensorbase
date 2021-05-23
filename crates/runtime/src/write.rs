@@ -336,7 +336,7 @@ fn write_part(
 
         //FIXME nm, om
         //write
-        let ctyp_siz = ctyp.size()? as usize;
+        let ctyp_siz = ctyp.size()?;
         let pt_len_in_bytes = pt_len * ctyp_siz;
         let offset_in_bytes = prid * ctyp_siz;
         //FIXME gather into bb
@@ -436,7 +436,7 @@ fn write_part_locked(
             }
             _ => {
                 let cdata = &cchk.data;
-                let ctyp_siz = ctyp.size()? as usize;
+                let ctyp_siz = ctyp.size()?;
                 let pt_len_in_bytes = pt_len * ctyp_siz;
                 let offset_in_bytes = prid * ctyp_siz;
                 let bb = gather_into_buf(
