@@ -397,7 +397,7 @@ fn arrow_type_to_btype(typ: &DataType) -> BaseRtResult<BqlType> {
         DataType::Date16 => Ok(BqlType::Date),
         DataType::Decimal(p,s)=>  Ok(BqlType::Decimal(*p as u8, *s as u8)),
         DataType::LargeUtf8 => Ok(BqlType::String),
-        DataType::FixedSizeBinary(len) => Ok(BqlType::FixedString(*len as u32)),
+        DataType::FixedSizeBinary(len) => Ok(BqlType::FixedString(*len as u8)),
         _ => Err(BaseRtError::UnsupportedConversionToBqlType),
     }
 }
@@ -436,7 +436,7 @@ impl TryFrom<RecordBatch> for Block {
                     .ok_or(BaseRtError::FailToUnwrapOpt)?;
                 ofs as usize
             } else {
-                btype.size()? * col.len()
+                btype.size_in_usize()? * col.len()
             };
             let data = unsafe {
                 std::slice::from_raw_parts(buf.as_ptr(), len_in_bytes).to_vec()
@@ -536,7 +536,7 @@ fn decode_to_column(
             },
         })
     } else {
-        let len_data = nrows * btype.size()?;
+        let len_data = nrows * btype.size_in_usize()?;
         bs.ensure_enough_bytes_to_read(len_data)?;
         let bc_data = bs[..len_data].to_vec();
         bs.advance(len_data);
@@ -606,7 +606,7 @@ impl BytesDecoder<Column> for &[u8] {
                 if nrows != size {
                     return Err(BaseRtError::InvalidWireFormatInColumn);
                 }
-                let len_data = size * btype.size()?;
+                let len_data = size * btype.size_in_usize()?;
                 let data = self[..len_data].to_vec();
                 self.advance(len_data);
                 Ok(Column {

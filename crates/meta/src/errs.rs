@@ -72,9 +72,6 @@ pub enum MetaError {
     #[error("No fixed size for dynamic sized data type")]
     NoFixedSizeDataTypeError,
 
-    #[error("Too long length for FixedString")]
-    TooLongLengthForFixedStringError,
-
     #[error("Too long length for String")]
     TooLongLengthForStringError,
 

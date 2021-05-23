@@ -50,8 +50,8 @@ fn btype_to_arrow_type(typ: BqlType) -> EngineResult<DataType> {
         BqlType::Date => Ok(DataType::Date16),
         BqlType::Decimal(p, s) => Ok(DataType::Decimal(p as usize, s as usize)),
         BqlType::String => Ok(DataType::LargeUtf8),
-        BqlType::FixedString(len) => Ok(DataType::FixedSizeBinary(len as i32)),
         BqlType::LowCardinalityString => Ok(DataType::UInt32),
+        BqlType::FixedString(len) => Ok(DataType::FixedSizeBinary(len as i32)),
         _ => Err(EngineError::UnsupportedBqlType),
     }
 }
