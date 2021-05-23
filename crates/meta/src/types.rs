@@ -128,8 +128,10 @@ impl BqlType {
             BqlType::Decimal(p, _s) => {
                 if p < 10 { 
                     Ok(4) 
-                } else { 
+                } else if p <= 18 { 
                     Ok(8)
+                } else {
+                    Err(MetaError::UnsupportedBqlTypeError) 
                 }
             },
             BqlType::LowCardinalityString => Ok(4),
@@ -243,42 +245,6 @@ impl BqlType {
         return Ok(BqlType::Decimal(precision, scale));
     }
 }
-
-// #[derive(Debug, Copy, Clone, Eq, PartialEq)]
-// #[repr(C)]
-// pub struct CBqlType(pub u8, pub u16);
-
-// impl Default for CBqlType {
-//     fn default() -> Self {
-//         CBqlType(CBqlTypeBase::UnInit as u8, 0u16)
-//     }
-// }
-
-// impl CBqlType {
-//     pub fn from_btype(btype: BqlType) -> MetaResult<Self> {
-//         match btype {
-//             BqlType::UInt(siz) => {
-//                 Ok(CBqlType(CBqlTypeBase::UInt as u8, siz as u16))
-//             }
-//             BqlType::Int(siz) => {
-//                 Ok(CBqlType(CBqlTypeBase::Int as u8, siz as u16))
-//             }
-//             BqlType::DateTime => Ok(CBqlType(CBqlTypeBase::UInt as u8, 32)),
-//             _ => Err(MetaError::UnknownCBqlTypeConversionError),
-//         }
-//     }
-// }
-
-// #[repr(C)]
-// pub enum CBqlTypeBase {
-//     UnInit = 0,
-//     UInt = 1,
-//     Int = 2,
-//     Decimal = 3,
-//     DateTime = 4,
-//     LowCardinalityString = 5,
-//     String = 6,
-// }
 
 impl AsBytes for usize {}
 impl AsBytes for u64 {}
@@ -441,11 +407,6 @@ impl<'a> IntoMutRef for &'a mut [u8] {}
 
 // === physical storage data type ===
 
-// pub struct NamedBaseChunk {
-//     pub name: Vec<u8>,
-//     pub data: BaseChunk,
-// }
-
 ///FIXME data, null_map, lc_dict_data are expensively copied as Vec
 pub struct BaseChunk {
     pub btype: BqlType,
@@ -540,53 +501,6 @@ impl<T> Part<T> {
         }
     }
 }
-
-// impl <T> PartialEq for Part<T> {
-//     fn eq(&self, other: &Self) -> bool {
-//         self.addr == other.addr && self.size == other.size
-//     }
-// }
-// #[derive(PartialEq, Debug)]
-// #[repr(C, packed)]
-// pub struct PartKeyPrimInt<T: PrimInt> {
-//     pub tid_be: Id,
-//     pub part_key: T,
-// }
-
-// impl<T: PrimInt> PartKeyPrimInt<T> {
-//     pub fn new(tid: u64, part_key: T) -> Self {
-//         PartKeyPrimInt {
-//             tid_be: tid.to_be(),
-//             part_key,
-//         }
-//     }
-
-//     /// Get the bytes of this value.
-//     ///
-//     /// `as_bytes` provides access to the bytes of this value as an immutable
-//     /// byte slice.
-//     pub fn as_bytes(&self) -> &[u8] {
-//         unsafe {
-//             // NOTE: This function does not have a Self: Sized bound.
-//             // size_of_val works for unsized values too.
-//             let len = mem::size_of_val(self);
-//             slice::from_raw_parts(self as *const Self as *const u8, len)
-//         }
-//     }
-
-//     /// Get the bytes of this value mutably.
-//     ///
-//     /// `as_bytes_mut` provides access to the bytes of this value as a mutable
-//     /// byte slice.
-//     pub fn as_bytes_mut(&mut self) -> &mut [u8] {
-//         unsafe {
-//             // NOTE: This function does not have a Self: Sized bound.
-//             // size_of_val works for unsized values too.
-//             let len = mem::size_of_val(self);
-//             slice::from_raw_parts_mut(self as *mut Self as *mut u8, len)
-//         }
-//     }
-// }
 
 #[cfg(test)]
 mod unit_tests {
@@ -722,56 +636,6 @@ mod unit_tests {
         Ok(())
     }
 
-    // #[test]
-    // fn test_part_basic() {
-    //     let p = Part {
-    //         addr: 0x54_32_10_12_34_00,
-    //         size: 120000,
-    //         min: 1u32,
-    //         max: 63u32 * 1024,
-    //         nbits: 32,
-    //     };
-
-    //     let bsp = p.as_bytes();
-    //     assert_eq!(bsp.len(), 8 + 8 + 4 + 4 + 2);
-
-    //     assert_eq!(bsp.into_ref::<Part<u32>>(), &p);
-
-    //     let p = Part {
-    //         addr: 0x54_32_10_12_34_00,
-    //         size: 120000,
-    //         min: 1u64,
-    //         max: 63 * 1024,
-    //         nbits: 32,
-    //     };
-
-    //     let bsp = p.as_bytes();
-    //     assert_eq!(bsp.len(), 8 + 8 + 8 + 8 + 2);
-
-    //     assert_eq!(bsp.into_ref::<Part<u64>>(), &p);
-    //     assert_eq!(bsp.into_ref::<Part<u64>>().nbits, 32);
-    // }
-
-    // #[test]
-    // fn test_part_key_basic() {
-    //     let ptk = PartKeyPrimInt::new(127, 1u64);
-
-    //     let bs_ptk = ptk.as_bytes();
-    //     assert_eq!(bs_ptk.len(), 8 + 8);
-
-    //     assert_eq!(bs_ptk.into_ref::<PartKeyPrimInt<u64>>(), &ptk);
-    //     // &ptk.try_into::<[u8;4]>().expect("slice with incorrect length");
-
-    //     let ptk = PartKeyPrimInt::new(127, -123i32);
-    //     let bs_ptk = ptk.as_bytes();
-    //     assert_eq!(bs_ptk.len(), 8 + 4);
-
-    //     let ptk1 = bs_ptk.into_ref::<PartKeyPrimInt<i32>>();
-    //     assert_eq!(*ptk1, ptk);
-    //     assert_eq!(ptk1.tid_be, 127.to_be());
-    //     assert_eq!(ptk1.part_key, -123i32);
-    // }
-
     #[test]
     fn test_table_sort_columns() {
         let mut tab = Table::default();
@@ -810,7 +674,5 @@ mod unit_tests {
     #[test]
     fn test_type_sizes() {
         show_option_size!(BqlType);
-        // show_option_size!(CBqlType);
-        // show_option_size!(CBqlTypeBase);
     }
 }
