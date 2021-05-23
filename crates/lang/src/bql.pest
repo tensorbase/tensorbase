@@ -305,7 +305,8 @@ qualified_name = ${ (name ~ ".")? ~ name }
 type_name = {
     nullable_type |
     simple_type |
-    decimal_type | 
+    decimal_type |
+    fixed_string_type |
     low_cardinality_type
 }
 simple_type = {
@@ -313,6 +314,9 @@ simple_type = {
     "Int8"  | "Int16"  | "Int32"  | "Int64"  | "Int128" | "Int256" |
     "Float32" | "Float64" | 
     "UUID" | "String" | "DateTime64" | "DateTime" | "Date"
+}
+fixed_string_type = {
+    "FixedString" ~ "(" ~ number ~ ")"
 }
 decimal_type = { 
     "Decimal" ~ "(" ~ number ~ "," ~ number ~ ")" | 

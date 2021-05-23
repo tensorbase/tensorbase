@@ -5,7 +5,7 @@ use arrow::{
         ArrayData, ArrayRef, Date16Array, DecimalArray, Float32Array,
         Float64Array, GenericStringArray, Int8Array, Int16Array, Int32Array,
         Int64Array, Timestamp32Array, UInt8Array, UInt16Array, UInt32Array,
-        UInt64Array,
+        UInt64Array, FixedSizeBinaryArray,
     },
     buffer::Buffer,
     datatypes::{DataType, Field, Schema},
@@ -50,6 +50,7 @@ fn btype_to_arrow_type(typ: BqlType) -> EngineResult<DataType> {
         BqlType::Date => Ok(DataType::Date16),
         BqlType::Decimal(p, s) => Ok(DataType::Decimal(p as usize, s as usize)),
         BqlType::String => Ok(DataType::LargeUtf8),
+        BqlType::FixedString(len) => Ok(DataType::FixedSizeBinary(len as i32)),
         BqlType::LowCardinalityString => Ok(DataType::UInt32),
         _ => Err(EngineError::UnsupportedBqlType),
     }
@@ -225,6 +226,10 @@ fn setup_tables(
                 DataType::LargeUtf8 => {
                     cols.push(Arc::new(GenericStringArray::<i64>::from(data)));
                 }
+                DataType::FixedSizeBinary(_) => {
+                    cols.push(Arc::new(FixedSizeBinaryArray::from(data)));
+
+                }
                 // DataType::Null => {}
                 // DataType::Boolean => {}
                 // DataType::Timestamp(_, _) => {}
@@ -234,7 +239,6 @@ fn setup_tables(
                 // DataType::Duration(_) => {}
                 // DataType::Interval(_) => {}
                 // DataType::Binary => {}
-                // DataType::FixedSizeBinary(_) => {}
                 // DataType::LargeBinary => {}
                 // DataType::Utf8 => {}
                 // DataType::List(_) => {}
