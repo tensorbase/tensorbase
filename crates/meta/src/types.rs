@@ -8,14 +8,11 @@ use std::{
 };
 
 use base::bytes_cat;
+use bstr::ByteSlice as BStrByteSlice;
 use num_traits::PrimInt;
-use std::str;
 
 use crate::errs::MetaError;
 use crate::errs::MetaResult;
-use itoa::Integer;
-use std::str::FromStr;
-use std::fmt::{Display, Formatter};
 
 pub type Id = u64;
 
@@ -111,23 +108,6 @@ impl Default for BqlType {
     }
 }
 
-impl Display for BqlType {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        match self {
-            BqlType::UnInit => write!(f, "UnInit"),
-            BqlType::UInt(len) => write!(f, "UInt{}", len),
-            BqlType::Int(len) => write!(f, "Int{}", len),
-            BqlType::Float(len) => write!(f, "Float{}", len),
-            BqlType::Decimal(p, s) => write!(f, "Decimal({},{})", p, s),
-            BqlType::DateTime => write!(f, "DateTime"),
-            BqlType::Date => write!(f, "Date"),
-            BqlType::String => write!(f, "String"),
-            BqlType::LowCardinalityString => write!(f, "LowCardinality(String)"),
-            BqlType::FixedString(len) => write!(f, "FixedString({})", len),
-        }
-    }
-}
-
 // macro_rules! gen_str_to_bql {
 //     ( $item:ident, $($typ:ident,)*) => {
 //         match $item {
@@ -166,7 +146,40 @@ impl BqlType {
     }
 
     pub fn to_vec(self) -> MetaResult<Vec<u8>> {
-        Ok(self.to_string().into_bytes())
+        match self {
+            BqlType::UnInit => Ok(b"UnInit".to_vec()),
+            BqlType::UInt(len) => {
+                let mut bi = [0u8; 4];
+                let n = itoa::write(&mut bi[..], len)?;
+                Ok(bytes_cat!(b"UInt", &bi[..n]))
+            }
+            BqlType::Int(len) => {
+                let mut bi = [0u8; 4];
+                let n = itoa::write(&mut bi[..], len)?;
+                Ok(bytes_cat!(b"Int", &bi[..n]))
+            }
+            BqlType::Float(len) => {
+                let mut bi = [0u8; 4];
+                let n = itoa::write(&mut bi[..], len)?;
+                Ok(bytes_cat!(b"Float", &bi[..n]))
+            }
+            BqlType::Decimal(p, s) => {
+                let mut bp = [0u8; 4];
+                let np = itoa::write(&mut bp[..], p)?;
+                let mut bs = [0u8; 4];
+                let ns = itoa::write(&mut bs[..], s)?;
+                Ok(bytes_cat!(b"Decimal(", &bp[..np], b",", &bs[..ns], b")"))
+            }
+            BqlType::DateTime => Ok(b"DateTime".to_vec()),
+            BqlType::Date => Ok(b"Date".to_vec()),
+            BqlType::String => Ok(b"String".to_vec()),
+            BqlType::LowCardinalityString => Ok(b"LowCardinality(String)".to_vec()),
+            BqlType::FixedString(len) => {
+                let mut bi = [0u8; 4];
+                let n = itoa::write(&mut bi[..], len)?;
+                Ok(bytes_cat!(b"FixedString(", &bi[..n], b")"))
+            }
+        }
     }
 
     pub fn from_str(item: &str) -> MetaResult<Self> {
@@ -206,10 +219,7 @@ impl BqlType {
     }
 
     fn _parse_num(bytes: &[u8]) -> MetaResult<u8> {
-        str::from_utf8(bytes)
-            .map_err(|_e| MetaError::UnknownBqlTypeConversionError)?
-            .trim()
-            .parse::<u8>()
+        btoi::btou(bytes.trim_with(|ch| ch.is_ascii_whitespace()))
             .map_err(|_e| MetaError::UnknownBqlTypeConversionError)
     }
 
