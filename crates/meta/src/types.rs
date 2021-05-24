@@ -8,6 +8,7 @@ use std::{
 };
 
 use base::bytes_cat;
+use base::strings::BytesTrim;
 use num_traits::PrimInt;
 
 use crate::errs::MetaError;
@@ -218,26 +219,7 @@ impl BqlType {
     }
 
     fn _parse_num(bytes: &[u8]) -> MetaResult<u8> {
-        fn trim(bytes: &[u8]) -> &[u8] {
-            trim_end(trim_start(bytes))
-        }
-        fn trim_start(bytes: &[u8]) -> &[u8] {
-            for (i, b) in bytes.iter().enumerate() {
-                if !b.is_ascii_whitespace() {
-                    return &bytes[i..];
-                }
-            }
-            b""
-        }
-        fn trim_end(bytes: &[u8]) -> &[u8] {
-            for (i, b) in bytes.iter().enumerate().rev() {
-                if !b.is_ascii_whitespace() {
-                    return &bytes[..=i];
-                }
-            }
-            b""
-        }
-        btoi::btou(trim(bytes)).map_err(|_e| MetaError::UnknownBqlTypeConversionError)
+        btoi::btou(bytes.trim()).map_err(|_e| MetaError::UnknownBqlTypeConversionError)
     }
 
     fn _decimal_type(decimal_item: &[u8]) -> MetaResult<Self> {

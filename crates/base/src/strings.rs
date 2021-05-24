@@ -196,10 +196,28 @@ pub fn bytes_to_cstring(buf: Vec<u8>) -> CString {
     unsafe { std::ffi::CString::from_vec_unchecked(buf) }
 }
 
+pub trait BytesTrim {
+    fn trim(&self) -> &Self {
+        self.trim_start().trim_end()
+    }
+    fn trim_start(&self) -> &Self;
+    fn trim_end(&self) -> &Self;
+}
+
+impl BytesTrim for [u8] {
+    fn trim_start(&self) -> &Self {
+        &self[self.iter().take_while(|b| b.is_ascii_whitespace()).count()..]
+    }
+    fn trim_end(&self) -> &Self {
+        let trimmed =
+            self.iter().rev().take_while(|b| b.is_ascii_whitespace()).count();
+        &self[..self.len() - trimmed]
+    }
+}
+
 #[cfg(test)]
 mod unit_tests {
     use std::ffi::CString;
-
 
     #[test]
     fn basic_check() {
@@ -207,6 +225,9 @@ mod unit_tests {
         super::remove_whitespace(&mut s);
         crate::debug!(&s);
         assert!(&s == "a(b)*c");
+
+        let s = " \t\rabcd\r\ne\t\n  ";
+        assert_eq!("abcd\r\ne", s.trim());
     }
 
     #[test]
