@@ -5,7 +5,7 @@ authors = ["The Cranelift Project Developers", "TensorBase, and its contributors
 edition = "2018"
 
 [dependencies]
-cranelift = "0.69.0"
+cranelift = "0.74.0"
 cranelift-module = "0.69.0"
 cranelift-jit = "0.69.0"
 peg = "0.7"
