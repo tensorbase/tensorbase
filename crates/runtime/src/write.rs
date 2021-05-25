@@ -40,7 +40,8 @@ pub fn write_block(
         .get_table_info_partition_cols(tid_ins)?
         .ok_or(BaseRtError::SchemaInfoShouldExistButNot)?;
     let parts: HashMap<u64, Vec<(u32, u32)>, BuildBaseHasher> =
-        if ptks.len() == 0 {
+        // if ptks.len() == 0 {
+            {
             //no ptk cols
             let mut parts =
                 HashMap::<u64, Vec<(u32, u32)>, BuildBaseHasher>::with_hasher(
@@ -48,9 +49,10 @@ pub fn write_block(
                 ); //assumed blk dix < 4G
             parts.insert(0, vec![(0, (blk.nrows - 1) as u32)]);
             parts
-        } else {
-            gen_parts_by_ptk_names(ptks, blk, tab_ins, tid_ins)?
-        };
+            };
+        // } else {
+        //     gen_parts_by_ptk_names(ptks, blk, tab_ins, tid_ins)?
+        // };
 
     //write parts
     if parts.len() >= 1000 {
@@ -70,94 +72,93 @@ pub fn write_block(
     Ok(())
 }
 
-fn gen_parts_by_ptk_names(
-    ptks: meta::store::sys::IVec,
-    blk: &Block,
-    tab_ins: &str,
-    tid_ins: u64,
-) -> Result<HashMap<u64, Vec<(u32, u32)>, BuildBaseHasher>, BaseRtError> {
-    let cname_ptk = if ptks.len() == 0 {
-        // vec![]
-        ""
-    } else {
-        let bs_ptks = &*ptks;
-        // bs_ptks[..bs_ptks.len() - 1].to_vec()
-        unsafe { std::str::from_utf8_unchecked(&bs_ptks[..bs_ptks.len() - 1]) }
-    };
-    let mut ptk_idx = usize::MAX;
-    for i in 0..blk.ncols {
-        if &blk.columns[i].name == cname_ptk.as_bytes() {
-            ptk_idx = i;
-            break;
-        }
-    }
-    if ptk_idx == usize::MAX {
-        return Err(BaseRtError::NoPartitionKeyColumnFoundWhenInserting);
-    }
-    let col_ptk = &blk.columns[ptk_idx];
-    let ptk_expr_fn_ptr = BMS.get_ptk_exps_fn_ptr(tab_ins, tid_ins)?;
-    let ctyp_ptk = &col_ptk.data.btype;
-    let cdata_ptk = &col_ptk.data.data;
-    let nr = blk.nrows;
-    if unlikely(nr >= u32::MAX as usize) {
-        return Err(BaseRtError::TooBigBlockSize);
-    }
-    let parts = match ctyp_ptk {
-        meta::types::BqlType::UInt(bits) => match bits {
-            8 => gen_part_idxs(
-                ptk_expr_fn_ptr as *const u8,
-                ctyp_ptk,
-                cdata_ptk,
-                nr,
-            )?,
-            16 => {
-                let cdata_ptk = shape_slice::<u16>(cdata_ptk);
-                gen_part_idxs(
-                    ptk_expr_fn_ptr as *const u8,
-                    ctyp_ptk,
-                    cdata_ptk,
-                    nr,
-                )?
-            }
-            32 => {
-                let cdata_ptk = shape_slice::<u32>(cdata_ptk);
-                gen_part_idxs(
-                    ptk_expr_fn_ptr as *const u8,
-                    ctyp_ptk,
-                    cdata_ptk,
-                    nr,
-                )?
-            }
-            64 => {
-                let cdata_ptk = shape_slice::<u64>(cdata_ptk);
-                gen_part_idxs(
-                    ptk_expr_fn_ptr as *const u8,
-                    ctyp_ptk,
-                    cdata_ptk,
-                    nr,
-                )?
-            }
-            _ => {
-                return Err(BaseRtError::UnsupportedPartitionKeyType);
-            }
-        },
-        meta::types::BqlType::DateTime => {
-            let cdata_ptk = shape_slice::<u32>(cdata_ptk);
-            gen_part_idxs(
-                ptk_expr_fn_ptr as *const u8,
-                ctyp_ptk,
-                cdata_ptk,
-                nr,
-            )?
-        }
-        // meta::types::BqlType::Int(_) => {}
-        // meta::types::BqlType::Decimal(_, _) => {}
-        _ => {
-            return Err(BaseRtError::UnsupportedPartitionKeyType);
-        }
-    };
-    Ok(parts)
-}
+// fn gen_parts_by_ptk_names(
+//     ptks: meta::store::sys::IVec,
+//     blk: &Block,
+//     tab_ins: &str,
+//     tid_ins: u64,
+// ) -> Result<HashMap<u64, Vec<(u32, u32)>, BuildBaseHasher>, BaseRtError> {
+//     let cname_ptk = if ptks.len() == 0 {
+//         // vec![]
+//         ""
+//     } else {
+//         let bs_ptks = &*ptks;
+//         // bs_ptks[..bs_ptks.len() - 1].to_vec()
+//         unsafe { std::str::from_utf8_unchecked(&bs_ptks[..bs_ptks.len() - 1]) }
+//     };
+//     let mut ptk_idx = usize::MAX;
+//     for i in 0..blk.ncols {
+//         if &blk.columns[i].name == cname_ptk.as_bytes() {
+//             ptk_idx = i;
+//             break;
+//         }
+//     }
+//     if ptk_idx == usize::MAX {
+//         return Err(BaseRtError::NoPartitionKeyColumnFoundWhenInserting);
+//     }
+//     let col_ptk = &blk.columns[ptk_idx];
+//     let ctyp_ptk = &col_ptk.data.btype;
+//     let cdata_ptk = &col_ptk.data.data;
+//     let nr = blk.nrows;
+//     if unlikely(nr >= u32::MAX as usize) {
+//         return Err(BaseRtError::TooBigBlockSize);
+//     }
+//     let parts = match ctyp_ptk {
+//         meta::types::BqlType::UInt(bits) => match bits {
+//             8 => gen_part_idxs(
+//                 ptk_expr_fn_ptr as *const u8,
+//                 ctyp_ptk,
+//                 cdata_ptk,
+//                 nr,
+//             )?,
+//             16 => {
+//                 let cdata_ptk = shape_slice::<u16>(cdata_ptk);
+//                 gen_part_idxs(
+//                     ptk_expr_fn_ptr as *const u8,
+//                     ctyp_ptk,
+//                     cdata_ptk,
+//                     nr,
+//                 )?
+//             }
+//             32 => {
+//                 let cdata_ptk = shape_slice::<u32>(cdata_ptk);
+//                 gen_part_idxs(
+//                     ptk_expr_fn_ptr as *const u8,
+//                     ctyp_ptk,
+//                     cdata_ptk,
+//                     nr,
+//                 )?
+//             }
+//             64 => {
+//                 let cdata_ptk = shape_slice::<u64>(cdata_ptk);
+//                 gen_part_idxs(
+//                     ptk_expr_fn_ptr as *const u8,
+//                     ctyp_ptk,
+//                     cdata_ptk,
+//                     nr,
+//                 )?
+//             }
+//             _ => {
+//                 return Err(BaseRtError::UnsupportedPartitionKeyType);
+//             }
+//         },
+//         meta::types::BqlType::DateTime => {
+//             let cdata_ptk = shape_slice::<u32>(cdata_ptk);
+//             gen_part_idxs(
+//                 ptk_expr_fn_ptr as *const u8,
+//                 ctyp_ptk,
+//                 cdata_ptk,
+//                 nr,
+//             )?
+//         }
+//         // meta::types::BqlType::Int(_) => {}
+//         // meta::types::BqlType::Decimal(_, _) => {}
+//         _ => {
+//             return Err(BaseRtError::UnsupportedPartitionKeyType);
+//         }
+//     };
+//     Ok(parts)
+// }
 
 pub struct BaseHasher {
     state: u64,
@@ -479,7 +480,6 @@ mod unit_tests {
     use baselog::{
         Config, ConfigBuilder, LevelFilter, TermLogger, TerminalMode,
     };
-    use lightjit::builtins::to_fn1;
     use meta::{
         confs::Conf,
         types::{BaseChunk, BqlType, ColumnInfo, EngineType, Table, TableInfo},
@@ -593,63 +593,63 @@ mod unit_tests {
         Ok(())
     }
 
-    #[test]
-    fn test_get_ptk_exps_fn_ptr() -> BaseRtResult<()> {
-        let bms_path = "/tmp/xxx";
-        let qtn = "test_db.test_tab";
-        prepare_bms(bms_path)?;
+    // #[test]
+    // fn test_get_ptk_exps_fn_ptr() -> BaseRtResult<()> {
+    //     let bms_path = "/tmp/xxx";
+    //     let qtn = "test_db.test_tab";
+    //     prepare_bms(bms_path)?;
 
-        let tid = BMS
-            .meta_store
-            .tid_by_qname(qtn)
-            .ok_or(BaseRtError::TableNotExist)?;
-        let fn_ptr = BMS.get_ptk_exps_fn_ptr(qtn, tid)?;
+    //     let tid = BMS
+    //         .meta_store
+    //         .tid_by_qname(qtn)
+    //         .ok_or(BaseRtError::TableNotExist)?;
+    //     let fn_ptr = BMS.get_ptk_exps_fn_ptr(qtn, tid)?;
 
-        let toYYYYMMDD = to_fn1(fn_ptr);
+    //     let toYYYYMMDD = to_fn1(fn_ptr);
 
-        // println!("toYYYYMMDD(0): {}", toYYYYMMDD(0));
-        assert_eq!(toYYYYMMDD(0), 19700101);
+    //     // println!("toYYYYMMDD(0): {}", toYYYYMMDD(0));
+    //     assert_eq!(toYYYYMMDD(0), 19700101);
 
-        let fn_ptr2 = BMS.get_ptk_exps_fn_ptr(qtn, tid)?;
-        let toYYYYMMDD2 = to_fn1(fn_ptr2);
-        assert_eq!(toYYYYMMDD2(1095379200), 20040917);
+    //     let fn_ptr2 = BMS.get_ptk_exps_fn_ptr(qtn, tid)?;
+    //     let toYYYYMMDD2 = to_fn1(fn_ptr2);
+    //     assert_eq!(toYYYYMMDD2(1095379200), 20040917);
 
-        assert_eq!(BMS.ptk_exprs_reg.len(), 1);
+    //     assert_eq!(BMS.ptk_exprs_reg.len(), 1);
 
-        Ok(())
-    }
+    //     Ok(())
+    // }
 
-    #[ignore]
-    #[test]
-    fn stress_test_get_ptk_exps_fn_ptr() -> BaseRtResult<()> {
-        let bms_path = "/tmp/xxx";
-        let qtn = "test_db.test_tab";
-        prepare_bms(bms_path)?;
+    // #[ignore]
+    // #[test]
+    // fn stress_test_get_ptk_exps_fn_ptr() -> BaseRtResult<()> {
+    //     let bms_path = "/tmp/xxx";
+    //     let qtn = "test_db.test_tab";
+    //     prepare_bms(bms_path)?;
 
-        let tid = BMS
-            .meta_store
-            .tid_by_qname("test_db.test_tab")
-            .ok_or(BaseRtError::TableNotExist)?;
-        let fn_ptr = BMS.get_ptk_exps_fn_ptr(qtn, tid)?;
+    //     let tid = BMS
+    //         .meta_store
+    //         .tid_by_qname("test_db.test_tab")
+    //         .ok_or(BaseRtError::TableNotExist)?;
+    //     let fn_ptr = BMS.get_ptk_exps_fn_ptr(qtn, tid)?;
 
-        let toYYYYMMDD = to_fn1(fn_ptr);
+    //     let toYYYYMMDD = to_fn1(fn_ptr);
 
-        // println!("toYYYYMMDD(0): {}", toYYYYMMDD(0));
-        assert_eq!(toYYYYMMDD(0), 19700101);
+    //     // println!("toYYYYMMDD(0): {}", toYYYYMMDD(0));
+    //     assert_eq!(toYYYYMMDD(0), 19700101);
 
-        let mut sum = 0;
-        with_timer_print! {t0,
-            for i in 0..40*1024*1024 {
-                // fn_ptr = BMS.get_ptk_exps_fn_ptr(tid)?;
-                let fn_ptr2 = BMS.get_ptk_exps_fn_ptr(qtn, tid)?;
-                let toYYYYMMDD2 = to_fn1(fn_ptr2);
-                sum += toYYYYMMDD2(i);
-            }
-        }
-        println!("sum: {}", sum);
-        // println!("1095379200's YYYYMMDD: {}", to_fn1(fn_ptr)(1095379200));
-        Ok(())
-    }
+    //     let mut sum = 0;
+    //     with_timer_print! {t0,
+    //         for i in 0..40*1024*1024 {
+    //             // fn_ptr = BMS.get_ptk_exps_fn_ptr(tid)?;
+    //             let fn_ptr2 = BMS.get_ptk_exps_fn_ptr(qtn, tid)?;
+    //             let toYYYYMMDD2 = to_fn1(fn_ptr2);
+    //             sum += toYYYYMMDD2(i);
+    //         }
+    //     }
+    //     println!("sum: {}", sum);
+    //     // println!("1095379200's YYYYMMDD: {}", to_fn1(fn_ptr)(1095379200));
+    //     Ok(())
+    // }
 
     #[test]
     fn test_write_block_integ() -> BaseRtResult<()> {

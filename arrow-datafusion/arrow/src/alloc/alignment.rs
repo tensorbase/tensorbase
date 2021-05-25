@@ -36,6 +36,8 @@ pub const ALIGNMENT: usize = 1 << 6;
 /// Cache and allocation multiple alignment size
 #[cfg(target_arch = "x86_64")]
 pub const ALIGNMENT: usize = 1 << 7;
+#[cfg(target_arch = "riscv64")]
+pub const ALIGNMENT: usize = 1 << 6;
 
 // 24Kc:
 // Data Line Size

@@ -8,7 +8,6 @@ use lang::parse::{
     parse_drop_database, parse_drop_table, parse_insert_into,
     parse_optimize_table, parse_show_create_table, seek_to_sub_cmd, Pair, Rule,
 };
-use lightjit::jit;
 use meta::{
     confs::Conf,
     errs::MetaError,
@@ -146,9 +145,6 @@ pub static BMS: SyncLazy<BaseMgmtSys> = SyncLazy::new(|| {
     BaseMgmtSys::from_conf(Box::leak(conf)).unwrap()
 });
 
-pub static EXPR_JIT: SyncLazy<Mutex<jit::JIT>> =
-    SyncLazy::new(|| Mutex::new(jit::JIT::default()));
-
 //FIXME
 #[derive(Debug)]
 pub enum BaseCommandKind {
@@ -249,7 +245,6 @@ impl<'a> BaseMgmtSys<'a> {
             }
             Err(e) => return Err(BaseRtError::WrappingMetaError(e)),
         }
-        let jit = jit::JIT::default();
         let ptk_exprs_reg =
             DashMap::<Id, SyncPointer<u8>, BuildPtkExprsHasher>::with_hasher(
                 BuildPtkExprsHasher,
@@ -266,71 +261,7 @@ impl<'a> BaseMgmtSys<'a> {
     }
 
     //===
-    pub fn get_ptk_exps_fn_ptr(
-        &self,
-        qtn: &str,
-        tid: Id,
-    ) -> BaseRtResult<*const u8> {
-        let fp_opt = self.ptk_exprs_reg.get(&tid);
-        match fp_opt {
-            Some(fp) => {
-                let p = *fp;
-                Ok(p.as_ptr())
-            }
-            None => {
-                let rt = match self
-                    .meta_store
-                    .get_table_info_partition_keys_expr(tid)?
-                {
-                    Some(iv) => {
-                        let ptk_expr =
-                            unsafe { std::str::from_utf8_unchecked(&*iv) };
-                        let mut ptc = String::new();
-                        match self
-                            .meta_store
-                            .get_table_info_partition_cols(tid)?
-                        {
-                            Some(iv) => ptc.push_str(unsafe {
-                                std::str::from_utf8_unchecked(&*iv)
-                            }),
-                            None => {}
-                        };
-                        //FIXME validate the expr and cols
-                        //trim trailing comma if have
-                        let ptc = if ptc.ends_with(",") {
-                            &ptc[..ptc.len() - 1]
-                        } else {
-                            &ptc
-                        };
-                        let expr_name = qtn.replace(".", "_");
-                        EXPR_JIT
-                            .lock()
-                            .map_err(|_| BaseRtError::LightJitCompilationError)?
-                            .ensure_fn_redef(expr_name.as_str());
-
-                        let mut fn_code = s!(
-                        fn $expr_name$($ptc$) -> (r) {
-                            r = $ptk_expr$
-                        });
-                        fn_code.push('\n');
-                        log::debug!("To jit compile expr: {}", fn_code);
-
-                        let fn_code_ptr = EXPR_JIT
-                            .lock()
-                            .map_err(|_| BaseRtError::LightJitCompilationError)?
-                            .compile(fn_code.as_str())
-                            .map_err(|_| {
-                                BaseRtError::LightJitCompilationError
-                            })?; //FIXME possible memory leak
-                        fn_code_ptr
-                    }
-                    None => ZERO_PART_KEY_EXPR_FN as *const u8,
-                };
-                self.ptk_exprs_reg.insert(tid, SyncPointer(rt));
-                Ok(rt)
-            }
-        }
-    }
+    // pub fn get_ptk_exps_fn_ptr(
 
     //=== commands ===
 

@@ -11,9 +11,6 @@ use log::info;
 use runtime::{mgmt::{BMS, READ, WRITE}, read::query, write::write_block};
 use server::BaseSrvConn;
 
-#[global_allocator]
-static GLOBAL: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
-
 #[actix_rt::main]
 async fn main() -> io::Result<()> {
     let enable_dbg_log = match env::var("enable_dbg_log") {

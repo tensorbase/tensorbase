@@ -15,7 +15,7 @@
 *   limitations under the License.
 */
 #![allow(incomplete_features)]
-#![feature(backtrace, specialization, llvm_asm, vec_into_raw_parts, core_intrinsics)]
+#![feature(backtrace, specialization, vec_into_raw_parts, core_intrinsics, stmt_expr_attributes)]
 pub mod utils;
 pub mod mem;
 pub mod fs;

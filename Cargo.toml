@@ -4,7 +4,6 @@ members = [
     "crates/lang",
     "crates/runtime",
     "crates/base",
-    "crates/lightjit",
     "crates/server",
     "crates/engine",
     "crates/test_utils",
@@ -15,10 +14,10 @@ members = [
 # incremental = true
 # debug = 1 # just line info
 opt-level = 3
-lto = 'thin'
-# lto = 'fat'
-# codegen-units = 1
-# incremental = false
+# lto = 'thin'
+lto = 'fat'
+codegen-units = 1
+incremental = false
 
 [profile.bench]
 opt-level = 3

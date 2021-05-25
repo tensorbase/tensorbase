@@ -8,12 +8,15 @@ macro_rules! decl_Hasher {
         impl Hasher for $t {
             #[inline]
             fn hash(&self) -> u64 {
-                #[inline]
-                unsafe fn _hash(k1: u64, k2: u64) -> u64 {
-                    use std::arch::x86_64::*;
-                    _mm_crc32_u64(k1, k2)
+                #[cfg(target_arch = "x86_64")]
+                {
+                unsafe { std::arch::x86_64::_mm_crc32_u64(0, *self as u64) }
                 }
-                unsafe { _hash(0, *self as u64) }
+                //FIXME not consistent with instr
+                #[cfg(not(target_arch = "x86_64"))]
+                {
+                crc32c::crc32c(&self.to_le_bytes()) as u64
+                }
             }
         }
       )*
@@ -85,4 +88,13 @@ mod unit_tests {
         println!("ss1: {}", ss1);
         assert_eq!(ss0, ss1);
     }
+
+    // #[test]
+    // fn test_instri_vs_non_instr() {
+    //     for i in 0u64..10 {
+    //         let c0 = unsafe { std::arch::x86_64::_mm_crc32_u64(0, i as u64) };
+    //         let c1 = crc32c::crc32c(&(i.to_le_bytes())) as u64;
+    //         println!("c0: {}, c1 {}", c0, c1);
+    //     }
+    // }
 }
