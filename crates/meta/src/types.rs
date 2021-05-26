@@ -480,47 +480,6 @@ impl AsKey for &[u8] {
     }
 }
 
-#[derive(PartialEq, Debug)]
-#[repr(C, packed)]
-pub struct Part<T> {
-    pub addr: usize,
-    pub size: usize,
-    pub fd: u32,
-    pub min: T,
-    pub max: T,
-    pub nbits: u16,
-}
-
-impl<T> Part<T> {
-    /// Get the bytes of this value.
-    ///
-    /// `as_bytes` provides access to the bytes of this value as an immutable
-    /// byte slice.
-    #[allow(dead_code)]
-    fn as_bytes(&self) -> &[u8] {
-        unsafe {
-            // NOTE: This function does not have a Self: Sized bound.
-            // size_of_val works for unsized values too.
-            let len = mem::size_of_val(self);
-            slice::from_raw_parts(self as *const Self as *const u8, len)
-        }
-    }
-
-    /// Get the bytes of this value mutably.
-    ///
-    /// `as_bytes_mut` provides access to the bytes of this value as a mutable
-    /// byte slice.
-    #[allow(dead_code)]
-    fn as_bytes_mut(&mut self) -> &mut [u8] {
-        unsafe {
-            // NOTE: This function does not have a Self: Sized bound.
-            // size_of_val works for unsized values too.
-            let len = mem::size_of_val(self);
-            slice::from_raw_parts_mut(self as *mut Self as *mut u8, len)
-        }
-    }
-}
-
 #[cfg(test)]
 mod unit_tests {
     use base::show_option_size;
