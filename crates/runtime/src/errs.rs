@@ -131,6 +131,11 @@ pub enum BaseRtError {
     #[error("Insert into value parsing error")]
     InsertIntoValueParsingError,
 
+    #[error(
+        "Normal program flow should not reach here"
+    )]
+    ShouldNotReachHere,
+
     #[error(transparent)]
     WrappingBaseError(#[from] base::errs::BaseError),
 
