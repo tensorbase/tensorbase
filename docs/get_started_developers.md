@@ -1,4 +1,6 @@
-If you are a end user, you may want to start from the binary. You could read [Get Started for Users](/docs/get_started_users.md).
+# Get Started for Developers
+
+> If you are a end user, you may want to start from the binary, read [Get Started for Users](/docs/get_started_users.md).
 
 The development of TensorBase is same to the idiom of Rust engineering.
 
