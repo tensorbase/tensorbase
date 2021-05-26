@@ -19,15 +19,15 @@ TensorBase is a new big data warehousing with modern efforts.
 TensorBase is building on top of [Rust](https://www.rust-lang.org/), [Apache Arrow](https://github.com/apache/arrow-rs) and [Arrow DataFusion](https://github.com/apache/arrow-datafusion).
 
 TensorBase hopes to change the status quo of bigdata system as follows:
-  * low efficient (in the name of 'scalable')
+  * low efficiency (in the name of 'scalable')
   * hard to use (for end users) and understand (for developers)
-  * not evolve with modern infrastructures (OS, hardware, engineering...)
+  * not evolving with modern infrastructures (OS, hardware, engineering...)
 
 ## :rocket: Quick News
 
 * TensorBase Join the [Summer 2021 of Open Source Promotion Plan](https://summer.iscas.ac.cn/#/homepage?lang=en)
 
-    If you are a student all over the world and interested to contribute to TensorBase with sponsorship, it is a very good opportunity to [apply for this plan](https://summer.iscas.ac.cn/#/org/orgdetail/tensorbase?lang=en) to work together with TensorBase's core contributors. You will have a deep understanding on how to code for one industry level big data infrastructure after the summer journey to TensorBase. 
+    If you are a student from anywhere in the world and are interested in contributing to TensorBase with sponsorship, it is a very good opportunity to [apply for this plan](https://summer.iscas.ac.cn/#/org/orgdetail/tensorbase?lang=en) to work together with TensorBase's core contributors. You will have a deep understanding on how to code for one industry level big data infrastructure after the summer journey to TensorBase. 
 
     See the [tasks page here](https://github.com/tensorbase/tensorbase/blob/main/docs/summer_2021_ospp.md). TensorBase is waiting for you!
 
