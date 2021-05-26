@@ -1,3 +1,8 @@
+# Get Started for Users
+
+> If you are a developer, you may want to start from sources, read [Get Started for Developers](/docs/get_started_developers.md).
+
+
 0. ensure you have the binary of ClickHouse client
     
     + Download from the [ClickHouse release page](https://github.com/ClickHouse/ClickHouse/releases), stable release is recommended.
