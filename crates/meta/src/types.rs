@@ -100,6 +100,7 @@ pub enum BqlType {
     LowCardinalityString,
     Float(u8),
     FixedString(u8),
+    LowCardinalityTinyText,
 }
 
 impl Default for BqlType {
@@ -127,15 +128,16 @@ impl BqlType {
             BqlType::DateTime => Ok(4),
             BqlType::Date => Ok(2),
             BqlType::Decimal(p, _s) => {
-                if p < 10 { 
-                    Ok(4) 
-                } else if p <= 18 { 
+                if p < 10 {
+                    Ok(4)
+                } else if p <= 18 {
                     Ok(8)
                 } else {
-                    Err(MetaError::UnsupportedBqlTypeError) 
+                    Err(MetaError::UnsupportedBqlTypeError)
                 }
-            },
+            }
             BqlType::LowCardinalityString => Ok(4),
+            BqlType::LowCardinalityTinyText => Ok(1),
             BqlType::FixedString(siz) => Ok(siz),
             _ => Err(MetaError::NoFixedSizeDataTypeError),
         }
@@ -173,7 +175,9 @@ impl BqlType {
             BqlType::DateTime => Ok(b"DateTime".to_vec()),
             BqlType::Date => Ok(b"Date".to_vec()),
             BqlType::String => Ok(b"String".to_vec()),
-            BqlType::LowCardinalityString => Ok(b"LowCardinality(String)".to_vec()),
+            BqlType::LowCardinalityString | BqlType::LowCardinalityTinyText => {
+                Ok(b"LowCardinality(String)".to_vec())
+            }
             BqlType::FixedString(len) => {
                 let mut bi = [0u8; 4];
                 let n = itoa::write(&mut bi[..], len)?;
@@ -203,10 +207,13 @@ impl BqlType {
             b"Date" => Ok(BqlType::Date),
             b"String" => Ok(BqlType::String),
             b"LowCardinality(String)" => Ok(BqlType::LowCardinalityString),
+            b"LowCardinality(TinyText)" => Ok(BqlType::LowCardinalityTinyText),
             decimal_item if decimal_item.starts_with(b"Decimal") => {
                 Self::_decimal_type(decimal_item)
-            },
-            fixed_string_item if fixed_string_item.starts_with(b"FixedString") => {
+            }
+            fixed_string_item
+                if fixed_string_item.starts_with(b"FixedString") =>
+            {
                 match &fixed_string_item[b"FixedString".len()..] {
                     [b'(', len @ .., b')'] => {
                         Ok(BqlType::FixedString(Self::_parse_num(len)?))
@@ -219,7 +226,8 @@ impl BqlType {
     }
 
     fn _parse_num(bytes: &[u8]) -> MetaResult<u8> {
-        btoi::btou(bytes.trim()).map_err(|_e| MetaError::UnknownBqlTypeConversionError)
+        btoi::btou(bytes.trim())
+            .map_err(|_e| MetaError::UnknownBqlTypeConversionError)
     }
 
     fn _decimal_type(decimal_item: &[u8]) -> MetaResult<Self> {
@@ -237,7 +245,7 @@ impl BqlType {
                     return Err(MetaError::UnknownBqlTypeConversionError);
                 }
                 (Self::_parse_num(p)?, Self::_parse_num(s)?)
-            },
+            }
             // Decimal32(s) => Decimal(9, s)
             [b'3', b'2', b'(', s @ .., b')'] => (9, Self::_parse_num(s)?),
             // Decimal64(s) => Decimal(18, s)
@@ -249,7 +257,9 @@ impl BqlType {
         // - scale in [0, precision],
         //     https://clickhouse.tech/docs/en/sql-reference/data-types/decimal/
         if !(1..=76).contains(&precision) || !(0..=precision).contains(&scale) {
-            return Err(MetaError::InvalidPrecisionOrScaleOfDecimalError(precision, scale));
+            return Err(MetaError::InvalidPrecisionOrScaleOfDecimalError(
+                precision, scale,
+            ));
         }
         return Ok(BqlType::Decimal(precision, scale));
     }
@@ -486,7 +496,7 @@ impl<T> Part<T> {
     ///
     /// `as_bytes` provides access to the bytes of this value as an immutable
     /// byte slice.
-    #[allow(dead_code)] 
+    #[allow(dead_code)]
     fn as_bytes(&self) -> &[u8] {
         unsafe {
             // NOTE: This function does not have a Self: Sized bound.
@@ -500,7 +510,7 @@ impl<T> Part<T> {
     ///
     /// `as_bytes_mut` provides access to the bytes of this value as a mutable
     /// byte slice.
-    #[allow(dead_code)] 
+    #[allow(dead_code)]
     fn as_bytes_mut(&mut self) -> &mut [u8] {
         unsafe {
             // NOTE: This function does not have a Self: Sized bound.
@@ -563,7 +573,10 @@ mod unit_tests {
     #[test]
     fn test_bqltype_from_str() -> MetaResult<()> {
         assert_eq!(BqlType::from_str("String")?, BqlType::String);
-        assert_eq!(BqlType::from_str("FixedString(123)")?, BqlType::FixedString(123));
+        assert_eq!(
+            BqlType::from_str("FixedString(123)")?,
+            BqlType::FixedString(123)
+        );
         assert_eq!(
             BqlType::from_str("FixedString( 255 )")?,
             BqlType::FixedString(0xff)
@@ -576,11 +589,23 @@ mod unit_tests {
             BqlType::from_str("Decimal( 9, 2)")?,
             BqlType::Decimal(9, 2)
         );
-        assert_eq!(BqlType::from_str("Decimal32( 4 )")?, BqlType::Decimal(9, 4));
-        assert_eq!(BqlType::from_str("Decimal32(  9)")?, BqlType::Decimal(9, 9));
-        assert_eq!(BqlType::from_str("Decimal64( 4 )")?, BqlType::Decimal(18, 4));
+        assert_eq!(
+            BqlType::from_str("Decimal32( 4 )")?,
+            BqlType::Decimal(9, 4)
+        );
+        assert_eq!(
+            BqlType::from_str("Decimal32(  9)")?,
+            BqlType::Decimal(9, 9)
+        );
+        assert_eq!(
+            BqlType::from_str("Decimal64( 4 )")?,
+            BqlType::Decimal(18, 4)
+        );
         assert_eq!(BqlType::from_str("Decimal64(9)")?, BqlType::Decimal(18, 9));
-        assert_eq!(BqlType::from_str("Decimal64( 18  )")?, BqlType::Decimal(18, 18));
+        assert_eq!(
+            BqlType::from_str("Decimal64( 18  )")?,
+            BqlType::Decimal(18, 18)
+        );
         assert_eq!(BqlType::from_str("Int8")?, BqlType::Int(8));
         assert_eq!(BqlType::from_str("Int32")?, BqlType::Int(32));
         assert_eq!(BqlType::from_str("UInt32")?, BqlType::UInt(32));

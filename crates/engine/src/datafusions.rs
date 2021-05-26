@@ -51,6 +51,7 @@ fn btype_to_arrow_type(typ: BqlType) -> EngineResult<DataType> {
         BqlType::Decimal(p, s) => Ok(DataType::Decimal(p as usize, s as usize)),
         BqlType::String => Ok(DataType::LargeUtf8),
         BqlType::LowCardinalityString => Ok(DataType::UInt32),
+        BqlType::LowCardinalityTinyText => Ok(DataType::UInt8),
         BqlType::FixedString(len) => Ok(DataType::FixedSizeBinary(len as i32)),
         _ => Err(EngineError::UnsupportedBqlType),
     }

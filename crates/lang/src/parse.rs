@@ -326,12 +326,11 @@ impl CreateTabContext {
                     .ok_or(LangError::CreateTableParsingError)?;
                 let inner_typ_opt = pair.into_inner().next();
                 match inner_typ_opt {
-                    Some(p) if p.as_rule() == Rule::low_cardinality_type => {
-                        //FIXME only support lc_string now
-                        if p.as_str().trim() != "LowCardinality(String)" {
-                            return Err(LangError::UnsupportedBqlTypeError);
-                        }
+                    Some(p) if p.as_rule() == Rule::low_cardinality_string_type => {
                         col.1.data_type = BqlType::LowCardinalityString;
+                    }
+                    Some(p) if p.as_rule() == Rule::low_cardinality_tinytext_type => {
+                        col.1.data_type = BqlType::LowCardinalityTinyText;
                     }
                     Some(p) if p.as_rule() == Rule::nullable_type => {
                         let typ = p

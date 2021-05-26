@@ -307,7 +307,8 @@ type_name = {
     simple_type |
     decimal_type |
     fixed_string_type |
-    low_cardinality_type
+    low_cardinality_string_type |
+    low_cardinality_tinytext_type
 }
 simple_type = {
     "UInt8" | "UInt16" | "UInt32" | "UInt64" | "UInt256" | 
@@ -326,7 +327,8 @@ decimal_type = {
     "Decimal256" ~ "(" ~ number ~ ")"
 }
 nullable_type = { "Nullable" ~ "(" ~ (decimal_type | simple_type) ~ ")" }
-low_cardinality_type = { "LowCardinality" ~ "(" ~ "String" ~ ")" }
+low_cardinality_string_type = { "LowCardinality" ~ "(" ~ "String" ~ ")" }
+low_cardinality_tinytext_type = { "LowCardinality" ~ "(" ~ "TinyText" ~ ")" }
 
 signed_number = @{
     ("+" | "-")? ~ number
