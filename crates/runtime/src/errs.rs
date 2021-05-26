@@ -210,6 +210,7 @@ impl BaseRtError {
             BaseRtError::MultiplePartitionKeyNotSupported => 411,
             BaseRtError::InvalidFormatForInsertIntoValueList => 412,
             BaseRtError::InsertIntoValueParsingError => 413,
+            BaseRtError::ShouldNotReachHere => 414,
         }
     }
 }
