@@ -613,14 +613,14 @@ mod unit_tests {
             .meta_store
             .tid_by_qname(qtn)
             .ok_or(BaseRtError::TableNotExist)?;
-        let fn_ptr = BMS.get_ptk_exps_fn_ptr(qtn, tid)?;
+        let fn_ptr = BMS.get_ptk_exps_fn_ptr(qtn, tid, BqlType::DateTime)?;
 
         let toYYYYMMDD = to_fn1(fn_ptr);
 
         // println!("toYYYYMMDD(0): {}", toYYYYMMDD(0));
         assert_eq!(toYYYYMMDD(0), 19700101);
 
-        let fn_ptr2 = BMS.get_ptk_exps_fn_ptr(qtn, tid)?;
+        let fn_ptr2 = BMS.get_ptk_exps_fn_ptr(qtn, tid, BqlType::DateTime)?;
         let toYYYYMMDD2 = to_fn1(fn_ptr2);
         assert_eq!(toYYYYMMDD2(1095379200), 20040917);
 
@@ -640,7 +640,7 @@ mod unit_tests {
             .meta_store
             .tid_by_qname("test_db.test_tab")
             .ok_or(BaseRtError::TableNotExist)?;
-        let fn_ptr = BMS.get_ptk_exps_fn_ptr(qtn, tid)?;
+        let fn_ptr = BMS.get_ptk_exps_fn_ptr(qtn, tid, BqlType::DateTime)?;
 
         let toYYYYMMDD = to_fn1(fn_ptr);
 
@@ -651,7 +651,7 @@ mod unit_tests {
         with_timer_print! {t0,
             for i in 0..40*1024*1024 {
                 // fn_ptr = BMS.get_ptk_exps_fn_ptr(tid)?;
-                let fn_ptr2 = BMS.get_ptk_exps_fn_ptr(qtn, tid)?;
+                let fn_ptr2 = BMS.get_ptk_exps_fn_ptr(qtn, tid, BqlType::DateTime)?;
                 let toYYYYMMDD2 = to_fn1(fn_ptr2);
                 sum += toYYYYMMDD2(i);
             }
