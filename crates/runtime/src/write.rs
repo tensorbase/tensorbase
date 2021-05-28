@@ -95,7 +95,8 @@ fn gen_parts_by_ptk_names(
         return Err(BaseRtError::NoPartitionKeyColumnFoundWhenInserting);
     }
     let col_ptk = &blk.columns[ptk_idx];
-    let ptk_expr_fn_ptr = BMS.get_ptk_exps_fn_ptr(tab_ins, tid_ins)?;
+    let ptk_expr_fn_ptr =
+        BMS.get_ptk_exps_fn_ptr(tab_ins, tid_ins, col_ptk.data.btype)?;
     let ctyp_ptk = &col_ptk.data.btype;
     let cdata_ptk = &col_ptk.data.data;
     let nr = blk.nrows;
@@ -143,6 +144,15 @@ fn gen_parts_by_ptk_names(
         },
         meta::types::BqlType::DateTime => {
             let cdata_ptk = shape_slice::<u32>(cdata_ptk);
+            gen_part_idxs(
+                ptk_expr_fn_ptr as *const u8,
+                ctyp_ptk,
+                cdata_ptk,
+                nr,
+            )?
+        }
+        meta::types::BqlType::Date => {
+            let cdata_ptk = shape_slice::<u16>(cdata_ptk);
             gen_part_idxs(
                 ptk_expr_fn_ptr as *const u8,
                 ctyp_ptk,

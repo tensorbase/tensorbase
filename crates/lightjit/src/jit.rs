@@ -1,7 +1,4 @@
-use crate::{
-    builtins::{rem, toYYYY, toYYYYMM, toYYYYMMDD},
-    frontend::*,
-};
+use crate::{builtins::{date_toYYYY, rem, toYYYY, toYYYYMM, toYYYYMMDD}, frontend::*};
 use cranelift::prelude::*;
 use cranelift_jit::{JITBuilder, JITModule};
 use cranelift_module::{DataContext, FuncOrDataId, Linkage, Module};
@@ -35,7 +32,9 @@ impl Default for JIT {
         let mut builder =
             JITBuilder::new(cranelift_module::default_libcall_names());
         builder.symbol("toYYYY", toYYYY as *const u8);
+        builder.symbol("date_toYYYY", date_toYYYY as *const u8);
         builder.symbol("toYear", toYYYY as *const u8);
+        builder.symbol("date_toYear", date_toYYYY as *const u8);
         builder.symbol("toYYYYMM", toYYYYMM as *const u8);
         builder.symbol("toYYYYMMDD", toYYYYMMDD as *const u8);
         builder.symbol("rem", rem as *const u8);

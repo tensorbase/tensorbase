@@ -28,6 +28,11 @@ pub fn div_mod_floor<T: Integer>(x: T, y: T) -> (T, T) {
 #[inline(always)]
 pub fn unixtime_to_ymd(unixtime: i32) -> YMD {
     let (days, _) = div_mod_floor(unixtime as i64, 86_400);
+    days_to_ymd(days as i32)
+}
+
+#[inline(always)]
+pub fn days_to_ymd(days: i32) -> YMD {
     days.to_i32()
         .and_then(|days| days.checked_add(719_163))
         .and_then(NaiveDate::from_num_days_from_ce_opt)

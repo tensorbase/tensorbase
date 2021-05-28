@@ -270,6 +270,7 @@ impl<'a> BaseMgmtSys<'a> {
         &self,
         qtn: &str,
         tid: Id,
+        col_ptk_typ: BqlType,
     ) -> BaseRtResult<*const u8> {
         let fp_opt = self.ptk_exprs_reg.get(&tid);
         match fp_opt {
@@ -285,6 +286,12 @@ impl<'a> BaseMgmtSys<'a> {
                     Some(iv) => {
                         let ptk_expr =
                             unsafe { std::str::from_utf8_unchecked(&*iv) };
+                        // log::debug!("ptk_expr: {}", ptk_expr);
+                        let ptk_expr = match col_ptk_typ {
+                            BqlType::Date => ["date", ptk_expr].join("_"),
+                            _ => ptk_expr.to_string(),
+                        };
+
                         let mut ptc = String::new();
                         match self
                             .meta_store
