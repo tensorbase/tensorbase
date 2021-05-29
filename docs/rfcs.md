@@ -17,3 +17,5 @@ RFC List
 |   ID      |  RFC Issue                  |
 |:---------:|:----------------------------|
 | 1         | [Enable TPC-H Benchmarks #19](https://github.com/tensorbase/tensorbase/issues/19) |
+
+> more on-going RFCs could been seen in [the issues with 'rfc' label](https://github.com/tensorbase/tensorbase/labels/engineering%2Frfc).

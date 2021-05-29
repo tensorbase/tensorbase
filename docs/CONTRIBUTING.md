@@ -13,8 +13,8 @@ This document outlines some conventions about development workflow, commit messa
 - [How to contribute](#how-to-contribute)
 - [Contribution guide](#contribution-guide)
     - [Before you get started](#before-you-get-started)
-        - [Sign the CLA or using DCO](#sign-the-cla-or-using-dco)
-        - [Setting up your development environment](#setting-up-your-development-environment)
+        - [Sign the CLA or use DCO](#sign-the-cla-or-using-dco)
+        - [Setup your development environment](#setup-your-development-environment)
     - [Your First Contribution](#your-first-contribution)
     - [Contribution Workflow](#contribution-workflow)
     - [Code review](#code-review)
@@ -32,7 +32,7 @@ for CLA: you just do agree the CLA once. Just follow the bot's instruction. Many
 
 for DCO: you sign off your commits every time. This is verbose. But if some contributor really only accept this option, it is still OK. The commit message must contain a `Signed-off-by` line for DCO. Use option `git commit -s` to sign off your commits.
 
-### Setting up your development environment
+### Setup your development environment
 
 TensorBase is written in Rust. Before you start contributing code, you need to set up your Rust development environment.
 
