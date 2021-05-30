@@ -396,6 +396,55 @@ async fn tests_integ_basic_insert_fixed_string() -> errors::Result<()> {
     Ok(())
 }
 
+#[tokio::test]
+async fn tests_integ_truncate_table() -> errors::Result<()> {
+    let pool = get_pool();
+    let mut conn = pool.connection().await?;
+
+    conn.execute("create database if not exists test_db")
+        .await?;
+    conn.execute("use test_db").await?;
+
+    conn.execute(format!("drop table if exists test_tab"))
+        .await?;
+    conn.execute(format!("create table test_tab(a UInt32)"))
+        .await?;
+
+    conn.execute(format!("insert into test_tab values(0),(1)"))
+    .await?;
+    conn.execute(format!("truncate table test_tab"))
+    .await?;
+    {
+        let sql = "select count(a) from test_tab";
+        let mut query_result = conn.query(sql).await?;
+
+        while let Some(block) = query_result.next().await? {
+            for row in block.iter_rows() {
+                let agg_res = row.value::<u64>(0)?.unwrap() as i64;
+                assert_eq!(agg_res, 0);
+            }
+        }
+    }
+
+    conn.execute(format!("insert into test_tab values(0),(1)"))
+    .await?;
+
+    {
+        let sql = "select count(a) from test_tab";
+        let mut query_result = conn.query(sql).await?;
+
+        while let Some(block) = query_result.next().await? {
+            for row in block.iter_rows() {
+                let agg_res = row.value::<u64>(0)?.unwrap() as i64;
+                assert_eq!(agg_res, 2);
+            }
+        }
+    }
+
+    conn.execute("drop database if exists test_db").await?;
+    Ok(())
+}
+
 // #[tokio::test]
 // async fn test_insert_large_block() -> errors::Result<()> {
 //     let pool = get_pool();
