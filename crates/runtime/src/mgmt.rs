@@ -615,6 +615,9 @@ impl<'a> BaseMgmtSys<'a> {
                 //FIXME need more tests in that no lock here
                 let ps = &self.part_store;
                 ps.uncache_for_table(tid, &cids)?;
+
+                ps.clear()?;
+
                 Ok(BaseCommandKind::Drop)
             }
             None if fallible => {

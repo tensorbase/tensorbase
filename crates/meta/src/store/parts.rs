@@ -384,6 +384,14 @@ impl<'a> PartStore<'a> {
         Ok(())
     }
 
+    pub fn clear(&self)->MetaResult<()>{
+        self.tree_parts.clear().map_err(|_|MetaError::EntityDelError)?;
+        self.tree_prids.clear().map_err(|_|MetaError::EntityDelError)?;
+        self.tree_part_size.clear().map_err(|_|MetaError::EntityDelError)?;
+
+        Ok(())
+    }
+
     //FIXME to rework
     //TODO
     pub fn uncache_for_table(&self, _tid: Id, _cids: &[Id]) -> MetaResult<()> {
