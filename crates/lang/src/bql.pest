@@ -201,7 +201,7 @@ literal = {
     ^"null"
 }
 
-comp_op   = _{ "<>" | "<=" | ">=" | "!=" | "=" | "<" | ">" }
+comp_op   = { "<>" | "<=" | ">=" | "!=" | "=" | "<" | ">" }
 in_expr = { 
     expr ~ ^"in" ~ const_array | 
     expr ~ ^"in" ~ compound_select 
@@ -213,7 +213,8 @@ between_expr = {
 
 comp_expr_is_null = { expr ~ ^"is" ~ ^"null" }
 comp_expr_is_not_null = { expr ~  ^"is" ~ ^"not" ~ ^"null" }
-comp_expr_cmp = { ( compound_select|expr ) ~ comp_op ~ ( compound_select|expr ) }
+comp_expr_cmp_operand = { compound_select|expr }
+comp_expr_cmp = { comp_expr_cmp_operand ~ comp_op ~ comp_expr_cmp_operand }
 
 comp_expr = { 
     in_expr | 
