@@ -606,9 +606,13 @@ impl<'a> BaseMgmtSys<'a> {
                 //remove all data
                 let dd = &self.conf.system.data_dirs;
                 for dir in dd {
-                    remove_dir_all(format!("{}/{}", dir, tid))
-                        .map_err(|e| BaseRtError::WrappingIoError(e))?;
-                    log::debug!("Data of table {}, removed", &tn);
+                    let res = remove_dir_all(format!("{}/{}", dir, tid));
+                    if let Err(e) = res {
+                        if e.kind() != std::io::ErrorKind::NotFound {
+                            return Err(BaseRtError::WrappingIoError(e));
+                        }
+                    }
+                    log::debug!("Data of table {}, truncated", &tn);
                 }
                 let cids = ms.get_column_ids(qtn.as_str())?;
                 //uncache part files
