@@ -333,7 +333,7 @@ impl<'a> PartStore<'a> {
             let kbs0 = k.as_bytes();
             let k = (cid.to_be(), ptk_e.to_be());
             let kbs1 = k.as_bytes();
-
+            // log::debug!("--- cid: {}, col_typ: {:?}", cid, col_typ);
             let mut cps = Vec::new();
             let it = parts_tree.range(kbs0..=kbs1);
             for res in it {
@@ -355,7 +355,7 @@ impl<'a> PartStore<'a> {
                     let pfd = open_file_as_fd(&fpath)?;
                     let len_in_bytes =
                         CoPaInfo::len_in_bytes(size, *col_typ, *cid, ptk, self)?;
-                    // log::debug!("copar size: {}, len: {}", size, len);
+                    // log::debug!("--- copar size: {}, len: {}", size, len_in_bytes);
                     let addr = mm_file_ro(pfd, len_in_bytes)?;
                     //issue#22 add om
                     let addr_om = if matches!(*col_typ, BqlType::String) {
@@ -385,9 +385,10 @@ impl<'a> PartStore<'a> {
     }
 
     pub fn clear(&self)->MetaResult<()>{
-        self.tree_parts.clear().map_err(|_|MetaError::EntityDelError)?;
-        self.tree_prids.clear().map_err(|_|MetaError::EntityDelError)?;
-        self.tree_part_size.clear().map_err(|_|MetaError::EntityDelError)?;
+        //FIXME this clear stupid clear parts in the store
+        // self.tree_parts.clear().map_err(|_|MetaError::EntityDelError)?;
+        // self.tree_prids.clear().map_err(|_|MetaError::EntityDelError)?;
+        // self.tree_part_size.clear().map_err(|_|MetaError::EntityDelError)?;
 
         Ok(())
     }

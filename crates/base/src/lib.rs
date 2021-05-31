@@ -24,5 +24,6 @@ pub mod errs;
 pub mod hash;
 pub mod mmap;
 pub mod datetimes;
+pub mod codec;
 
 pub use base_proc_macro::async_test;
