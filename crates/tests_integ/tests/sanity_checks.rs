@@ -27,6 +27,7 @@ async fn tests_integ_stress_test_ddl() -> errors::Result<()> {
         conn.execute(format!("DROP TABLE IF EXISTS {}", tn)).await?;
         conn.execute(format!("CREATE TABLE {}(x Int64)", tn))
             .await?;
+        conn.execute(format!("TRUNCATE TABLE {}", tn)).await?;
     }
 
     conn.execute("drop database if exists test_db").await?;
