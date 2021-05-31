@@ -44,7 +44,7 @@ fn test_run_commands() -> BaseRtResult<()> {
     assert!(matches!(
         res,
         Err(BaseRtError::WrappingLangError(
-            lang::errs::LangError::ASTError
+            lang::errs::LangError::ASTError(_)
         ))
     ));
 
