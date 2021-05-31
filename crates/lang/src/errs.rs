@@ -9,8 +9,8 @@ pub enum LangError {
     #[error("Generic Lang error")]
     GenericError,
 
-    #[error("Error when AST processing")]
-    ASTError,
+    #[error("Error when AST processing: {0}")]
+    ASTError(String),
 
     #[error("Unsupported language feature found")]
     UnsupportedLangFeatureError,
@@ -41,4 +41,7 @@ pub enum LangError {
 
     #[error("Unsupported BqlType error")]
     UnsupportedBqlTypeError,
+
+    #[error("Fail to unwrap")]
+    FailToUnwrap,
 }
