@@ -14,6 +14,12 @@ pub fn date_toYYYY(ut: u64) -> u64 {
 }
 
 #[allow(non_snake_case)]
+pub fn date_toYYYYMM(ut: u64) -> u64 {
+    let ymd = days_to_ymd(ut as i32);
+    ymd.y as u64 * 100 + ymd.m as u64
+}
+
+#[allow(non_snake_case)]
 pub fn toYYYYMM(ut: u64) -> u64 {
     let ymd = unixtime_to_ymd(ut as i32);
     ymd.y as u64 * 100 + ymd.m as u64
