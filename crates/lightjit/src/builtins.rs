@@ -31,7 +31,7 @@ pub fn toYYYYMMDD(ut: u64) -> u64 {
     ymd.y as u64 * 10000 + ymd.m as u64 * 100 + ymd.d as u64
 }
 
-pub fn rem(dd: u64, ds: u64) -> u64 {
+pub const fn rem(dd: u64, ds: u64) -> u64 {
     dd % ds
 }
 

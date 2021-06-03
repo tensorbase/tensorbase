@@ -37,7 +37,7 @@ impl<T> SyncPointer<T> {
     }
 }
 
-/// WARN it is your responsiblity to ensure this transmuting is safe
+/// WARN it is your responsibility to ensure this transmuting is safe
 #[inline]
 pub fn shape_slice<T>(slice: &[u8]) -> &[T] {
     unsafe {
@@ -48,7 +48,7 @@ pub fn shape_slice<T>(slice: &[u8]) -> &[T] {
     }
 }
 
-/// WARN it is your responsiblity to ensure this transmuting is safe
+/// WARN it is your responsibility to ensure this transmuting is safe
 #[inline]
 pub fn shape_vec<T>(v: Vec<u8>) -> Vec<T> {
     let (ptr, len, cap) = v.into_raw_parts();
@@ -62,7 +62,7 @@ pub fn shape_vec<T>(v: Vec<u8>) -> Vec<T> {
 }
 
 
-/// WARN it is your responsiblity to ensure this transmuting is safe
+/// WARN it is your responsibility to ensure this transmuting is safe
 #[inline]
 pub fn shape_vec_u8<T>(v: Vec<T>) -> Vec<u8> {
     let (ptr, len, cap) = v.into_raw_parts();

@@ -74,7 +74,7 @@ fn expand_str_raw(src: &str) -> TokenStream {
                 );
             }
         }
-        if ss.len() != 0 {
+        if !ss.is_empty() {
             count_chars += ss.len();
             ret.push(quote! {  #ss.put_into_string(&mut buf); });
         }
@@ -148,7 +148,7 @@ fn expand_cstr_raw(src: &str) -> TokenStream {
                 );
             }
         }
-        if ss.len() != 0 {
+        if !ss.is_empty() {
             count_chars += ss.len();
             ret.push(quote! {  #ss.put_into_bytes(&mut buf); });
         }
@@ -180,7 +180,7 @@ pub fn async_test(
         "#[async_test] attribute has no parameter"
     );
     let ts: TokenStream = ts.into();
-    let mut afn: syn::ItemFn = syn::parse2(ts.clone()).expect(
+    let mut afn: syn::ItemFn = syn::parse2(ts).expect(
         "function expected",
     );
 

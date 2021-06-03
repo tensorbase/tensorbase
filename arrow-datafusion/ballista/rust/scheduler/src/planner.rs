@@ -80,7 +80,7 @@ impl DistributedPlanner {
 
     /// Returns a potentially modified version of the input execution_plan along with the resulting query stages.
     /// This function is needed because the input execution_plan might need to be modified, but it might not hold a
-    /// compelte query stage (its parent might also belong to the same stage)
+    /// complete query stage (its parent might also belong to the same stage)
     fn plan_query_stages_internal(
         &mut self,
         job_id: &str,

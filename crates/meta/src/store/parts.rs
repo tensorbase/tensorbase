@@ -149,8 +149,8 @@ impl<'a> PartStore<'a> {
         meta_dirs: &[T],
         data_dirs: &'a Vec<String>,
     ) -> MetaResult<Self> {
-        assert!(meta_dirs.len() > 0);
-        assert!(data_dirs.len() > 0);
+        assert!(!meta_dirs.is_empty());
+        assert!(!data_dirs.is_empty());
 
         let p0 = [meta_dirs[0].as_ref(), "p0"].join("/");
         let mdb = sled::Config::default()

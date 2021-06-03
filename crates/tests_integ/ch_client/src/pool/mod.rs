@@ -17,7 +17,7 @@ use tokio::time::delay_for;
 use util::*;
 
 use crate::{
-    client::{disconnect, Connection, InnerConection},
+    client::{disconnect, Connection, InnerConnection},
     errors::{Error, Result},
     sync::WakerSet,
 };
@@ -48,7 +48,7 @@ const POOL_STATUS_STOPPED: i8 = 2;
 
 /// Pool implementation (inner sync structure)
 pub(crate) struct Inner {
-    new: queue::ArrayQueue<Box<InnerConection>>,
+    new: queue::ArrayQueue<Box<InnerConnection>>,
     /// The number of issued connections
     /// This value is in range of 0 .. options.max_pool
     lock: Mutex<usize>,
@@ -57,7 +57,7 @@ pub(crate) struct Inner {
     /// Used for notification of tasks which wait for available connection
     wakers: WakerSet,
     #[cfg(feature = "recycle")]
-    recycler: Option<sync::mpsc::UnboundedReceiver<Option<Box<InnerConection>>>>,
+    recycler: Option<sync::mpsc::UnboundedReceiver<Option<Box<InnerConnection>>>>,
     /// Server host addresses
     hosts: Vec<String>,
     /// The number of active connections that is taken by tasks
@@ -96,7 +96,7 @@ impl Inner {
 
     /// Take back connection to pool if connection is not deterogated
     /// and pool is not full . Recycle in other case.
-    pub(crate) fn return_connection(&self, conn: Box<InnerConection>) {
+    pub(crate) fn return_connection(&self, conn: Box<InnerConnection>) {
         // NOTE: It's  safe to call it out of tokio runtime
         let conn = if conn.is_ok()
             && conn.info.flag == 0
@@ -163,7 +163,7 @@ impl<F: FnMut(usize, &Inner) -> bool> Future for AwaitConnection<'_, F> {
 pub struct Pool {
     pub(crate) inner: Arc<Inner>,
     #[cfg(feature = "recycle")]
-    drop: sync::mpsc::UnboundedSender<Option<Box<InnerConection>>>,
+    drop: sync::mpsc::UnboundedSender<Option<Box<InnerConnection>>>,
 }
 
 impl fmt::Debug for Pool {
@@ -272,7 +272,7 @@ impl Pool {
         }
         // create new connection
         for addr in self.get_addr_iter() {
-            match InnerConection::init(&inner.options, addr).await {
+            match InnerConnection::init(&inner.options, addr).await {
                 Ok(conn) => {
                     return Ok(Connection::new(self.clone(), conn));
                 }
@@ -305,13 +305,13 @@ impl Pool {
 
     // #[cfg(not(feature = "recycle"))]
     // #[inline]
-    // fn send_to_recycler(&self, conn: Box<InnerConection>) {
+    // fn send_to_recycler(&self, conn: Box<InnerConnection>) {
     //     disconnect(conn);
     // }
     //
     // #[cfg(feature = "recycle")]
     // #[inline]
-    // fn send_to_recycler(&self, conn: Box<InnerConection>) {
+    // fn send_to_recycler(&self, conn: Box<InnerConnection>) {
     //     if let Err(conn) = self.drop.send(Some(conn)) {
     //         let conn = conn.0.unwrap();
     //         // This _probably_ means that the Runtime is shutting down, and that the Recycler was
