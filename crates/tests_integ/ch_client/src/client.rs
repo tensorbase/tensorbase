@@ -66,7 +66,7 @@ pub(super) struct Inner {
     pub(crate) info: ServerInfo,
 }
 
-pub(super) type InnerConection = Inner;
+pub(super) type InnerConnection = Inner;
 
 pub struct QueryResult<'a, R: AsyncRead> {
     pub(crate) inner: ResponseStream<'a, R>,

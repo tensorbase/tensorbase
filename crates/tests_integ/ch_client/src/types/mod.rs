@@ -109,15 +109,15 @@ impl Field {
     }
 
     #[inline]
-    pub fn is_nullable(&self) -> bool {
+    pub const fn is_nullable(&self) -> bool {
         (self.flag & FIELD_NULLABLE) == FIELD_NULLABLE
     }
     #[inline]
-    pub fn is_array(&self) -> bool {
+    pub const fn is_array(&self) -> bool {
         (self.flag & FIELD_ARRAY) == FIELD_ARRAY
     }
     #[inline]
-    pub fn is_lowcardinality(&self) -> bool {
+    pub const fn is_lowcardinality(&self) -> bool {
         (self.flag & FIELD_LOWCARDINALITY) == FIELD_LOWCARDINALITY
     }
 

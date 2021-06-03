@@ -460,7 +460,7 @@ impl<T: Ord + Copy> EnumIndex<T> {
     /// Sort by enum name
     #[inline]
     pub(crate) fn fn_sort_str(item1: &EnumIndex<T>, item2: &EnumIndex<T>) -> Ordering {
-        Ord::cmp(item1.1.as_ref(), &item2.1.as_ref())
+        Ord::cmp(item1.1.as_ref(), item2.1.as_ref())
     }
 }
 

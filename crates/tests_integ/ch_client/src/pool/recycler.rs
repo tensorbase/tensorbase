@@ -8,10 +8,10 @@ use std::{
 use futures::stream::Stream;
 use tokio::sync::mpsc;
 
-use super::{Inner, InnerConection, POOL_STATUS_STOPPED};
+use super::{Inner, InnerConnection, POOL_STATUS_STOPPED};
 
 pub(crate) struct Recycler {
-    dropped: mpsc::UnboundedReceiver<Option<Box<InnerConection>>>,
+    dropped: mpsc::UnboundedReceiver<Option<Box<InnerConnection>>>,
     inner: Arc<Inner>,
     eof: bool,
 }
@@ -19,7 +19,7 @@ pub(crate) struct Recycler {
 impl Recycler {
     pub(crate) fn new(
         inner: Arc<Inner>,
-        dropped: mpsc::UnboundedReceiver<Option<Box<InnerConection>>>,
+        dropped: mpsc::UnboundedReceiver<Option<Box<InnerConnection>>>,
     ) -> Recycler {
         Recycler {
             inner,

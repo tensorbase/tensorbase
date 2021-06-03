@@ -578,7 +578,7 @@ mod test {
     }
 
     #[tokio::test]
-    async fn job_metadata_non_existant() -> Result<(), BallistaError> {
+    async fn job_metadata_non_existent() -> Result<(), BallistaError> {
         let state = SchedulerState::new(
             Arc::new(StandaloneClient::try_new_temporary()?),
             "test".to_string(),
@@ -619,7 +619,7 @@ mod test {
     }
 
     #[tokio::test]
-    async fn task_status_non_existant() -> Result<(), BallistaError> {
+    async fn task_status_non_existent() -> Result<(), BallistaError> {
         let state = SchedulerState::new(
             Arc::new(StandaloneClient::try_new_temporary()?),
             "test".to_string(),

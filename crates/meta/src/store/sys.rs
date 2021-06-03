@@ -78,7 +78,7 @@ const KEY_SYS_IDX_TABS: &'static str = "system.__idx_tabs_";
  */
 impl MetaStore {
     pub fn new<T: AsRef<str>>(dirs: &[T]) -> MetaResult<Self> {
-        assert!(dirs.len() > 0);
+        assert!(!dirs.is_empty());
 
         let p0 = [dirs[0].as_ref(), "m0"].join("/");
         let mdb = sled::Config::default()
@@ -672,10 +672,10 @@ impl MetaStore {
         let dn = &tab.dbname;
         if let Some(_) = self.id(&dn) {
             let tn = &tab.name;
-            let tid = self.new_tab(&dn, &tn)?;
+            let tid = self.new_tab(dn, tn)?;
             self.new_table_info(tid, &tab.tab_info)?;
             for (colname, col_info) in &tab.columns {
-                let cid = self.new_col(&dn, &tn, &colname)?;
+                let cid = self.new_col(dn, tn, colname)?;
                 let r = self
                     .tree_cols
                     .insert(&cid.to_be_bytes(), col_info.as_bytes())

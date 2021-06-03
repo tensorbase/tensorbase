@@ -87,7 +87,7 @@ impl std::fmt::Debug for BlockInfo {
 
 impl BlockInfo {
     /// Clickhouse empty block is used as a marker of end of data transfer
-    pub(super) fn is_empty(&self) -> bool {
+    pub(super) const fn is_empty(&self) -> bool {
         self.rows == 0 && self.cols == 0
     }
 }

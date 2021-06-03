@@ -7,7 +7,7 @@ use std::{
 use tokio::sync;
 
 use crate::{
-    client::InnerConection,
+    client::InnerConnection,
     errors::{Result, UrlError},
     sync::WakerSet,
 };
@@ -143,7 +143,7 @@ impl PoolBuilder {
 
         #[allow(unused_variables)]
         if cfg!(feature = "recycle") {
-            let (tx, rx) = sync::mpsc::unbounded_channel::<Option<Box<InnerConection>>>();
+            let (tx, rx) = sync::mpsc::unbounded_channel::<Option<Box<InnerConnection>>>();
         }
 
         let hosts = options.take_addr();

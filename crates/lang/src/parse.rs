@@ -23,7 +23,7 @@ pub struct BqlParser;
 pub fn pretty_parse_tree(pairs: Pairs<Rule>) -> String {
     let lines: Vec<_> = pairs.map(|pair| format_pair(pair, 0, true)).collect();
     let lines = lines.join("\n");
-    return format!("{}", lines);
+    return lines.to_string();
 }
 
 fn format_pair(

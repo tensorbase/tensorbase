@@ -125,7 +125,7 @@ pub enum Error {
     Url(#[source] UrlError),
 
     #[error("Deserialize error: `{}`", _0)]
-    Convertion(ConversionError),
+    Conversion(ConversionError),
 
     #[error("Other error: `{}`", _0)]
     Other(Cow<'static, str>),
@@ -186,7 +186,7 @@ impl From<ParseError> for Error {
 
 impl From<Utf8Error> for Error {
     fn from(_err: Utf8Error) -> Self {
-        Error::Convertion(ConversionError::Utf8)
+        Error::Conversion(ConversionError::Utf8)
     }
 }
 
@@ -210,7 +210,7 @@ impl From<UrlError> for Error {
 
 impl From<ConversionError> for Error {
     fn from(err: ConversionError) -> Self {
-        Error::Convertion(err)
+        Error::Conversion(err)
     }
 }
 

@@ -67,7 +67,7 @@ pub fn response_to(
             rb.ensure_enough_bytes_to_read(38)?;
             if is_eodp(rb, cctx.is_compressed) {
                 // rb0.advance(rb.len()); //consume for rb
-                log::debug!("all data packet recieved");
+                log::debug!("all data packet received");
                 //FIXME clear the asistant rb for next data??? data packet pipelining
                 // rb0.clear();
                 //EoS
