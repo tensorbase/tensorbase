@@ -599,10 +599,16 @@ impl<'a> BaseMgmtSys<'a> {
             current_db.to_string()
         };
         let ms = &self.meta_store;
+        let ps = &self.part_store;
         let qtn = [dbname.as_str(), tn.as_str()].join(".");
         let tid_opt = ms.tid_by_qname(qtn.as_str());
         match tid_opt {
             Some(tid) => {
+                //remove PartStore data
+                let cids = ms.get_column_ids(qtn.as_str())?;
+                ps.acquire_lock(tid)?;
+                ps.clear(tid, &cids)?;
+                ps.release_lock(tid)?;
                 //remove all data
                 let dd = &self.conf.system.data_dirs;
                 for dir in dd {
@@ -614,13 +620,9 @@ impl<'a> BaseMgmtSys<'a> {
                     }
                     log::debug!("Data of table {}, truncated", &tn);
                 }
-                let cids = ms.get_column_ids(qtn.as_str())?;
                 //uncache part files
                 //FIXME need more tests in that no lock here
-                let ps = &self.part_store;
                 ps.uncache_for_table(tid, &cids)?;
-
-                ps.clear(tid, &cids)?;
 
                 Ok(BaseCommandKind::Drop)
             }
