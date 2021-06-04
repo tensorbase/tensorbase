@@ -384,12 +384,34 @@ impl<'a> PartStore<'a> {
         Ok(())
     }
 
-    pub fn clear(&self)->MetaResult<()>{
-        //FIXME this clear stupid clear parts in the store
-        // self.tree_parts.clear().map_err(|_|MetaError::EntityDelError)?;
-        // self.tree_prids.clear().map_err(|_|MetaError::EntityDelError)?;
-        // self.tree_part_size.clear().map_err(|_|MetaError::EntityDelError)?;
+    pub fn clear(&self, _tid: Id, _cids: &[Id]) -> MetaResult<()> {
+        //Clear the information of _tid and _cids 
+        for r in self.tree_prids.iter().keys() {
+            let k = r.map_err(|_| MetaError::EntityDelError)?;
+            let kbs = &*k;
+            let (tid, _) = kbs.into_ref::<(u64, u64)>();
+            if *tid == _tid.to_be() {
+                let _ = self.tree_prids.remove(k).map_err(|_|MetaError::EntityDelError)?;
+            }
+        }
 
+        for r in self.tree_part_size.iter().keys() {
+            let k = r.map_err(|_| MetaError::EntityDelError)?;
+            let kbs = &*k;
+            let (tid, _) = kbs.into_ref::<(Id, Id)>();
+            if *tid == _tid.to_be() {
+                let _ = self.tree_part_size.remove(k).map_err(|_|MetaError::EntityDelError)?;
+            }
+        }
+
+        for _cid in _cids {
+            let iter = self.tree_parts.scan_prefix(_cid.to_be_bytes());
+            for kv in iter {
+                let (k, _) = kv.map_err(|_| MetaError::EntityDelError)?;
+                self.tree_parts.remove(k).map_err(|_| MetaError::EntityDelError)?;
+            }
+        }
+        
         Ok(())
     }
 
