@@ -398,7 +398,6 @@ async fn tests_integ_basic_insert_fixed_string() -> errors::Result<()> {
 }
 
 #[tokio::test]
-#[ignore = "the impl is broken"]
 async fn tests_integ_truncate_table() -> errors::Result<()> {
     let pool = get_pool();
     let mut conn = pool.connection().await?;
@@ -407,17 +406,23 @@ async fn tests_integ_truncate_table() -> errors::Result<()> {
         .await?;
     conn.execute("use test_db").await?;
 
-    conn.execute(format!("drop table if exists test_tab"))
+    conn.execute(format!("drop table if exists test1_tab"))
         .await?;
-    conn.execute(format!("create table test_tab(a UInt32)"))
+    conn.execute(format!("drop table if exists test1_tab"))
+        .await?;
+    conn.execute(format!("create table test1_tab(a UInt32)"))
+        .await?;
+    conn.execute(format!("create table test2_tab(a UInt32)"))
+        .await?;
+    conn.execute(format!("insert into test1_tab values(0),(1)"))
+        .await?;
+    conn.execute(format!("insert into test2_tab values(0),(1)"))
         .await?;
 
-    conn.execute(format!("insert into test_tab values(0),(1)"))
-    .await?;
-    conn.execute(format!("truncate table test_tab"))
+    conn.execute(format!("truncate table test1_tab"))
     .await?;
     {
-        let sql = "select count(a) from test_tab";
+        let sql = "select count(a) from test1_tab";
         let mut query_result = conn.query(sql).await?;
 
         while let Some(block) = query_result.next().await? {
@@ -428,11 +433,23 @@ async fn tests_integ_truncate_table() -> errors::Result<()> {
         }
     }
 
-    conn.execute(format!("insert into test_tab values(0),(1)"))
-    .await?;
+    {
+        let sql = "select count(a) from test2_tab";
+        let mut query_result = conn.query(sql).await?;
+
+        while let Some(block) = query_result.next().await? {
+            for row in block.iter_rows() {
+                let agg_res = row.value::<u64>(0)?.unwrap() as i64;
+                assert_eq!(agg_res, 2);
+            }
+        }
+    }
+
+    conn.execute(format!("insert into test1_tab values(0),(1)"))
+        .await?;
 
     {
-        let sql = "select count(a) from test_tab";
+        let sql = "select count(a) from test1_tab";
         let mut query_result = conn.query(sql).await?;
 
         while let Some(block) = query_result.next().await? {

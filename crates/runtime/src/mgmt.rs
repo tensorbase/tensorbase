@@ -620,7 +620,7 @@ impl<'a> BaseMgmtSys<'a> {
                 let ps = &self.part_store;
                 ps.uncache_for_table(tid, &cids)?;
 
-                ps.clear()?;
+                ps.clear(tid, &cids)?;
 
                 Ok(BaseCommandKind::Drop)
             }
