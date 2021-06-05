@@ -5,7 +5,7 @@ use chrono_tz::{OffsetComponents, OffsetName, TZ_VARIANTS};
 use dashmap::DashMap;
 use lang::parse::{
     parse_command, parse_create_database, parse_create_table,
-    parse_drop_database, parse_drop_table, parse_insert_into,
+    parse_desc_table, parse_drop_database, parse_drop_table, parse_insert_into,
     parse_optimize_table, parse_show_create_table, seek_to_sub_cmd, Pair, Rule,
 };
 use lightjit::jit;
@@ -423,6 +423,119 @@ impl<'a> BaseMgmtSys<'a> {
         Ok(blk)
     }
 
+    pub fn command_desc_table(
+        &self,
+        p: Pair<Rule>,
+        current_db: &str,
+    ) -> BaseRtResult<Block> {
+        let (dbn_opt, tn) = parse_desc_table(p)?;
+        let ms = &self.meta_store;
+        let col_infos = ms.get_columns(
+            dbn_opt.as_ref().map(|s| s.as_str()).unwrap_or(current_db),
+            &tn,
+        )?;
+        let mut blk = Block::default();
+        let len = col_infos.len();
+        blk.nrows = len;
+        let mut name = Vec::with_capacity(len);
+        let mut dtype = Vec::with_capacity(len * 3);
+        for (id, _, col_info) in col_infos.into_iter() {
+            let nl = id.len() as u8;
+            let data = col_info.data_type.to_vec()?;
+            let dtyl = data.len() as u8;
+            if nl > 128 || dtyl > 128 {
+                return Err(BaseRtError::WrappingMetaError(
+                    MetaError::TooLongLengthForStringError,
+                ));
+            }
+            name.push(nl);
+            name.extend(id.bytes());
+            dtype.push(dtyl);
+            dtype.extend(data);
+        }
+        blk.columns.push(Column {
+            name: b"name".to_vec(),
+            data: BaseChunk {
+                btype: BqlType::String,
+                size: len,
+                data: name,
+                null_map: None,
+                offset_map: None,
+                lc_dict_data: None,
+            },
+        });
+        blk.columns.push(Column {
+            name: b"type".to_vec(),
+            data: BaseChunk {
+                btype: BqlType::String,
+                size: len,
+                data: dtype,
+                null_map: None,
+                offset_map: None,
+                lc_dict_data: None,
+            },
+        });
+        // blk.columns.push(Column {
+        //     name: b"default_type".to_vec(),
+        //     data: BaseChunk {
+        //         btype: BqlType::String,
+        //         size: len,
+        //         data: vec![0; len],
+        //         null_map: None,
+        //         offset_map: None,
+        //         lc_dict_data: None,
+        //     },
+        // });
+        // blk.columns.push(Column {
+        //     name: b"default_expression".to_vec(),
+        //     data: BaseChunk {
+        //         btype: BqlType::String,
+        //         size: len,
+        //         data: vec![0; len],
+        //         null_map: None,
+        //         offset_map: None,
+        //         lc_dict_data: None,
+        //     },
+        // });
+        // blk.columns.push(Column {
+        //     name: b"comment".to_vec(),
+        //     data: BaseChunk {
+        //         btype: BqlType::String,
+        //         size: len,
+        //         data: vec![0; len],
+        //         null_map: None,
+        //         offset_map: None,
+        //         lc_dict_data: None,
+        //     },
+        // });
+        // blk.columns.push(Column {
+        //     name: b"codec_expression".to_vec(),
+        //     data: BaseChunk {
+        //         btype: BqlType::String,
+        //         size: len,
+        //         data: vec![0; len],
+        //         null_map: None,
+        //         offset_map: None,
+        //         lc_dict_data: None,
+        //     },
+        // });
+        // blk.columns.push(Column {
+        //     name: b"ttl_expression".to_vec(),
+        //     data: BaseChunk {
+        //         btype: BqlType::String,
+        //         size: len,
+        //         data: vec![0; len],
+        //         null_map: None,
+        //         offset_map: None,
+        //         lc_dict_data: None,
+        //     },
+        // });
+
+        blk.ncols = blk.columns.len();
+
+        Ok(blk)
+    }
+
     fn has_mulit_cols_in_partkey(pc: &str) -> bool {
         let pcl = pc.len();
         if pcl == 0 {
@@ -737,6 +850,10 @@ impl<'a> BaseMgmtSys<'a> {
             Rule::show_create_table => {
                 let blk =
                     self.command_show_create_table(p, &cctx.current_db)?;
+                Ok(BaseCommandKind::Query(vec![blk]))
+            }
+            Rule::desc_table => {
+                let blk = self.command_desc_table(p, &cctx.current_db)?;
                 Ok(BaseCommandKind::Query(vec![blk]))
             }
             Rule::create_database => self

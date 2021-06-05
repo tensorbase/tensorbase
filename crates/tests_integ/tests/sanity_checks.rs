@@ -464,6 +464,66 @@ async fn tests_integ_truncate_table() -> errors::Result<()> {
     Ok(())
 }
 
+#[tokio::test]
+async fn tests_integ_desc_table() -> errors::Result<()> {
+    let pool = get_pool();
+    let mut conn = pool.connection().await?;
+
+    conn.execute("create database if not exists test_db")
+        .await?;
+    conn.execute("use test_db").await?;
+
+    conn.execute(format!("drop table if exists test_tab"))
+        .await?;
+    conn.execute(format!("create table test(a UInt64, b String)"))
+        .await?;
+
+    {
+        let sql = "desc test";
+        let mut query_result = conn.query(sql).await?;
+
+        while let Some(block) = query_result.next().await? {
+            let mut block = block.iter_rows();
+            let row = block.next().unwrap();
+            assert_eq!(row.value::<&str>(0)?.unwrap(), "a");
+            assert_eq!(row.value::<&str>(1)?.unwrap(), "UInt64");
+            let row = block.next().unwrap();
+            assert_eq!(row.value::<&str>(0)?.unwrap(), "b");
+            assert_eq!(row.value::<&str>(1)?.unwrap(), "String");
+        }
+    }
+    {
+        let sql = "describe test";
+        let mut query_result = conn.query(sql).await?;
+
+        while let Some(block) = query_result.next().await? {
+            let mut block = block.iter_rows();
+            let row = block.next().unwrap();
+            assert_eq!(row.value::<&str>(0)?.unwrap(), "a");
+            assert_eq!(row.value::<&str>(1)?.unwrap(), "UInt64");
+            let row = block.next().unwrap();
+            assert_eq!(row.value::<&str>(0)?.unwrap(), "b");
+            assert_eq!(row.value::<&str>(1)?.unwrap(), "String");
+        }
+    }
+    {
+        let sql = "desc table test";
+        let mut query_result = conn.query(sql).await?;
+
+        while let Some(block) = query_result.next().await? {
+            let mut block = block.iter_rows();
+            let row = block.next().unwrap();
+            assert_eq!(row.value::<&str>(0)?.unwrap(), "a");
+            assert_eq!(row.value::<&str>(1)?.unwrap(), "UInt64");
+            let row = block.next().unwrap();
+            assert_eq!(row.value::<&str>(0)?.unwrap(), "b");
+            assert_eq!(row.value::<&str>(1)?.unwrap(), "String");
+        }
+    }
+
+    Ok(())
+}
+
 // #[tokio::test]
 // async fn test_insert_large_block() -> errors::Result<()> {
 //     let pool = get_pool();

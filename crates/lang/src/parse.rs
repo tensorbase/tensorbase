@@ -182,6 +182,22 @@ pub fn parse_show_create_table(
     }
 }
 
+pub fn parse_desc_table(pair: Pair<Rule>) -> LangResult<(Option<String>, String)> {
+    let p = pair.into_inner().next().ok_or(LangError::DatabaseParsingError)?;
+    match p.as_rule() {
+        Rule::qualified_table_name => {
+            let qtn = p.as_str().trim();
+            let qtn: Vec<&str> = qtn.split('.').collect();
+            match qtn[..] {
+                [dbn, tn] => Ok((Some(dbn.to_owned()), tn.to_owned())),
+                [tn] => Ok((None, tn.to_string())),
+                _ => Err(LangError::DatabaseParsingError),
+            }
+        }
+        _ => Err(LangError::DatabaseParsingError),
+    }
+}
+
 pub enum InsertFormat {
     InlineValues,
     Inline,

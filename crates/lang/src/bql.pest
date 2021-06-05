@@ -13,6 +13,7 @@ cmd = {
     show_databases |
     show_tables |
     show_create_table |
+    desc_table |
     drop_database |
     drop_table ~ (";")* |
     truncate_table |
@@ -68,6 +69,8 @@ show_databases = { ^"show" ~ ^"databases" }
 show_tables = { ^"show" ~ ^"tables" }
 
 show_create_table = { ^"show" ~ ^"create" ~ ^"table" ~ qualified_table_name }
+
+desc_table = { (^"describe" | ^"desc") ~ ^"table"? ~ qualified_table_name }
 
 //use_db
 use_db = { ^"use" ~ database_name }
