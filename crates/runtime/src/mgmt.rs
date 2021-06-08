@@ -1,4 +1,4 @@
-use base::{datetimes::parse_to_epoch, mem::SyncPointer, strings::s};
+use base::{codec::encode_ascii_bytes_vec_short, datetimes::parse_to_epoch, mem::SyncPointer, strings::s};
 use bytes::BytesMut;
 use chrono::{Local, Offset, TimeZone};
 use chrono_tz::{OffsetComponents, OffsetName, TZ_VARIANTS};
@@ -439,19 +439,10 @@ impl<'a> BaseMgmtSys<'a> {
         blk.nrows = len;
         let mut name = Vec::with_capacity(len);
         let mut dtype = Vec::with_capacity(len * 3);
-        for (id, _, col_info) in col_infos.into_iter() {
-            let nl = id.len() as u8;
+        for (name0, _, col_info) in col_infos.into_iter() {
             let data = col_info.data_type.to_vec()?;
-            let dtyl = data.len() as u8;
-            if nl > 128 || dtyl > 128 {
-                return Err(BaseRtError::WrappingMetaError(
-                    MetaError::TooLongLengthForStringError,
-                ));
-            }
-            name.push(nl);
-            name.extend(id.bytes());
-            dtype.push(dtyl);
-            dtype.extend(data);
+            encode_ascii_bytes_vec_short(name0.as_bytes(), &mut name)?;
+            encode_ascii_bytes_vec_short(&data, &mut dtype)?;
         }
         blk.columns.push(Column {
             name: b"name".to_vec(),

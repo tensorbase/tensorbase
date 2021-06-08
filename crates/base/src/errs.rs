@@ -37,4 +37,7 @@ pub enum BaseError {
 
     #[error("Failed to mremap")]
     FailedToMremap,
+
+    #[error("Encoding too long string")]
+    EncodingTooLongString,
 }

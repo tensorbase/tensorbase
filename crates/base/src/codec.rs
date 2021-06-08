@@ -1,3 +1,5 @@
+use crate::errs::{BaseError, BaseResult};
+
 /// Encode u64 as varint.
 /// Panics if buffer length is less than 10.
 #[inline(always)]
@@ -45,6 +47,18 @@ pub fn encode_varint64(mut value: u64, buf: &mut [u8]) -> usize {
     };
     buf[9] = value as u8;
     10
+}
+
+#[inline(always)]
+pub fn encode_ascii_bytes_vec_short(bs: &[u8], vbuf: &mut Vec<u8>) -> BaseResult<()> {
+    let len = bs.len();
+    if len >= 128 {
+        return Err(BaseError::EncodingTooLongString);
+    }
+    vbuf.push(len as u8);
+    vbuf.extend(bs);
+
+    Ok(())
 }
 
 // Encode u32 value as varint.
