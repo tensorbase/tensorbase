@@ -25,11 +25,7 @@ TensorBase hopes to change the status quo of bigdata system as follows:
 
 ## :rocket: Quick News
 
-* TensorBase Join the [Summer 2021 of Open Source Promotion Plan](https://summer.iscas.ac.cn/#/homepage?lang=en)
-
-    If you are a student from anywhere in the world and are interested in contributing to TensorBase with sponsorship, it is a very good opportunity to [apply for this plan](https://summer.iscas.ac.cn/#/org/orgdetail/tensorbase?lang=en) to work together with TensorBase's core contributors. You will have a deep understanding on how to code for one industry level big data infrastructure after the summer journey to TensorBase. 
-
-    See the [tasks page here](https://github.com/tensorbase/tensorbase/blob/main/docs/summer_2021_ospp.md). TensorBase is waiting for you!
+* [SQL on RISC-V Chip in Rust](https://tensorbase.io/2021/06/08/sql_on_riscv_in_rust.html)
 
 ## Features
 
