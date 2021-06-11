@@ -1138,6 +1138,32 @@ CREATE TABLE test (col Int32)";
         }
 
         #[test]
+        fn test_select_with_end_semicolon() {
+            assert_parse!("SELECT 1;", select);
+            assert_parse!("SELECT 1, 'test';", select);
+
+            assert_parse!("SELECT * FROM test WHERE 1;", select);
+
+            let c = "SELECT t1.c1 as t1c1 FROM test WHERE 1 GROUP BY id HAVING count(*) > 1;";
+            let pairs = BqlParser::parse(Rule::select, c)
+                .unwrap_or_else(|e| panic!("{}", e));
+            println!("{}", pretty_parse_tree(pairs));
+
+            let c = "select ss_item_sk
+                  ,ss_ticket_number
+                  ,ss_customer_sk
+                  ,case when sr_return_quantity is not null then (ss_quantity-sr_return_quantity)*ss_sales_price
+                                                            else (ss_quantity*ss_sales_price) end act_sales
+            from store_sales left outer join store_returns on (sr_item_sk = ss_item_sk
+                                                               and sr_ticket_number = ss_ticket_number)
+                ,reason
+            where sr_reason_sk = r_reason_sk
+              and r_reason_desc = 'Package was damaged';";
+
+            assert_parse!(c, select);
+        }
+        
+        #[test]
         fn test_query() {
             assert_parse!("SELECT 1", cmd);
             assert_parse!("SELECT * FROM test ORDER BY 1", query);
@@ -1154,6 +1180,28 @@ CREATE TABLE test (col Int32)";
             );
 
             let c = "SELECT sum(a) FROM lineorder WHERE toYear(b) > 1990";
+            let pairs = BqlParser::parse(Rule::query, c)
+                .unwrap_or_else(|e| panic!("{}", e));
+            println!("{}", pretty_parse_tree(pairs));
+        }
+
+        #[test]
+        fn test_query_with_end_semicolon() {
+            assert_parse!("SELECT 1;", cmd);
+            assert_parse!("SELECT * FROM test ORDER BY 1;", query);
+            assert_parse!("SELECT * FROM test ORDER BY 1, id;", query);
+            assert_parse!("SELECT * FROM test LIMIT 1;", query);
+            assert_parse!(
+                "select w_warehouse_name,w_warehouse_sk,i_item_sk,d_moy
+       ,stdev,mean, case mean when 0 then null else stdev/mean end cov;",
+                query
+            );
+            assert_parse!(
+                "with bar as (select 1 from foo) select 2 from bar;",
+                query
+            );
+
+            let c = "SELECT sum(a) FROM lineorder WHERE toYear(b) > 1990;";
             let pairs = BqlParser::parse(Rule::query, c)
                 .unwrap_or_else(|e| panic!("{}", e));
             println!("{}", pretty_parse_tree(pairs));
