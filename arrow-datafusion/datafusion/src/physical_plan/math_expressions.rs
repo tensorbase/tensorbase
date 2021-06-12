@@ -16,38 +16,23 @@
 // under the License.
 
 //! Math expressions
-
-use arrow::array::{make_array, Array, ArrayData, Float32Array, Float64Array};
-use arrow::buffer::Buffer;
-use arrow::datatypes::{DataType, ToByteSlice};
-
 use super::{ColumnarValue, ScalarValue};
 use crate::error::{DataFusionError, Result};
-
-macro_rules! compute_op {
-    ($ARRAY:expr, $FUNC:ident, $TYPE:ident) => {{
-        let len = $ARRAY.len();
-        let result = (0..len)
-            .map(|i| $ARRAY.value(i).$FUNC() as f64)
-            .collect::<Vec<f64>>();
-        let data = ArrayData::new(
-            DataType::Float64,
-            len,
-            Some($ARRAY.null_count()),
-            $ARRAY.data().null_buffer().cloned(),
-            0,
-            vec![Buffer::from(result.to_byte_slice())],
-            vec![],
-        );
-        Ok(make_array(data))
-    }};
-}
+use arrow::array::{Float32Array, Float64Array};
+use arrow::datatypes::DataType;
+use rand::{thread_rng, Rng};
+use std::iter;
+use std::sync::Arc;
 
 macro_rules! downcast_compute_op {
     ($ARRAY:expr, $NAME:expr, $FUNC:ident, $TYPE:ident) => {{
         let n = $ARRAY.as_any().downcast_ref::<$TYPE>();
         match n {
-            Some(array) => compute_op!(array, $FUNC, $TYPE),
+            Some(array) => {
+                let res: $TYPE =
+                    arrow::compute::kernels::arity::unary(array, |x| x.$FUNC());
+                Ok(Arc::new(res))
+            }
             _ => Err(DataFusionError::Internal(format!(
                 "Invalid data type for {}",
                 $NAME
@@ -116,3 +101,36 @@ math_unary_function!("exp", exp);
 math_unary_function!("ln", ln);
 math_unary_function!("log2", log2);
 math_unary_function!("log10", log10);
+
+/// random SQL function
+pub fn random(args: &[ColumnarValue]) -> Result<ColumnarValue> {
+    let len: usize = match &args[0] {
+        ColumnarValue::Array(array) => array.len(),
+        _ => {
+            return Err(DataFusionError::Internal(
+                "Expect random function to take no param".to_string(),
+            ))
+        }
+    };
+    let mut rng = thread_rng();
+    let values = iter::repeat_with(|| rng.gen_range(0.0..1.0)).take(len);
+    let array = Float64Array::from_iter_values(values);
+    Ok(ColumnarValue::Array(Arc::new(array)))
+}
+
+#[cfg(test)]
+mod tests {
+
+    use super::*;
+    use arrow::array::{Float64Array, NullArray};
+
+    #[test]
+    fn test_random_expression() {
+        let args = vec![ColumnarValue::Array(Arc::new(NullArray::new(1)))];
+        let array = random(&args).expect("fail").into_array(1);
+        let floats = array.as_any().downcast_ref::<Float64Array>().expect("fail");
+
+        assert_eq!(floats.len(), 1);
+        assert!(0.0 <= floats.value(0) && floats.value(0) < 1.0);
+    }
+}

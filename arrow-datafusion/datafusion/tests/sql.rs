@@ -31,9 +31,8 @@ use arrow::{
     util::display::array_value_to_string,
 };
 
-use datafusion::execution::context::ExecutionContext;
 use datafusion::logical_plan::LogicalPlan;
-use datafusion::prelude::create_udf;
+use datafusion::prelude::*;
 use datafusion::{
     datasource::{csv::CsvReadOptions, MemTable},
     physical_plan::collect,
@@ -42,6 +41,7 @@ use datafusion::{
     error::{DataFusionError, Result},
     physical_plan::ColumnarValue,
 };
+use datafusion::{execution::context::ExecutionContext, physical_plan::displayable};
 
 #[tokio::test]
 async fn nyc() -> Result<()> {
@@ -126,7 +126,7 @@ async fn parquet_query() {
 #[tokio::test]
 async fn parquet_single_nan_schema() {
     let mut ctx = ExecutionContext::new();
-    let testdata = arrow::util::test_util::parquet_test_data();
+    let testdata = datafusion::test_util::parquet_test_data();
     ctx.register_parquet("single_nan", &format!("{}/single_nan.parquet", testdata))
         .unwrap();
     let sql = "SELECT mycol FROM single_nan";
@@ -144,7 +144,7 @@ async fn parquet_single_nan_schema() {
 #[ignore = "Test ignored, will be enabled as part of the nested Parquet reader"]
 async fn parquet_list_columns() {
     let mut ctx = ExecutionContext::new();
-    let testdata = arrow::util::test_util::parquet_test_data();
+    let testdata = datafusion::test_util::parquet_test_data();
     ctx.register_parquet(
         "list_columns",
         &format!("{}/list_columns.parquet", testdata),
@@ -631,7 +631,7 @@ async fn sqrt_f32_vs_f64() -> Result<()> {
     // sqrt(f32)'s plan passes
     let sql = "SELECT avg(sqrt(c11)) FROM aggregate_test_100";
     let actual = execute(&mut ctx, sql).await;
-    let expected = vec![vec!["0.6584408485889435"]];
+    let expected = vec![vec!["0.6584407806396484"]];
 
     assert_eq!(actual, expected);
     let sql = "SELECT avg(sqrt(CAST(c11 AS double))) FROM aggregate_test_100";
@@ -793,6 +793,35 @@ async fn csv_query_count() -> Result<()> {
     let sql = "SELECT count(c12) FROM aggregate_test_100";
     let actual = execute(&mut ctx, sql).await;
     let expected = vec![vec!["100"]];
+    assert_eq!(expected, actual);
+    Ok(())
+}
+
+#[tokio::test]
+async fn csv_query_window_with_empty_over() -> Result<()> {
+    let mut ctx = ExecutionContext::new();
+    register_aggregate_csv(&mut ctx)?;
+    let sql = "select \
+    c2, \
+    sum(c3) over (), \
+    avg(c3) over (), \
+    count(c3) over (), \
+    max(c3) over (), \
+    min(c3) over (), \
+    first_value(c3) over (), \
+    last_value(c3) over (), \
+    nth_value(c3, 2) over ()
+    from aggregate_test_100 \
+    order by c2
+    limit 5";
+    let actual = execute(&mut ctx, sql).await;
+    let expected = vec![
+        vec!["1", "781", "7.81", "100", "125", "-117", "1", "30", "-40"],
+        vec!["1", "781", "7.81", "100", "125", "-117", "1", "30", "-40"],
+        vec!["1", "781", "7.81", "100", "125", "-117", "1", "30", "-40"],
+        vec!["1", "781", "7.81", "100", "125", "-117", "1", "30", "-40"],
+        vec!["1", "781", "7.81", "100", "125", "-117", "1", "30", "-40"],
+    ];
     assert_eq!(expected, actual);
     Ok(())
 }
@@ -1330,6 +1359,27 @@ async fn right_join() -> Result<()> {
 }
 
 #[tokio::test]
+async fn full_join() -> Result<()> {
+    let mut ctx = create_join_context("t1_id", "t2_id")?;
+    let sql = "SELECT t1_id, t1_name, t2_name FROM t1 FULL JOIN t2 ON t1_id = t2_id ORDER BY t1_id";
+    let actual = execute(&mut ctx, sql).await;
+    let expected = vec![
+        vec!["NULL", "NULL", "w"],
+        vec!["11", "a", "z"],
+        vec!["22", "b", "y"],
+        vec!["33", "c", "NULL"],
+        vec!["44", "d", "x"],
+    ];
+    assert_eq!(expected, actual);
+
+    let sql = "SELECT t1_id, t1_name, t2_name FROM t1 FULL OUTER JOIN t2 ON t1_id = t2_id ORDER BY t1_id";
+    let actual = execute(&mut ctx, sql).await;
+    assert_eq!(expected, actual);
+
+    Ok(())
+}
+
+#[tokio::test]
 async fn left_join_using() -> Result<()> {
     let mut ctx = create_join_context("id", "id")?;
     let sql = "SELECT id, t1_name, t2_name FROM t1 LEFT JOIN t2 USING (id) ORDER BY id";
@@ -1534,6 +1584,8 @@ fn create_join_context_qualified() -> Result<ExecutionContext> {
 
 #[tokio::test]
 async fn csv_explain() {
+    // This test uses the execute function that create full plan cycle: logical, optimized logical, and physical,
+    // then execute the physical plan and return the final explain results
     let mut ctx = ExecutionContext::new();
     register_aggregate_csv_by_sql(&mut ctx).await;
     let sql = "EXPLAIN SELECT c1 FROM aggregate_test_100 where c2 > 10";
@@ -1553,6 +1605,185 @@ async fn csv_explain() {
 }
 
 #[tokio::test]
+async fn csv_explain_plans() {
+    // This test verify the look of each plan in its full cycle plan creation
+
+    let mut ctx = ExecutionContext::new();
+    register_aggregate_csv_by_sql(&mut ctx).await;
+    let sql = "EXPLAIN SELECT c1 FROM aggregate_test_100 where c2 > 10";
+
+    // Logical plan
+    // Create plan
+    let msg = format!("Creating logical plan for '{}'", sql);
+    let plan = ctx.create_logical_plan(&sql).expect(&msg);
+    let logical_schema = plan.schema();
+    //
+    println!("SQL: {}", sql);
+    //
+    // Verify schema
+    let expected = vec![
+        "Explain [plan_type:Utf8, plan:Utf8]",
+        "  Projection: #c1 [c1:Utf8]",
+        "    Filter: #c2 Gt Int64(10) [c1:Utf8, c2:Int32, c3:Int16, c4:Int16, c5:Int32, c6:Int64, c7:Int16, c8:Int32, c9:Int64, c10:Utf8, c11:Float32, c12:Float64, c13:Utf8]",
+        "      TableScan: aggregate_test_100 projection=None [c1:Utf8, c2:Int32, c3:Int16, c4:Int16, c5:Int32, c6:Int64, c7:Int16, c8:Int32, c9:Int64, c10:Utf8, c11:Float32, c12:Float64, c13:Utf8]",
+    ];
+    let formatted = plan.display_indent_schema().to_string();
+    let actual: Vec<&str> = formatted.trim().lines().collect();
+    assert_eq!(
+        expected, actual,
+        "\n\nexpected:\n\n{:#?}\nactual:\n\n{:#?}\n\n",
+        expected, actual
+    );
+    //
+    // Verify the text format of the plan
+    let expected = vec![
+        "Explain",
+        "  Projection: #c1",
+        "    Filter: #c2 Gt Int64(10)",
+        "      TableScan: aggregate_test_100 projection=None",
+    ];
+    let formatted = plan.display_indent().to_string();
+    let actual: Vec<&str> = formatted.trim().lines().collect();
+    assert_eq!(
+        expected, actual,
+        "\n\nexpected:\n\n{:#?}\nactual:\n\n{:#?}\n\n",
+        expected, actual
+    );
+    //
+    // verify the grahviz format of the plan
+    let expected = vec![
+        "// Begin DataFusion GraphViz Plan (see https://graphviz.org)",
+        "digraph {",
+        "  subgraph cluster_1",
+        "  {",
+        "    graph[label=\"LogicalPlan\"]",
+        "    2[shape=box label=\"Explain\"]",
+        "    3[shape=box label=\"Projection: #c1\"]",
+        "    2 -> 3 [arrowhead=none, arrowtail=normal, dir=back]",
+        "    4[shape=box label=\"Filter: #c2 Gt Int64(10)\"]",
+        "    3 -> 4 [arrowhead=none, arrowtail=normal, dir=back]",
+        "    5[shape=box label=\"TableScan: aggregate_test_100 projection=None\"]",
+        "    4 -> 5 [arrowhead=none, arrowtail=normal, dir=back]",
+        "  }",
+        "  subgraph cluster_6",
+        "  {",
+        "    graph[label=\"Detailed LogicalPlan\"]",
+        "    7[shape=box label=\"Explain\\nSchema: [plan_type:Utf8, plan:Utf8]\"]",
+        "    8[shape=box label=\"Projection: #c1\\nSchema: [c1:Utf8]\"]",
+        "    7 -> 8 [arrowhead=none, arrowtail=normal, dir=back]",
+        "    9[shape=box label=\"Filter: #c2 Gt Int64(10)\\nSchema: [c1:Utf8, c2:Int32, c3:Int16, c4:Int16, c5:Int32, c6:Int64, c7:Int16, c8:Int32, c9:Int64, c10:Utf8, c11:Float32, c12:Float64, c13:Utf8]\"]",
+        "    8 -> 9 [arrowhead=none, arrowtail=normal, dir=back]",
+        "    10[shape=box label=\"TableScan: aggregate_test_100 projection=None\\nSchema: [c1:Utf8, c2:Int32, c3:Int16, c4:Int16, c5:Int32, c6:Int64, c7:Int16, c8:Int32, c9:Int64, c10:Utf8, c11:Float32, c12:Float64, c13:Utf8]\"]",
+        "    9 -> 10 [arrowhead=none, arrowtail=normal, dir=back]",
+        "  }",
+        "}",
+        "// End DataFusion GraphViz Plan",
+    ];
+    let formatted = plan.display_graphviz().to_string();
+    let actual: Vec<&str> = formatted.trim().lines().collect();
+    assert_eq!(
+        expected, actual,
+        "\n\nexpected:\n\n{:#?}\nactual:\n\n{:#?}\n\n",
+        expected, actual
+    );
+
+    // Optimized logical plan
+    //
+    let msg = format!("Optimizing logical plan for '{}': {:?}", sql, plan);
+    let plan = ctx.optimize(&plan).expect(&msg);
+    let optimized_logical_schema = plan.schema();
+    // Both schema has to be the same
+    assert_eq!(logical_schema.as_ref(), optimized_logical_schema.as_ref());
+    //
+    // Verify schema
+    let expected = vec![
+        "Explain [plan_type:Utf8, plan:Utf8]",
+        "  Projection: #c1 [c1:Utf8]",
+        "    Filter: #c2 Gt Int64(10) [c1:Utf8, c2:Int32]",
+        "      TableScan: aggregate_test_100 projection=Some([0, 1]) [c1:Utf8, c2:Int32]",
+    ];
+    let formatted = plan.display_indent_schema().to_string();
+    let actual: Vec<&str> = formatted.trim().lines().collect();
+    assert_eq!(
+        expected, actual,
+        "\n\nexpected:\n\n{:#?}\nactual:\n\n{:#?}\n\n",
+        expected, actual
+    );
+    //
+    // Verify the text format of the plan
+    let expected = vec![
+        "Explain",
+        "  Projection: #c1",
+        "    Filter: #c2 Gt Int64(10)",
+        "      TableScan: aggregate_test_100 projection=Some([0, 1])",
+    ];
+    let formatted = plan.display_indent().to_string();
+    let actual: Vec<&str> = formatted.trim().lines().collect();
+    assert_eq!(
+        expected, actual,
+        "\n\nexpected:\n\n{:#?}\nactual:\n\n{:#?}\n\n",
+        expected, actual
+    );
+    //
+    // verify the grahviz format of the plan
+    let expected = vec![
+        "// Begin DataFusion GraphViz Plan (see https://graphviz.org)",
+        "digraph {",
+        "  subgraph cluster_1",
+        "  {",
+        "    graph[label=\"LogicalPlan\"]",
+        "    2[shape=box label=\"Explain\"]",
+        "    3[shape=box label=\"Projection: #c1\"]",
+        "    2 -> 3 [arrowhead=none, arrowtail=normal, dir=back]",
+        "    4[shape=box label=\"Filter: #c2 Gt Int64(10)\"]",
+        "    3 -> 4 [arrowhead=none, arrowtail=normal, dir=back]",
+        "    5[shape=box label=\"TableScan: aggregate_test_100 projection=Some([0, 1])\"]",
+        "    4 -> 5 [arrowhead=none, arrowtail=normal, dir=back]",
+        "  }",
+        "  subgraph cluster_6",
+        "  {",
+        "    graph[label=\"Detailed LogicalPlan\"]",
+        "    7[shape=box label=\"Explain\\nSchema: [plan_type:Utf8, plan:Utf8]\"]",
+        "    8[shape=box label=\"Projection: #c1\\nSchema: [c1:Utf8]\"]",
+        "    7 -> 8 [arrowhead=none, arrowtail=normal, dir=back]",
+        "    9[shape=box label=\"Filter: #c2 Gt Int64(10)\\nSchema: [c1:Utf8, c2:Int32]\"]",
+        "    8 -> 9 [arrowhead=none, arrowtail=normal, dir=back]",
+        "    10[shape=box label=\"TableScan: aggregate_test_100 projection=Some([0, 1])\\nSchema: [c1:Utf8, c2:Int32]\"]",
+        "    9 -> 10 [arrowhead=none, arrowtail=normal, dir=back]",
+        "  }",
+        "}",
+        "// End DataFusion GraphViz Plan",
+    ];
+    let formatted = plan.display_graphviz().to_string();
+    let actual: Vec<&str> = formatted.trim().lines().collect();
+    assert_eq!(
+        expected, actual,
+        "\n\nexpected:\n\n{:#?}\nactual:\n\n{:#?}\n\n",
+        expected, actual
+    );
+
+    // Physical plan
+    // Create plan
+    let msg = format!("Creating physical plan for '{}': {:?}", sql, plan);
+    let plan = ctx.create_physical_plan(&plan).expect(&msg);
+    //
+    // Execute plan
+    let msg = format!("Executing physical plan for '{}': {:?}", sql, plan);
+    let results = collect(plan).await.expect(&msg);
+    let actual = result_vec(&results);
+    // flatten to a single string
+    let actual = actual.into_iter().map(|r| r.join("\t")).collect::<String>();
+    // Since the plan contains path that are environmentally dependant (e.g. full path of the test file), only verify important content
+    assert!(actual.contains("logical_plan"), "Actual: '{}'", actual);
+    assert!(actual.contains("Projection: #c1"), "Actual: '{}'", actual);
+    assert!(
+        actual.contains("Filter: #c2 Gt Int64(10)"),
+        "Actual: '{}'",
+        actual
+    );
+}
+
+#[tokio::test]
 async fn csv_explain_verbose() {
     let mut ctx = ExecutionContext::new();
     register_aggregate_csv_by_sql(&mut ctx).await;
@@ -1568,6 +1799,195 @@ async fn csv_explain_verbose() {
     assert!(actual.contains("logical_plan"), "Actual: '{}'", actual);
     assert!(actual.contains("physical_plan"), "Actual: '{}'", actual);
     assert!(actual.contains("#c2 Gt Int64(10)"), "Actual: '{}'", actual);
+}
+
+#[tokio::test]
+async fn csv_explain_verbose_plans() {
+    // This test verify the look of each plan in its full cycle plan creation
+
+    let mut ctx = ExecutionContext::new();
+    register_aggregate_csv_by_sql(&mut ctx).await;
+    let sql = "EXPLAIN VERBOSE SELECT c1 FROM aggregate_test_100 where c2 > 10";
+
+    // Logical plan
+    // Create plan
+    let msg = format!("Creating logical plan for '{}'", sql);
+    let plan = ctx.create_logical_plan(&sql).expect(&msg);
+    let logical_schema = plan.schema();
+    //
+    println!("SQL: {}", sql);
+
+    //
+    // Verify schema
+    let expected = vec![
+        "Explain [plan_type:Utf8, plan:Utf8]",
+        "  Projection: #c1 [c1:Utf8]",
+        "    Filter: #c2 Gt Int64(10) [c1:Utf8, c2:Int32, c3:Int16, c4:Int16, c5:Int32, c6:Int64, c7:Int16, c8:Int32, c9:Int64, c10:Utf8, c11:Float32, c12:Float64, c13:Utf8]",
+        "      TableScan: aggregate_test_100 projection=None [c1:Utf8, c2:Int32, c3:Int16, c4:Int16, c5:Int32, c6:Int64, c7:Int16, c8:Int32, c9:Int64, c10:Utf8, c11:Float32, c12:Float64, c13:Utf8]",
+    ];
+    let formatted = plan.display_indent_schema().to_string();
+    let actual: Vec<&str> = formatted.trim().lines().collect();
+    assert_eq!(
+        expected, actual,
+        "\n\nexpected:\n\n{:#?}\nactual:\n\n{:#?}\n\n",
+        expected, actual
+    );
+    //
+    // Verify the text format of the plan
+    let expected = vec![
+        "Explain",
+        "  Projection: #c1",
+        "    Filter: #c2 Gt Int64(10)",
+        "      TableScan: aggregate_test_100 projection=None",
+    ];
+    let formatted = plan.display_indent().to_string();
+    let actual: Vec<&str> = formatted.trim().lines().collect();
+    assert_eq!(
+        expected, actual,
+        "\n\nexpected:\n\n{:#?}\nactual:\n\n{:#?}\n\n",
+        expected, actual
+    );
+    //
+    // verify the grahviz format of the plan
+    let expected = vec![
+        "// Begin DataFusion GraphViz Plan (see https://graphviz.org)",
+        "digraph {",
+        "  subgraph cluster_1",
+        "  {",
+        "    graph[label=\"LogicalPlan\"]",
+        "    2[shape=box label=\"Explain\"]",
+        "    3[shape=box label=\"Projection: #c1\"]",
+        "    2 -> 3 [arrowhead=none, arrowtail=normal, dir=back]",
+        "    4[shape=box label=\"Filter: #c2 Gt Int64(10)\"]",
+        "    3 -> 4 [arrowhead=none, arrowtail=normal, dir=back]",
+        "    5[shape=box label=\"TableScan: aggregate_test_100 projection=None\"]",
+        "    4 -> 5 [arrowhead=none, arrowtail=normal, dir=back]",
+        "  }",
+        "  subgraph cluster_6",
+        "  {",
+        "    graph[label=\"Detailed LogicalPlan\"]",
+        "    7[shape=box label=\"Explain\\nSchema: [plan_type:Utf8, plan:Utf8]\"]",
+        "    8[shape=box label=\"Projection: #c1\\nSchema: [c1:Utf8]\"]",
+        "    7 -> 8 [arrowhead=none, arrowtail=normal, dir=back]",
+        "    9[shape=box label=\"Filter: #c2 Gt Int64(10)\\nSchema: [c1:Utf8, c2:Int32, c3:Int16, c4:Int16, c5:Int32, c6:Int64, c7:Int16, c8:Int32, c9:Int64, c10:Utf8, c11:Float32, c12:Float64, c13:Utf8]\"]",
+        "    8 -> 9 [arrowhead=none, arrowtail=normal, dir=back]",
+        "    10[shape=box label=\"TableScan: aggregate_test_100 projection=None\\nSchema: [c1:Utf8, c2:Int32, c3:Int16, c4:Int16, c5:Int32, c6:Int64, c7:Int16, c8:Int32, c9:Int64, c10:Utf8, c11:Float32, c12:Float64, c13:Utf8]\"]",
+        "    9 -> 10 [arrowhead=none, arrowtail=normal, dir=back]",
+        "  }",
+        "}",
+        "// End DataFusion GraphViz Plan",
+    ];
+    let formatted = plan.display_graphviz().to_string();
+    let actual: Vec<&str> = formatted.trim().lines().collect();
+    assert_eq!(
+        expected, actual,
+        "\n\nexpected:\n\n{:#?}\nactual:\n\n{:#?}\n\n",
+        expected, actual
+    );
+
+    // Optimized logical plan
+    //
+    let msg = format!("Optimizing logical plan for '{}': {:?}", sql, plan);
+    let plan = ctx.optimize(&plan).expect(&msg);
+    let optimized_logical_schema = plan.schema();
+    // Both schema has to be the same
+    assert_eq!(logical_schema.as_ref(), optimized_logical_schema.as_ref());
+    //
+    // Verify schema
+    let expected = vec![
+        "Explain [plan_type:Utf8, plan:Utf8]",
+        "  Projection: #c1 [c1:Utf8]",
+        "    Filter: #c2 Gt Int64(10) [c1:Utf8, c2:Int32]",
+        "      TableScan: aggregate_test_100 projection=Some([0, 1]) [c1:Utf8, c2:Int32]",
+    ];
+    let formatted = plan.display_indent_schema().to_string();
+    let actual: Vec<&str> = formatted.trim().lines().collect();
+    assert_eq!(
+        expected, actual,
+        "\n\nexpected:\n\n{:#?}\nactual:\n\n{:#?}\n\n",
+        expected, actual
+    );
+    //
+    // Verify the text format of the plan
+    let expected = vec![
+        "Explain",
+        "  Projection: #c1",
+        "    Filter: #c2 Gt Int64(10)",
+        "      TableScan: aggregate_test_100 projection=Some([0, 1])",
+    ];
+    let formatted = plan.display_indent().to_string();
+    let actual: Vec<&str> = formatted.trim().lines().collect();
+    assert_eq!(
+        expected, actual,
+        "\n\nexpected:\n\n{:#?}\nactual:\n\n{:#?}\n\n",
+        expected, actual
+    );
+    //
+    // verify the grahviz format of the plan
+    let expected = vec![
+        "// Begin DataFusion GraphViz Plan (see https://graphviz.org)",
+        "digraph {",
+        "  subgraph cluster_1",
+        "  {",
+        "    graph[label=\"LogicalPlan\"]",
+        "    2[shape=box label=\"Explain\"]",
+        "    3[shape=box label=\"Projection: #c1\"]",
+        "    2 -> 3 [arrowhead=none, arrowtail=normal, dir=back]",
+        "    4[shape=box label=\"Filter: #c2 Gt Int64(10)\"]",
+        "    3 -> 4 [arrowhead=none, arrowtail=normal, dir=back]",
+        "    5[shape=box label=\"TableScan: aggregate_test_100 projection=Some([0, 1])\"]",
+        "    4 -> 5 [arrowhead=none, arrowtail=normal, dir=back]",
+        "  }",
+        "  subgraph cluster_6",
+        "  {",
+        "    graph[label=\"Detailed LogicalPlan\"]",
+        "    7[shape=box label=\"Explain\\nSchema: [plan_type:Utf8, plan:Utf8]\"]",
+        "    8[shape=box label=\"Projection: #c1\\nSchema: [c1:Utf8]\"]",
+        "    7 -> 8 [arrowhead=none, arrowtail=normal, dir=back]",
+        "    9[shape=box label=\"Filter: #c2 Gt Int64(10)\\nSchema: [c1:Utf8, c2:Int32]\"]",
+        "    8 -> 9 [arrowhead=none, arrowtail=normal, dir=back]",
+        "    10[shape=box label=\"TableScan: aggregate_test_100 projection=Some([0, 1])\\nSchema: [c1:Utf8, c2:Int32]\"]",
+        "    9 -> 10 [arrowhead=none, arrowtail=normal, dir=back]",
+        "  }",
+        "}",
+        "// End DataFusion GraphViz Plan",
+    ];
+    let formatted = plan.display_graphviz().to_string();
+    let actual: Vec<&str> = formatted.trim().lines().collect();
+    assert_eq!(
+        expected, actual,
+        "\n\nexpected:\n\n{:#?}\nactual:\n\n{:#?}\n\n",
+        expected, actual
+    );
+
+    // Physical plan
+    // Create plan
+    let msg = format!("Creating physical plan for '{}': {:?}", sql, plan);
+    let plan = ctx.create_physical_plan(&plan).expect(&msg);
+    //
+    // Execute plan
+    let msg = format!("Executing physical plan for '{}': {:?}", sql, plan);
+    let results = collect(plan).await.expect(&msg);
+    let actual = result_vec(&results);
+    // flatten to a single string
+    let actual = actual.into_iter().map(|r| r.join("\t")).collect::<String>();
+    // Since the plan contains path that are environmentally dependant(e.g. full path of the test file), only verify important content
+    assert!(
+        actual.contains("logical_plan after projection_push_down"),
+        "Actual: '{}'",
+        actual
+    );
+    assert!(actual.contains("physical_plan"), "Actual: '{}'", actual);
+    assert!(
+        actual.contains("FilterExec: CAST(c2 AS Int64) > 10"),
+        "Actual: '{}'",
+        actual
+    );
+    assert!(
+        actual.contains("ProjectionExec: expr=[c1]"),
+        "Actual: '{}'",
+        actual
+    );
 }
 
 fn aggr_test_schema() -> SchemaRef {
@@ -1589,7 +2009,7 @@ fn aggr_test_schema() -> SchemaRef {
 }
 
 async fn register_aggregate_csv_by_sql(ctx: &mut ExecutionContext) {
-    let testdata = arrow::util::test_util::arrow_test_data();
+    let testdata = datafusion::test_util::arrow_test_data();
 
     // TODO: The following c9 should be migrated to UInt32 and c10 should be UInt64 once
     // unsigned is supported.
@@ -1629,7 +2049,7 @@ async fn register_aggregate_csv_by_sql(ctx: &mut ExecutionContext) {
 }
 
 fn register_aggregate_csv(ctx: &mut ExecutionContext) -> Result<()> {
-    let testdata = arrow::util::test_util::arrow_test_data();
+    let testdata = datafusion::test_util::arrow_test_data();
     let schema = aggr_test_schema();
     ctx.register_csv(
         "aggregate_test_100",
@@ -1656,7 +2076,7 @@ fn register_aggregate_simple_csv(ctx: &mut ExecutionContext) -> Result<()> {
 }
 
 fn register_alltypes_parquet(ctx: &mut ExecutionContext) {
-    let testdata = arrow::util::test_util::parquet_test_data();
+    let testdata = datafusion::test_util::parquet_test_data();
     ctx.register_parquet(
         "alltypes_plain",
         &format!("{}/alltypes_plain.parquet", testdata),
@@ -1934,6 +2354,19 @@ async fn to_timestamp() -> Result<()> {
     let actual = execute(&mut ctx, sql).await;
 
     let expected = vec![vec!["2"]];
+    assert_eq!(expected, actual);
+    Ok(())
+}
+
+#[tokio::test]
+async fn count_distinct_timestamps() -> Result<()> {
+    let mut ctx = ExecutionContext::new();
+    ctx.register_table("ts_data", make_timestamp_nano_table()?)?;
+
+    let sql = "SELECT COUNT(DISTINCT(ts)) FROM ts_data";
+    let actual = execute(&mut ctx, sql).await;
+
+    let expected = vec![vec!["3"]];
     assert_eq!(expected, actual);
     Ok(())
 }
@@ -2344,7 +2777,7 @@ macro_rules! test_expression {
         let mut ctx = ExecutionContext::new();
         let sql = format!("SELECT {}", $SQL);
         let actual = execute(&mut ctx, sql.as_str()).await;
-        assert_eq!($EXPECTED, actual[0][0]);
+        assert_eq!(actual[0][0], $EXPECTED);
     };
 }
 
@@ -2866,6 +3299,64 @@ async fn test_cast_expressions() -> Result<()> {
 }
 
 #[tokio::test]
+async fn test_current_timestamp_expressions() -> Result<()> {
+    let t1 = chrono::Utc::now().timestamp();
+    let mut ctx = ExecutionContext::new();
+    let actual = execute(&mut ctx, "SELECT NOW(), NOW() as t2").await;
+    let res1 = actual[0][0].as_str();
+    let res2 = actual[0][1].as_str();
+    let t3 = chrono::Utc::now().timestamp();
+    let t2_naive =
+        chrono::NaiveDateTime::parse_from_str(res1, "%Y-%m-%d %H:%M:%S%.6f").unwrap();
+
+    let t2 = t2_naive.timestamp();
+    assert!(t1 <= t2 && t2 <= t3);
+    assert_eq!(res2, res1);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_current_timestamp_expressions_non_optimized() -> Result<()> {
+    let t1 = chrono::Utc::now().timestamp();
+    let ctx = ExecutionContext::new();
+    let sql = "SELECT NOW(), NOW() as t2";
+
+    let msg = format!("Creating logical plan for '{}'", sql);
+    let plan = ctx.create_logical_plan(sql).expect(&msg);
+
+    let msg = format!("Creating physical plan for '{}': {:?}", sql, plan);
+    let plan = ctx.create_physical_plan(&plan).expect(&msg);
+
+    let msg = format!("Executing physical plan for '{}': {:?}", sql, plan);
+    let res = collect(plan).await.expect(&msg);
+    let actual = result_vec(&res);
+
+    let res1 = actual[0][0].as_str();
+    let res2 = actual[0][1].as_str();
+    let t3 = chrono::Utc::now().timestamp();
+    let t2_naive =
+        chrono::NaiveDateTime::parse_from_str(res1, "%Y-%m-%d %H:%M:%S%.6f").unwrap();
+
+    let t2 = t2_naive.timestamp();
+    assert!(t1 <= t2 && t2 <= t3);
+    assert_eq!(res2, res1);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_random_expression() -> Result<()> {
+    let mut ctx = create_ctx()?;
+    let sql = "SELECT random() r1";
+    let actual = execute(&mut ctx, sql).await;
+    let r1 = actual[0][0].parse::<f64>().unwrap();
+    assert!(0.0 <= r1);
+    assert!(r1 < 1.0);
+    Ok(())
+}
+
+#[tokio::test]
 async fn test_cast_expressions_error() -> Result<()> {
     // sin(utf8) should error
     let mut ctx = create_ctx()?;
@@ -2885,5 +3376,112 @@ async fn test_cast_expressions_error() -> Result<()> {
         }
     }
 
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_physical_plan_display_indent() {
+    // Hard code concurrency as it appears in the RepartitionExec output
+    let config = ExecutionConfig::new().with_concurrency(3);
+    let mut ctx = ExecutionContext::with_config(config);
+    register_aggregate_csv(&mut ctx).unwrap();
+    let sql = "SELECT c1, MAX(c12), MIN(c12) as the_min \
+         FROM aggregate_test_100 \
+         WHERE c12 < 10 \
+         GROUP BY c1 \
+         ORDER BY the_min DESC \
+         LIMIT 10";
+    let plan = ctx.create_logical_plan(&sql).unwrap();
+    let plan = ctx.optimize(&plan).unwrap();
+
+    let physical_plan = ctx.create_physical_plan(&plan).unwrap();
+    let expected = vec![
+        "GlobalLimitExec: limit=10",
+        "  SortExec: [the_min DESC]",
+        "    MergeExec",
+        "      ProjectionExec: expr=[c1, MAX(c12), MIN(c12) as the_min]",
+        "        HashAggregateExec: mode=FinalPartitioned, gby=[c1], aggr=[MAX(c12), MIN(c12)]",
+        "          CoalesceBatchesExec: target_batch_size=4096",
+        "            RepartitionExec: partitioning=Hash([Column { name: \"c1\" }], 3)",
+        "              HashAggregateExec: mode=Partial, gby=[c1], aggr=[MAX(c12), MIN(c12)]",
+        "                CoalesceBatchesExec: target_batch_size=4096",
+        "                  FilterExec: c12 < CAST(10 AS Float64)",
+        "                    RepartitionExec: partitioning=RoundRobinBatch(3)",
+        "                      CsvExec: source=Path(ARROW_TEST_DATA/csv/aggregate_test_100.csv: [ARROW_TEST_DATA/csv/aggregate_test_100.csv]), has_header=true",
+        ];
+
+    let data_path = datafusion::test_util::arrow_test_data();
+    let actual = format!("{}", displayable(physical_plan.as_ref()).indent())
+        .trim()
+        .lines()
+        // normalize paths
+        .map(|s| s.replace(&data_path, "ARROW_TEST_DATA"))
+        .collect::<Vec<_>>();
+
+    assert_eq!(
+        expected, actual,
+        "expected:\n{:#?}\nactual:\n\n{:#?}\n",
+        expected, actual
+    );
+}
+
+#[tokio::test]
+async fn test_physical_plan_display_indent_multi_children() {
+    // Hard code concurrency as it appears in the RepartitionExec output
+    let config = ExecutionConfig::new().with_concurrency(3);
+    let mut ctx = ExecutionContext::with_config(config);
+    // ensure indenting works for nodes with multiple children
+    register_aggregate_csv(&mut ctx).unwrap();
+    let sql = "SELECT c1 \
+               FROM (select c1 from aggregate_test_100)\
+                 JOIN\
+                    (select c1 as c2 from aggregate_test_100)\
+                 ON c1=c2\
+                 ";
+
+    let plan = ctx.create_logical_plan(&sql).unwrap();
+    let plan = ctx.optimize(&plan).unwrap();
+
+    let physical_plan = ctx.create_physical_plan(&plan).unwrap();
+    let expected = vec![
+        "ProjectionExec: expr=[c1]",
+        "  CoalesceBatchesExec: target_batch_size=4096",
+        "    HashJoinExec: mode=Partitioned, join_type=Inner, on=[(\"c1\", \"c2\")]",
+        "      CoalesceBatchesExec: target_batch_size=4096",
+        "        RepartitionExec: partitioning=Hash([Column { name: \"c1\" }], 3)",
+        "          ProjectionExec: expr=[c1]",
+        "            RepartitionExec: partitioning=RoundRobinBatch(3)",
+        "              CsvExec: source=Path(ARROW_TEST_DATA/csv/aggregate_test_100.csv: [ARROW_TEST_DATA/csv/aggregate_test_100.csv]), has_header=true",
+        "      CoalesceBatchesExec: target_batch_size=4096",
+        "        RepartitionExec: partitioning=Hash([Column { name: \"c2\" }], 3)",
+        "          ProjectionExec: expr=[c1 as c2]",
+        "            RepartitionExec: partitioning=RoundRobinBatch(3)",
+        "              CsvExec: source=Path(ARROW_TEST_DATA/csv/aggregate_test_100.csv: [ARROW_TEST_DATA/csv/aggregate_test_100.csv]), has_header=true",
+    ];
+
+    let data_path = datafusion::test_util::arrow_test_data();
+    let actual = format!("{}", displayable(physical_plan.as_ref()).indent())
+        .trim()
+        .lines()
+        // normalize paths
+        .map(|s| s.replace(&data_path, "ARROW_TEST_DATA"))
+        .collect::<Vec<_>>();
+
+    assert_eq!(
+        expected, actual,
+        "expected:\n{:#?}\nactual:\n\n{:#?}\n",
+        expected, actual
+    );
+}
+
+#[tokio::test]
+async fn test_aggregation_with_bad_arguments() -> Result<()> {
+    let mut ctx = ExecutionContext::new();
+    register_aggregate_csv(&mut ctx)?;
+    let sql = "SELECT COUNT(DISTINCT) FROM aggregate_test_100";
+    let logical_plan = ctx.create_logical_plan(&sql)?;
+    let physical_plan = ctx.create_physical_plan(&logical_plan);
+    let err = physical_plan.unwrap_err();
+    assert_eq!(err.to_string(), "Error during planning: Invalid or wrong number of arguments passed to aggregate: 'COUNT(DISTINCT )'");
     Ok(())
 }

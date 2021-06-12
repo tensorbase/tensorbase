@@ -17,32 +17,28 @@
 
 //! Defines the SORT plan
 
+use super::{RecordBatchStream, SendableRecordBatchStream};
+use crate::error::{DataFusionError, Result};
+use crate::physical_plan::expressions::PhysicalSortExpr;
+use crate::physical_plan::{
+    common, DisplayFormatType, Distribution, ExecutionPlan, Partitioning, SQLMetric,
+};
+pub use arrow::compute::SortOptions;
+use arrow::compute::{lexsort_to_indices, take, SortColumn, TakeOptions};
+use arrow::datatypes::SchemaRef;
+use arrow::error::Result as ArrowResult;
+use arrow::record_batch::RecordBatch;
+use arrow::{array::ArrayRef, error::ArrowError};
+use async_trait::async_trait;
+use futures::stream::Stream;
+use futures::Future;
+use hashbrown::HashMap;
+use pin_project_lite::pin_project;
 use std::any::Any;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{Context, Poll};
 use std::time::Instant;
-
-use async_trait::async_trait;
-use futures::stream::Stream;
-use futures::Future;
-use hashbrown::HashMap;
-
-use pin_project_lite::pin_project;
-
-pub use arrow::compute::SortOptions;
-use arrow::compute::{concat, lexsort_to_indices, take, SortColumn, TakeOptions};
-use arrow::datatypes::SchemaRef;
-use arrow::error::Result as ArrowResult;
-use arrow::record_batch::RecordBatch;
-use arrow::{array::ArrayRef, error::ArrowError};
-
-use super::{RecordBatchStream, SendableRecordBatchStream};
-use crate::error::{DataFusionError, Result};
-use crate::physical_plan::expressions::PhysicalSortExpr;
-use crate::physical_plan::{
-    common, Distribution, ExecutionPlan, Partitioning, SQLMetric,
-};
 
 /// Sort execution plan
 #[derive(Debug)]
@@ -55,6 +51,8 @@ pub struct SortExec {
     output_rows: Arc<SQLMetric>,
     /// Time to sort batches
     sort_time_nanos: Arc<SQLMetric>,
+    /// Preserve partitions of input plan
+    preserve_partitioning: bool,
 }
 
 impl SortExec {
@@ -63,12 +61,23 @@ impl SortExec {
         expr: Vec<PhysicalSortExpr>,
         input: Arc<dyn ExecutionPlan>,
     ) -> Result<Self> {
-        Ok(Self {
+        Ok(Self::new_with_partitioning(expr, input, false))
+    }
+
+    /// Create a new sort execution plan with the option to preserve
+    /// the partitioning of the input plan
+    pub fn new_with_partitioning(
+        expr: Vec<PhysicalSortExpr>,
+        input: Arc<dyn ExecutionPlan>,
+        preserve_partitioning: bool,
+    ) -> Self {
+        Self {
             expr,
             input,
+            preserve_partitioning,
             output_rows: SQLMetric::counter(),
             sort_time_nanos: SQLMetric::time_nanos(),
-        })
+        }
     }
 
     /// Input schema
@@ -99,11 +108,19 @@ impl ExecutionPlan for SortExec {
 
     /// Get the output partitioning of this plan
     fn output_partitioning(&self) -> Partitioning {
-        Partitioning::UnknownPartitioning(1)
+        if self.preserve_partitioning {
+            self.input.output_partitioning()
+        } else {
+            Partitioning::UnknownPartitioning(1)
+        }
     }
 
     fn required_child_distribution(&self) -> Distribution {
-        Distribution::SinglePartition
+        if self.preserve_partitioning {
+            Distribution::UnspecifiedDistribution
+        } else {
+            Distribution::SinglePartition
+        }
     }
 
     fn with_new_children(
@@ -122,20 +139,23 @@ impl ExecutionPlan for SortExec {
     }
 
     async fn execute(&self, partition: usize) -> Result<SendableRecordBatchStream> {
-        if 0 != partition {
-            return Err(DataFusionError::Internal(format!(
-                "SortExec invalid partition {}",
-                partition
-            )));
+        if !self.preserve_partitioning {
+            if 0 != partition {
+                return Err(DataFusionError::Internal(format!(
+                    "SortExec invalid partition {}",
+                    partition
+                )));
+            }
+
+            // sort needs to operate on a single partition currently
+            if 1 != self.input.output_partitioning().partition_count() {
+                return Err(DataFusionError::Internal(
+                    "SortExec requires a single input partition".to_owned(),
+                ));
+            }
         }
 
-        // sort needs to operate on a single partition currently
-        if 1 != self.input.output_partitioning().partition_count() {
-            return Err(DataFusionError::Internal(
-                "SortExec requires a single input partition".to_owned(),
-            ));
-        }
-        let input = self.input.execute(0).await?;
+        let input = self.input.execute(partition).await?;
 
         Ok(Box::pin(SortStream::new(
             input,
@@ -143,6 +163,19 @@ impl ExecutionPlan for SortExec {
             self.output_rows.clone(),
             self.sort_time_nanos.clone(),
         )))
+    }
+
+    fn fmt_as(
+        &self,
+        t: DisplayFormatType,
+        f: &mut std::fmt::Formatter,
+    ) -> std::fmt::Result {
+        match t {
+            DisplayFormatType::Default => {
+                let expr: Vec<String> = self.expr.iter().map(|e| e.to_string()).collect();
+                write!(f, "SortExec: [{}]", expr.join(","))
+            }
+        }
     }
 
     fn metrics(&self) -> HashMap<String, SQLMetric> {
@@ -153,47 +186,25 @@ impl ExecutionPlan for SortExec {
     }
 }
 
-fn sort_batches(
-    batches: &[RecordBatch],
-    schema: &SchemaRef,
+fn sort_batch(
+    batch: RecordBatch,
+    schema: SchemaRef,
     expr: &[PhysicalSortExpr],
-) -> ArrowResult<Option<RecordBatch>> {
-    if batches.is_empty() {
-        return Ok(None);
-    }
-    // combine all record batches into one for each column
-    let combined_batch = RecordBatch::try_new(
-        schema.clone(),
-        schema
-            .fields()
-            .iter()
-            .enumerate()
-            .map(|(i, _)| {
-                concat(
-                    &batches
-                        .iter()
-                        .map(|batch| batch.column(i).as_ref())
-                        .collect::<Vec<_>>(),
-                )
-            })
-            .collect::<ArrowResult<Vec<ArrayRef>>>()?,
-    )?;
-
-    // sort combined record batch
+) -> ArrowResult<RecordBatch> {
     // TODO: pushup the limit expression to sort
     let indices = lexsort_to_indices(
         &expr
             .iter()
-            .map(|e| e.evaluate_to_sort_column(&combined_batch))
+            .map(|e| e.evaluate_to_sort_column(&batch))
             .collect::<Result<Vec<SortColumn>>>()
             .map_err(DataFusionError::into_arrow_external_error)?,
         None,
     )?;
 
     // reorder all rows based on sorted indices
-    let sorted_batch = RecordBatch::try_new(
-        schema.clone(),
-        combined_batch
+    RecordBatch::try_new(
+        schema,
+        batch
             .columns()
             .iter()
             .map(|column| {
@@ -208,11 +219,11 @@ fn sort_batches(
                 )
             })
             .collect::<ArrowResult<Vec<ArrayRef>>>()?,
-    );
-    sorted_batch.map(Some)
+    )
 }
 
 pin_project! {
+    /// stream for sort plan
     struct SortStream {
         #[pin]
         output: futures::channel::oneshot::Receiver<ArrowResult<Option<RecordBatch>>>,
@@ -230,7 +241,6 @@ impl SortStream {
         sort_time: Arc<SQLMetric>,
     ) -> Self {
         let (tx, rx) = futures::channel::oneshot::channel();
-
         let schema = input.schema();
         tokio::spawn(async move {
             let schema = input.schema();
@@ -239,9 +249,14 @@ impl SortStream {
                 .map_err(DataFusionError::into_arrow_external_error)
                 .and_then(move |batches| {
                     let now = Instant::now();
-                    let result = sort_batches(&batches, &schema, &expr);
+                    // combine all record batches into one for each column
+                    let combined = common::combine_batches(&batches, schema.clone())?;
+                    // sort combined record batch
+                    let result = combined
+                        .map(|batch| sort_batch(batch, schema, &expr))
+                        .transpose()?;
                     sort_time.add(now.elapsed().as_nanos() as usize);
-                    result
+                    Ok(result)
                 });
 
             tx.send(sorted_batch)

@@ -62,7 +62,7 @@ pub unsafe fn get_bit_raw(data: *const u8, i: usize) -> bool {
     (*data.add(i >> 3) & BIT_MASK[i & 7]) != 0
 }
 
-/// Sets bit at position `i` for `data`
+/// Sets bit at position `i` for `data` to 1
 #[inline]
 pub fn set_bit(data: &mut [u8], i: usize) {
     data[i >> 3] |= BIT_MASK[i & 7];
@@ -114,7 +114,7 @@ pub fn ceil(value: usize, divisor: usize) -> usize {
 /// Note that each slice should be 64 bytes and it is the callers responsibility to ensure
 /// that this is the case.  If passed slices larger than 64 bytes the operation will only
 /// be performed on the first 64 bytes.  Slices less than 64 bytes will panic.
-#[cfg(simd)]
+#[cfg(feature = "simd")]
 pub unsafe fn bitwise_bin_op_simd<F>(left: &[u8], right: &[u8], result: &mut [u8], op: F)
 where
     F: Fn(u8x64, u8x64) -> u8x64,
@@ -297,7 +297,7 @@ mod tests {
     }
 
     #[test]
-    #[cfg(simd)]
+    #[cfg(feature = "simd")]
     fn test_bitwise_and_simd() {
         let buf1 = [0b00110011u8; 64];
         let buf2 = [0b11110000u8; 64];
@@ -309,7 +309,7 @@ mod tests {
     }
 
     #[test]
-    #[cfg(simd)]
+    #[cfg(feature = "simd")]
     fn test_bitwise_or_simd() {
         let buf1 = [0b00110011u8; 64];
         let buf2 = [0b11110000u8; 64];

@@ -24,12 +24,18 @@ use std::collections::HashSet;
 /// All valid types of joins.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum JoinType {
-    /// Inner join
+    /// Inner Join
     Inner,
-    /// Left
+    /// Left Join
     Left,
-    /// Right
+    /// Right Join
     Right,
+    /// Full Join
+    Full,
+    /// Semi Join
+    Semi,
+    /// Anti Join
+    Anti,
 }
 
 /// The on clause of the join, as vector of (left, right) columns.
@@ -92,7 +98,7 @@ pub fn build_join_schema(
     join_type: &JoinType,
 ) -> Schema {
     let fields: Vec<Field> = match join_type {
-        JoinType::Inner | JoinType::Left => {
+        JoinType::Inner | JoinType::Left | JoinType::Full => {
             // remove right-side join keys if they have the same names as the left-side
             let duplicate_keys = &on
                 .iter()
@@ -128,6 +134,7 @@ pub fn build_join_schema(
             // left then right
             left_fields.chain(right_fields).cloned().collect()
         }
+        JoinType::Semi | JoinType::Anti => left.fields().clone(),
     };
     Schema::new(fields)
 }

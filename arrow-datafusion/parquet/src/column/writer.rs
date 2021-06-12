@@ -18,9 +18,10 @@
 //! Contains column writer API.
 use std::{cmp, collections::VecDeque, convert::TryFrom, marker::PhantomData, sync::Arc};
 
-use crate::basic::{Compression, Encoding, PageType, Type};
+use crate::basic::{Compression, Encoding, LogicalType, PageType, Type};
 use crate::column::page::{CompressedPage, Page, PageWriteSpec, PageWriter};
 use crate::compression::{create_codec, Codec};
+use crate::data_type::private::ParquetValueType;
 use crate::data_type::AsBytes;
 use crate::data_type::*;
 use crate::encodings::{
@@ -300,10 +301,18 @@ impl<T: DataType> ColumnWriterImpl<T> {
         // Process pre-calculated statistics
         match (min, max) {
             (Some(min), Some(max)) => {
-                if self.min_column_value.as_ref().map_or(true, |v| v > min) {
+                if self
+                    .min_column_value
+                    .as_ref()
+                    .map_or(true, |v| self.compare_greater(v, min))
+                {
                     self.min_column_value = Some(min.clone());
                 }
-                if self.max_column_value.as_ref().map_or(true, |v| v < max) {
+                if self
+                    .max_column_value
+                    .as_ref()
+                    .map_or(true, |v| self.compare_greater(max, v))
+                {
                     self.max_column_value = Some(max.clone());
                 }
             }
@@ -598,9 +607,11 @@ impl<T: DataType> ColumnWriterImpl<T> {
         let max_def_level = self.descr.max_def_level();
         let max_rep_level = self.descr.max_rep_level();
 
+        // always update column NULL count, no matter if page stats are used
+        self.num_column_nulls += self.num_page_nulls;
+
         let page_statistics = if calculate_page_stat {
             self.update_column_min_max();
-            self.num_column_nulls += self.num_page_nulls;
             Some(self.make_page_statistics())
         } else {
             None
@@ -925,30 +936,50 @@ impl<T: DataType> ColumnWriterImpl<T> {
     fn update_page_min_max(&mut self, val: &T::T) {
         // simple "isNaN" check that works for all types
         if val == val {
-            if self.min_page_value.as_ref().map_or(true, |min| min > val) {
+            if self
+                .min_page_value
+                .as_ref()
+                .map_or(true, |min| self.compare_greater(min, val))
+            {
                 self.min_page_value = Some(val.clone());
             }
-            if self.max_page_value.as_ref().map_or(true, |max| max < val) {
+            if self
+                .max_page_value
+                .as_ref()
+                .map_or(true, |max| self.compare_greater(val, max))
+            {
                 self.max_page_value = Some(val.clone());
             }
         }
     }
 
     fn update_column_min_max(&mut self) {
-        if self
-            .min_column_value
-            .as_ref()
-            .map_or(true, |min| min > self.min_page_value.as_ref().unwrap())
-        {
+        let update_min = self.min_column_value.as_ref().map_or(true, |min| {
+            let page_value = self.min_page_value.as_ref().unwrap();
+            self.compare_greater(min, page_value)
+        });
+        if update_min {
             self.min_column_value = self.min_page_value.clone();
         }
-        if self
-            .max_column_value
-            .as_ref()
-            .map_or(true, |max| max < self.max_page_value.as_ref().unwrap())
-        {
+
+        let update_max = self.max_column_value.as_ref().map_or(true, |max| {
+            let page_value = self.max_page_value.as_ref().unwrap();
+            self.compare_greater(page_value, max)
+        });
+        if update_max {
             self.max_column_value = self.max_page_value.clone();
         }
+    }
+
+    /// Evaluate `a > b` according to underlying logical type.
+    fn compare_greater(&self, a: &T::T, b: &T::T) -> bool {
+        if let Some(LogicalType::INTEGER(int_type)) = self.descr.logical_type() {
+            if !int_type.is_signed {
+                // need to compare unsigned
+                return a.as_u64().unwrap() > b.as_u64().unwrap();
+            }
+        }
+        a > b
     }
 }
 

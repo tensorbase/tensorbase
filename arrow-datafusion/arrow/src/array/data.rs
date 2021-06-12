@@ -416,7 +416,7 @@ impl ArrayData {
     }
 
     /// Returns a new empty [ArrayData] valid for `data_type`.
-    pub(super) fn new_empty(data_type: &DataType) -> Self {
+    pub fn new_empty(data_type: &DataType) -> Self {
         let buffers = new_buffers(data_type, 0);
         let [buffer1, buffer2] = buffers;
         let buffers = into_buffers(data_type, buffer1, buffer2);
@@ -509,6 +509,11 @@ impl ArrayDataBuilder {
     #[allow(clippy::len_without_is_empty)]
     pub const fn len(mut self, n: usize) -> Self {
         self.len = n;
+        self
+    }
+
+    pub fn null_count(mut self, null_count: usize) -> Self {
+        self.null_count = Some(null_count);
         self
     }
 

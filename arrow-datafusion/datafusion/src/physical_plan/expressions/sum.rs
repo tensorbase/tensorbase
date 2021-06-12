@@ -104,6 +104,10 @@ impl AggregateExpr for Sum {
     fn create_accumulator(&self) -> Result<Box<dyn Accumulator>> {
         Ok(Box::new(SumAccumulator::try_new(&self.data_type)?))
     }
+
+    fn name(&self) -> &str {
+        &self.name
+    }
 }
 
 #[derive(Debug)]
@@ -129,45 +133,19 @@ macro_rules! typed_sum_delta_batch {
     }};
 }
 
-macro_rules! typed_sum_i64_delta_batch {
-    ($VALUES:expr, $ARRAYTYPE:ident, $SCALAR:ident) => {{
-        let array = $VALUES.as_any().downcast_ref::<$ARRAYTYPE>().unwrap();
-        let delta = compute::sum_i64(array);
-        ScalarValue::Int64(delta)
-    }};
-}
-
-macro_rules! typed_sum_u64_delta_batch {
-    ($VALUES:expr, $ARRAYTYPE:ident, $SCALAR:ident) => {{
-        let array = $VALUES.as_any().downcast_ref::<$ARRAYTYPE>().unwrap();
-        let delta = compute::sum_u64(array);
-        ScalarValue::UInt64(delta)
-    }};
-}
-
-#[allow(unused_macros)]
-macro_rules! typed_sum_f64_delta_batch {
-    ($VALUES:expr, $ARRAYTYPE:ident, $SCALAR:ident) => {{
-        let array = $VALUES.as_any().downcast_ref::<$ARRAYTYPE>().unwrap();
-        let delta = compute::sum_f64(array);
-        ScalarValue::$SCALAR(delta)
-    }};
-}
-
-
 // sums the array and returns a ScalarValue of its corresponding type.
 pub(super) fn sum_batch(values: &ArrayRef) -> Result<ScalarValue> {
     Ok(match values.data_type() {
         DataType::Float64 => typed_sum_delta_batch!(values, Float64Array, Float64),
         DataType::Float32 => typed_sum_delta_batch!(values, Float32Array, Float32),
-        DataType::Int64 => typed_sum_i64_delta_batch!(values, Int64Array, Int64),
-        DataType::Int32 => typed_sum_i64_delta_batch!(values, Int32Array, Int32),
-        DataType::Int16 => typed_sum_i64_delta_batch!(values, Int16Array, Int16),
-        DataType::Int8 => typed_sum_i64_delta_batch!(values, Int8Array, Int8),
-        DataType::UInt64 => typed_sum_u64_delta_batch!(values, UInt64Array, UInt64),
-        DataType::UInt32 => typed_sum_u64_delta_batch!(values, UInt32Array, UInt32),
-        DataType::UInt16 => typed_sum_u64_delta_batch!(values, UInt16Array, UInt16),
-        DataType::UInt8 => typed_sum_u64_delta_batch!(values, UInt8Array, UInt8),
+        DataType::Int64 => typed_sum_delta_batch!(values, Int64Array, Int64),
+        DataType::Int32 => typed_sum_delta_batch!(values, Int32Array, Int32),
+        DataType::Int16 => typed_sum_delta_batch!(values, Int16Array, Int16),
+        DataType::Int8 => typed_sum_delta_batch!(values, Int8Array, Int8),
+        DataType::UInt64 => typed_sum_delta_batch!(values, UInt64Array, UInt64),
+        DataType::UInt32 => typed_sum_delta_batch!(values, UInt32Array, UInt32),
+        DataType::UInt16 => typed_sum_delta_batch!(values, UInt16Array, UInt16),
+        DataType::UInt8 => typed_sum_delta_batch!(values, UInt8Array, UInt8),
         e => {
             return Err(DataFusionError::Internal(format!(
                 "Sum is not expected to receive the type {:?}",

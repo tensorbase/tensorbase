@@ -61,7 +61,7 @@ use crate::arrow::converter::{
     Int96ArrayConverter, Int96Converter, IntervalDayTimeArrayConverter,
     IntervalDayTimeConverter, IntervalYearMonthArrayConverter,
     IntervalYearMonthConverter, LargeBinaryArrayConverter, LargeBinaryConverter,
-    LargeUtf8ArrayConverter, LargeUtf8Converter, Utf8ArrayConverter, Utf8Converter,
+    LargeUtf8ArrayConverter, LargeUtf8Converter,
 };
 use crate::arrow::record_reader::RecordReader;
 use crate::arrow::schema::parquet_to_arrow_field;
@@ -269,10 +269,29 @@ impl<T: DataType> ArrayReader for PrimitiveArrayReader<T> {
             }
         }
 
+        let target_type = self.get_data_type().clone();
         let arrow_data_type = match T::get_physical_type() {
             PhysicalType::BOOLEAN => ArrowBooleanType::DATA_TYPE,
-            PhysicalType::INT32 => ArrowInt32Type::DATA_TYPE,
-            PhysicalType::INT64 => ArrowInt64Type::DATA_TYPE,
+            PhysicalType::INT32 => {
+                match target_type {
+                    ArrowType::UInt32 => {
+                        // follow C++ implementation and use overflow/reinterpret cast from  i32 to u32 which will map
+                        // `i32::MIN..0` to `(i32::MAX as u32)..u32::MAX`
+                        ArrowUInt32Type::DATA_TYPE
+                    }
+                    _ => ArrowInt32Type::DATA_TYPE,
+                }
+            }
+            PhysicalType::INT64 => {
+                match target_type {
+                    ArrowType::UInt64 => {
+                        // follow C++ implementation and use overflow/reinterpret cast from  i64 to u64 which will map
+                        // `i64::MIN..0` to `(i64::MAX as u64)..u64::MAX`
+                        ArrowUInt64Type::DATA_TYPE
+                    }
+                    _ => ArrowInt64Type::DATA_TYPE,
+                }
+            }
             PhysicalType::FLOAT => ArrowFloat32Type::DATA_TYPE,
             PhysicalType::DOUBLE => ArrowFloat64Type::DATA_TYPE,
             PhysicalType::INT96
@@ -344,15 +363,14 @@ impl<T: DataType> ArrayReader for PrimitiveArrayReader<T> {
         // are datatypes which we must convert explicitly.
         // These are:
         // - date64: we should cast int32 to date32, then date32 to date64.
-        let target_type = self.get_data_type();
         let array = match target_type {
             ArrowType::Date64 => {
                 // this is cheap as it internally reinterprets the data
                 let a = arrow::compute::cast(&array, &ArrowType::Date32)?;
-                arrow::compute::cast(&a, target_type)?
+                arrow::compute::cast(&a, &target_type)?
             }
             ArrowType::Decimal(p, s) => {
-                let mut builder = DecimalBuilder::new(array.len(), *p, *s);
+                let mut builder = DecimalBuilder::new(array.len(), p, s);
                 match array.data_type() {
                     ArrowType::Int32 => {
                         let values = array.as_any().downcast_ref::<Int32Array>().unwrap();
@@ -381,7 +399,7 @@ impl<T: DataType> ArrayReader for PrimitiveArrayReader<T> {
                 }
                 Arc::new(builder.finish()) as ArrayRef
             }
-            _ => arrow::compute::cast(&array, target_type)?,
+            _ => arrow::compute::cast(&array, &target_type)?,
         };
 
         // save definition and repetition buffers
@@ -553,7 +571,7 @@ where
     T: DataType,
     C: Converter<Vec<Option<T::T>>, ArrayRef> + 'static,
 {
-    fn new(
+    pub fn new(
         pages: Box<dyn PageIterator>,
         column_desc: ColumnDescPtr,
         converter: C,
@@ -598,6 +616,8 @@ pub struct ListArrayReader<OffsetSize: OffsetSizeTrait> {
     item_type: ArrowType,
     list_def_level: i16,
     list_rep_level: i16,
+    list_empty_def_level: i16,
+    list_null_def_level: i16,
     def_level_buffer: Option<Buffer>,
     rep_level_buffer: Option<Buffer>,
     _marker: PhantomData<OffsetSize>,
@@ -611,6 +631,8 @@ impl<OffsetSize: OffsetSizeTrait> ListArrayReader<OffsetSize> {
         item_type: ArrowType,
         def_level: i16,
         rep_level: i16,
+        list_null_def_level: i16,
+        list_empty_def_level: i16,
     ) -> Self {
         Self {
             item_reader,
@@ -618,6 +640,8 @@ impl<OffsetSize: OffsetSizeTrait> ListArrayReader<OffsetSize> {
             item_type,
             list_def_level: def_level,
             list_rep_level: rep_level,
+            list_null_def_level,
+            list_empty_def_level,
             def_level_buffer: None,
             rep_level_buffer: None,
             _marker: PhantomData,
@@ -829,61 +853,49 @@ impl<OffsetSize: OffsetSizeTrait> ArrayReader for ListArrayReader<OffsetSize> {
         // Where n is the max definition level of the list's parent.
         // If a Parquet schema's only leaf is the list, then n = 0.
 
-        // TODO: ARROW-10391 - add a test case with a non-nullable child, check if max is 3
-        let list_field_type = match self.get_data_type() {
-            ArrowType::List(field)
-            | ArrowType::FixedSizeList(field, _)
-            | ArrowType::LargeList(field) => field,
-            _ => {
-                // Panic: this is safe as we only write lists from list datatypes
-                unreachable!()
-            }
-        };
-        let max_list_def_range = if list_field_type.is_nullable() { 3 } else { 2 };
-        let max_list_definition = *(def_levels.iter().max().unwrap());
-        // TODO: ARROW-10391 - Find a reliable way of validating deeply-nested lists
-        // debug_assert!(
-        //     max_list_definition >= max_list_def_range,
-        //     "Lift definition max less than range"
-        // );
-        let list_null_def = max_list_definition - max_list_def_range;
-        let list_empty_def = max_list_definition - 1;
-        let mut null_list_indices: Vec<usize> = Vec::new();
-        for i in 0..def_levels.len() {
-            if def_levels[i] == list_null_def {
-                null_list_indices.push(i);
-            }
-        }
+        // If the list index is at empty definition, the child slot is null
+        let null_list_indices: Vec<usize> = def_levels
+            .iter()
+            .enumerate()
+            .filter_map(|(index, def)| {
+                if *def <= self.list_empty_def_level {
+                    Some(index)
+                } else {
+                    None
+                }
+            })
+            .collect();
         let batch_values = match null_list_indices.len() {
             0 => next_batch_array.clone(),
             _ => remove_indices(next_batch_array.clone(), item_type, null_list_indices)?,
         };
 
-        // null list has def_level = 0
-        // empty list has def_level = 1
-        // null item in a list has def_level = 2
-        // non-null item has def_level = 3
         // first item in each list has rep_level = 0, subsequent items have rep_level = 1
-
         let mut offsets: Vec<OffsetSize> = Vec::new();
         let mut cur_offset = OffsetSize::zero();
-        for i in 0..rep_levels.len() {
-            if rep_levels[i] == 0 {
-                offsets.push(cur_offset)
+        def_levels.iter().zip(rep_levels).for_each(|(d, r)| {
+            if *r == 0 || d == &self.list_empty_def_level {
+                offsets.push(cur_offset);
             }
-            if def_levels[i] >= list_empty_def {
+            if d > &self.list_empty_def_level {
                 cur_offset += OffsetSize::one();
             }
-        }
+        });
         offsets.push(cur_offset);
 
         let num_bytes = bit_util::ceil(offsets.len(), 8);
-        let mut null_buf = MutableBuffer::new(num_bytes).with_bitset(num_bytes, false);
+        // TODO: A useful optimization is to use the null count to fill with
+        // 0 or null, to reduce individual bits set in a loop.
+        // To favour dense data, set every slot to true, then unset
+        let mut null_buf = MutableBuffer::new(num_bytes).with_bitset(num_bytes, true);
         let null_slice = null_buf.as_slice_mut();
         let mut list_index = 0;
         for i in 0..rep_levels.len() {
-            if rep_levels[i] == 0 && def_levels[i] != 0 {
-                bit_util::set_bit(null_slice, list_index);
+            // If the level is lower than empty, then the slot is null.
+            // When a list is non-nullable, its empty level = null level,
+            // so this automatically factors that in.
+            if rep_levels[i] == 0 && def_levels[i] < self.list_empty_def_level {
+                bit_util::unset_bit(null_slice, list_index);
             }
             if rep_levels[i] == 0 {
                 list_index += 1;
@@ -1268,16 +1280,15 @@ impl<'a> TypeVisitor<Option<Box<dyn ArrayReader>>, &'a ArrayReaderBuilderContext
         let mut new_context = context.clone();
 
         new_context.path.append(vec![list_type.name().to_string()]);
+        // We need to know at what definition a list or its child is null
+        let list_null_def = new_context.def_level;
+        let mut list_empty_def = new_context.def_level;
 
-        match list_type.get_basic_info().repetition() {
-            Repetition::REPEATED => {
-                new_context.def_level += 1;
-                new_context.rep_level += 1;
-            }
-            Repetition::OPTIONAL => {
-                new_context.def_level += 1;
-            }
-            _ => (),
+        // If the list's root is nullable
+        if let Repetition::OPTIONAL = list_type.get_basic_info().repetition() {
+            new_context.def_level += 1;
+            // current level is nullable, increment to get level for empty list slot
+            list_empty_def += 1;
         }
 
         match list_child.get_basic_info().repetition() {
@@ -1336,6 +1347,8 @@ impl<'a> TypeVisitor<Option<Box<dyn ArrayReader>>, &'a ArrayReaderBuilderContext
                         item_reader_type,
                         new_context.def_level,
                         new_context.rep_level,
+                        list_null_def,
+                        list_empty_def,
                     )),
                     ArrowType::LargeList(_) => Box::new(ListArrayReader::<i64>::new(
                         item_reader,
@@ -1343,6 +1356,8 @@ impl<'a> TypeVisitor<Option<Box<dyn ArrayReader>>, &'a ArrayReaderBuilderContext
                         item_reader_type,
                         new_context.def_level,
                         new_context.rep_level,
+                        list_null_def,
+                        list_empty_def,
                     )),
 
                     _ => {
@@ -1488,12 +1503,12 @@ impl<'a> ArrayReaderBuilder {
                             arrow_type,
                         )?))
                     } else {
-                        let converter = Utf8Converter::new(Utf8ArrayConverter {});
-                        Ok(Box::new(ComplexObjectArrayReader::<
-                            ByteArrayType,
-                            Utf8Converter,
-                        >::new(
-                            page_iterator,
+                        use crate::arrow::arrow_array_reader::{
+                            ArrowArrayReader, StringArrayConverter,
+                        };
+                        let converter = StringArrayConverter::new();
+                        Ok(Box::new(ArrowArrayReader::try_new(
+                            *page_iterator,
                             column_desc,
                             converter,
                             arrow_type,
@@ -1717,7 +1732,7 @@ impl<'a> ArrayReaderBuilder {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::arrow::converter::Utf8Converter;
+    use crate::arrow::converter::{Utf8ArrayConverter, Utf8Converter};
     use crate::arrow::schema::parquet_to_arrow_schema;
     use crate::basic::{Encoding, Type as PhysicalType};
     use crate::column::page::{Page, PageReader};
@@ -2454,6 +2469,8 @@ mod tests {
             ArrowType::Int32,
             1,
             1,
+            0,
+            1,
         );
 
         let next_batch = list_array_reader.next_batch(1024).unwrap();
@@ -2507,6 +2524,8 @@ mod tests {
             ArrowType::LargeList(Box::new(Field::new("item", ArrowType::Int32, true))),
             ArrowType::Int32,
             1,
+            1,
+            0,
             1,
         );
 

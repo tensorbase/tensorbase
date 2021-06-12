@@ -19,21 +19,19 @@
 //! such as `col = 5` or `SUM(col)`. See examples on the [`Expr`] struct.
 
 pub use super::Operator;
-
-use std::fmt;
-use std::sync::Arc;
-
-use aggregates::{AccumulatorFunctionImplementation, StateTypeFunction};
-use arrow::{compute::can_cast_types, datatypes::DataType};
-
 use crate::error::{DataFusionError, Result};
-use crate::logical_plan::{DFField, DFSchema};
+use crate::logical_plan::{window_frames, DFField, DFSchema};
 use crate::physical_plan::{
     aggregates, expressions::binary_operator_data_type, functions, udf::ScalarUDF,
+    window_functions,
 };
 use crate::{physical_plan::udaf::AggregateUDF, scalar::ScalarValue};
+use aggregates::{AccumulatorFunctionImplementation, StateTypeFunction};
+use arrow::{compute::can_cast_types, datatypes::DataType};
 use functions::{ReturnTypeFunction, ScalarFunctionImplementation, Signature};
 use std::collections::HashSet;
+use std::fmt;
+use std::sync::Arc;
 
 /// `Expr` is a central struct of DataFusion's query API, and
 /// represent logical expressions such as `A + 1`, or `CAST(c1 AS
@@ -190,6 +188,19 @@ pub enum Expr {
         /// Whether this is a DISTINCT aggregation or not
         distinct: bool,
     },
+    /// Represents the call of a window function with arguments.
+    WindowFunction {
+        /// Name of the function
+        fun: window_functions::WindowFunction,
+        /// List of expressions to feed to the functions as arguments
+        args: Vec<Expr>,
+        /// List of partition by expressions
+        partition_by: Vec<Expr>,
+        /// List of order by expressions
+        order_by: Vec<Expr>,
+        /// Window frame
+        window_frame: Option<window_frames::WindowFrame>,
+    },
     /// aggregate function
     AggregateUDF {
         /// The function
@@ -243,6 +254,13 @@ impl Expr {
                     .map(|e| e.get_type(schema))
                     .collect::<Result<Vec<_>>>()?;
                 functions::return_type(fun, &data_types)
+            }
+            Expr::WindowFunction { fun, args, .. } => {
+                let data_types = args
+                    .iter()
+                    .map(|e| e.get_type(schema))
+                    .collect::<Result<Vec<_>>>()?;
+                window_functions::return_type(fun, &data_types)
             }
             Expr::AggregateFunction { fun, args, .. } => {
                 let data_types = args
@@ -316,6 +334,7 @@ impl Expr {
             Expr::TryCast { .. } => Ok(true),
             Expr::ScalarFunction { .. } => Ok(true),
             Expr::ScalarUDF { .. } => Ok(true),
+            Expr::WindowFunction { .. } => Ok(true),
             Expr::AggregateFunction { .. } => Ok(true),
             Expr::AggregateUDF { .. } => Ok(true),
             Expr::Not(expr) => expr.nullable(input_schema),
@@ -571,6 +590,23 @@ impl Expr {
             Expr::ScalarUDF { args, .. } => args
                 .iter()
                 .try_fold(visitor, |visitor, arg| arg.accept(visitor)),
+            Expr::WindowFunction {
+                args,
+                partition_by,
+                order_by,
+                ..
+            } => {
+                let visitor = args
+                    .iter()
+                    .try_fold(visitor, |visitor, arg| arg.accept(visitor))?;
+                let visitor = partition_by
+                    .iter()
+                    .try_fold(visitor, |visitor, arg| arg.accept(visitor))?;
+                let visitor = order_by
+                    .iter()
+                    .try_fold(visitor, |visitor, arg| arg.accept(visitor))?;
+                Ok(visitor)
+            }
             Expr::AggregateFunction { args, .. } => args
                 .iter()
                 .try_fold(visitor, |visitor, arg| arg.accept(visitor)),
@@ -703,6 +739,19 @@ impl Expr {
             Expr::ScalarUDF { args, fun } => Expr::ScalarUDF {
                 args: rewrite_vec(args, rewriter)?,
                 fun,
+            },
+            Expr::WindowFunction {
+                args,
+                fun,
+                partition_by,
+                order_by,
+                window_frame,
+            } => Expr::WindowFunction {
+                args: rewrite_vec(args, rewriter)?,
+                fun,
+                partition_by: rewrite_vec(partition_by, rewriter)?,
+                order_by: rewrite_vec(order_by, rewriter)?,
+                window_frame,
             },
             Expr::AggregateFunction {
                 args,
@@ -1081,7 +1130,9 @@ unary_scalar_expr!(Acos, acos);
 unary_scalar_expr!(Atan, atan);
 unary_scalar_expr!(Floor, floor);
 unary_scalar_expr!(Ceil, ceil);
+unary_scalar_expr!(Now, now);
 unary_scalar_expr!(Round, round);
+unary_scalar_expr!(Random, random);
 unary_scalar_expr!(Trunc, trunc);
 unary_scalar_expr!(Abs, abs);
 unary_scalar_expr!(Signum, signum);
@@ -1152,7 +1203,7 @@ pub fn create_udf(
 }
 
 /// Creates a new UDAF with a specific signature, state type and return type.
-/// The signature and state type must match the `Acumulator's implementation`.
+/// The signature and state type must match the `Accumulator's implementation`.
 #[allow(clippy::rc_buffer)]
 pub fn create_udaf(
     name: &str,
@@ -1245,6 +1296,24 @@ impl fmt::Debug for Expr {
             }
             Expr::ScalarUDF { fun, ref args, .. } => {
                 fmt_function(f, &fun.name, false, args)
+            }
+            Expr::WindowFunction {
+                fun,
+                ref args,
+                window_frame,
+                ..
+            } => {
+                fmt_function(f, &fun.to_string(), false, args)?;
+                if let Some(window_frame) = window_frame {
+                    write!(
+                        f,
+                        " {} BETWEEN {} AND {}",
+                        window_frame.units,
+                        window_frame.start_bound,
+                        window_frame.end_bound
+                    )?;
+                }
+                Ok(())
             }
             Expr::AggregateFunction {
                 fun,
@@ -1361,6 +1430,19 @@ fn create_name(e: &Expr, input_schema: &DFSchema) -> Result<String> {
         Expr::ScalarUDF { fun, args, .. } => {
             create_function_name(&fun.name, false, args, input_schema)
         }
+        Expr::WindowFunction {
+            fun,
+            args,
+            window_frame,
+            ..
+        } => {
+            let fun_name =
+                create_function_name(&fun.to_string(), false, args, input_schema)?;
+            Ok(match window_frame {
+                Some(window_frame) => format!("{} {}", fun_name, window_frame),
+                None => fun_name,
+            })
+        }
         Expr::AggregateFunction {
             fun,
             distinct,
@@ -1388,7 +1470,7 @@ fn create_name(e: &Expr, input_schema: &DFSchema) -> Result<String> {
             }
         }
         other => Err(DataFusionError::NotImplemented(format!(
-            "Physical plan does not support logical expression {:?}",
+            "Create name does not support logical expression {:?}",
             other
         ))),
     }

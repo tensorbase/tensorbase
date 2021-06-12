@@ -21,11 +21,13 @@ use crate::{
     error::{ArrowError, Result},
     util::bit_util,
 };
+use std::mem;
 
 use super::{
     data::{into_buffers, new_buffers},
-    ArrayData,
+    ArrayData, ArrayDataBuilder,
 };
+use crate::array::StringOffsetSizeTrait;
 
 mod boolean;
 mod fixed_binary;
@@ -61,7 +63,7 @@ struct _MutableArrayData<'a> {
 }
 
 impl<'a> _MutableArrayData<'a> {
-    fn freeze(self, dictionary: Option<ArrayData>) -> ArrayData {
+    fn freeze(self, dictionary: Option<ArrayData>) -> ArrayDataBuilder {
         let buffers = into_buffers(&self.data_type, self.buffer1, self.buffer2);
 
         let child_data = match self.data_type {
@@ -74,19 +76,19 @@ impl<'a> _MutableArrayData<'a> {
                 child_data
             }
         };
-        ArrayData::new(
-            self.data_type,
-            self.len,
-            Some(self.null_count),
-            if self.null_count > 0 {
-                Some(self.null_buffer.into())
-            } else {
-                None
-            },
-            0,
-            buffers,
-            child_data,
-        )
+
+        let mut array_data_builder = ArrayDataBuilder::new(self.data_type)
+            .offset(0)
+            .len(self.len)
+            .null_count(self.null_count)
+            .buffers(buffers)
+            .child_data(child_data);
+        if self.null_count > 0 {
+            array_data_builder =
+                array_data_builder.null_bit_buffer(self.null_buffer.into());
+        }
+
+        array_data_builder
     }
 }
 
@@ -330,6 +332,49 @@ fn build_extend_nulls(data_type: &DataType) -> ExtendNulls {
     })
 }
 
+fn preallocate_offset_and_binary_buffer<Offset: StringOffsetSizeTrait>(
+    capacity: usize,
+    binary_size: usize,
+) -> [MutableBuffer; 2] {
+    // offsets
+    let mut buffer = MutableBuffer::new((1 + capacity) * mem::size_of::<Offset>());
+    // safety: `unsafe` code assumes that this buffer is initialized with one element
+    if Offset::is_large() {
+        buffer.push(0i64);
+    } else {
+        buffer.push(0i32)
+    }
+
+    [
+        buffer,
+        MutableBuffer::new(binary_size * mem::size_of::<u8>()),
+    ]
+}
+
+/// Define capacities of child data or data buffers.
+#[derive(Debug, Clone)]
+pub enum Capacities {
+    /// Binary, Utf8 and LargeUtf8 data types
+    /// Define
+    /// * the capacity of the array offsets
+    /// * the capacity of the binary/ str buffer
+    Binary(usize, Option<usize>),
+    /// List and LargeList data types
+    /// Define
+    /// * the capacity of the array offsets
+    /// * the capacity of the child data
+    List(usize, Option<Box<Capacities>>),
+    /// Struct type
+    /// * the capacity of the array
+    /// * the capacities of the fields
+    Struct(usize, Option<Vec<Capacities>>),
+    /// Dictionary type
+    /// * the capacity of the array/keys
+    /// * the capacity of the values
+    Dictionary(usize, Option<Box<Capacities>>),
+    /// Don't preallocate inner buffers and rely on array growth strategy
+    Array(usize),
+}
 impl<'a> MutableArrayData<'a> {
     /// returns a new [MutableArrayData] with capacity to `capacity` slots and specialized to create an
     /// [ArrayData] from multiple `arrays`.
@@ -337,7 +382,21 @@ impl<'a> MutableArrayData<'a> {
     /// `use_nulls` is a flag used to optimize insertions. It should be `false` if the only source of nulls
     /// are the arrays themselves and `true` if the user plans to call [MutableArrayData::extend_nulls].
     /// In other words, if `use_nulls` is `false`, calling [MutableArrayData::extend_nulls] should not be used.
-    pub fn new(arrays: Vec<&'a ArrayData>, mut use_nulls: bool, capacity: usize) -> Self {
+    pub fn new(arrays: Vec<&'a ArrayData>, use_nulls: bool, capacity: usize) -> Self {
+        Self::with_capacities(arrays, use_nulls, Capacities::Array(capacity))
+    }
+
+    /// Similar to [MutableArray::new], but lets users define the preallocated capacities of the array.
+    /// See also [MutableArray::new] for more information on the arguments.
+    ///
+    /// # Panic
+    /// This function panics if the given `capacities` don't match the data type of `arrays`. Or when
+    /// a [Capacities] variant is not yet supported.
+    pub fn with_capacities(
+        arrays: Vec<&'a ArrayData>,
+        mut use_nulls: bool,
+        capacities: Capacities,
+    ) -> Self {
         let data_type = arrays[0].data_type();
         use crate::datatypes::*;
 
@@ -347,7 +406,25 @@ impl<'a> MutableArrayData<'a> {
             use_nulls = true;
         };
 
-        let [buffer1, buffer2] = new_buffers(data_type, capacity);
+        let mut array_capacity;
+
+        let [buffer1, buffer2] = match (data_type, &capacities) {
+            (DataType::LargeUtf8, Capacities::Binary(capacity, Some(value_cap)))
+            | (DataType::LargeBinary, Capacities::Binary(capacity, Some(value_cap))) => {
+                array_capacity = *capacity;
+                preallocate_offset_and_binary_buffer::<i64>(*capacity, *value_cap)
+            }
+            (DataType::Utf8, Capacities::Binary(capacity, Some(value_cap)))
+            | (DataType::Binary, Capacities::Binary(capacity, Some(value_cap))) => {
+                array_capacity = *capacity;
+                preallocate_offset_and_binary_buffer::<i32>(*capacity, *value_cap)
+            }
+            (_, Capacities::Array(capacity)) => {
+                array_capacity = *capacity;
+                new_buffers(data_type, *capacity)
+            }
+            _ => panic!("Capacities: {:?} not yet supported", capacities),
+        };
 
         let child_data = match &data_type {
             DataType::Null
@@ -381,20 +458,66 @@ impl<'a> MutableArrayData<'a> {
                     .iter()
                     .map(|array| &array.child_data()[0])
                     .collect::<Vec<_>>();
-                vec![MutableArrayData::new(childs, use_nulls, capacity)]
+
+                let capacities = if let Capacities::List(capacity, ref child_capacities) =
+                    capacities
+                {
+                    array_capacity = capacity;
+                    child_capacities
+                        .clone()
+                        .map(|c| *c)
+                        .unwrap_or(Capacities::Array(array_capacity))
+                } else {
+                    Capacities::Array(array_capacity)
+                };
+
+                vec![MutableArrayData::with_capacities(
+                    childs, use_nulls, capacities,
+                )]
             }
             // the dictionary type just appends keys and clones the values.
             DataType::Dictionary(_, _) => vec![],
             DataType::Float16 => unreachable!(),
-            DataType::Struct(fields) => (0..fields.len())
-                .map(|i| {
-                    let child_arrays = arrays
-                        .iter()
-                        .map(|array| &array.child_data()[i])
-                        .collect::<Vec<_>>();
-                    MutableArrayData::new(child_arrays, use_nulls, capacity)
-                })
-                .collect::<Vec<_>>(),
+            DataType::Struct(fields) => match capacities {
+                Capacities::Struct(capacity, Some(ref child_capacities)) => {
+                    array_capacity = capacity;
+                    (0..fields.len())
+                        .zip(child_capacities)
+                        .map(|(i, child_cap)| {
+                            let child_arrays = arrays
+                                .iter()
+                                .map(|array| &array.child_data()[i])
+                                .collect::<Vec<_>>();
+                            MutableArrayData::with_capacities(
+                                child_arrays,
+                                use_nulls,
+                                child_cap.clone(),
+                            )
+                        })
+                        .collect::<Vec<_>>()
+                }
+                Capacities::Struct(capacity, None) => {
+                    array_capacity = capacity;
+                    (0..fields.len())
+                        .map(|i| {
+                            let child_arrays = arrays
+                                .iter()
+                                .map(|array| &array.child_data()[i])
+                                .collect::<Vec<_>>();
+                            MutableArrayData::new(child_arrays, use_nulls, capacity)
+                        })
+                        .collect::<Vec<_>>()
+                }
+                _ => (0..fields.len())
+                    .map(|i| {
+                        let child_arrays = arrays
+                            .iter()
+                            .map(|array| &array.child_data()[i])
+                            .collect::<Vec<_>>();
+                        MutableArrayData::new(child_arrays, use_nulls, array_capacity)
+                    })
+                    .collect::<Vec<_>>(),
+            },
             _ => {
                 todo!("Take and filter operations still not supported for this datatype")
             }
@@ -405,6 +528,9 @@ impl<'a> MutableArrayData<'a> {
                 0 => unreachable!(),
                 1 => Some(arrays[0].child_data()[0].clone()),
                 _ => {
+                    if let Capacities::Dictionary(_, _) = capacities {
+                        panic!("dictionary capacity not yet supported")
+                    }
                     // Concat dictionaries together
                     let dictionaries: Vec<_> =
                         arrays.iter().map(|array| &array.child_data()[0]).collect();
@@ -434,8 +560,13 @@ impl<'a> MutableArrayData<'a> {
             .map(|array| build_extend_null_bits(array, use_nulls))
             .collect();
 
-        let null_bytes = bit_util::ceil(capacity, 8);
-        let null_buffer = MutableBuffer::from_len_zeroed(null_bytes);
+        let null_buffer = if use_nulls {
+            let null_bytes = bit_util::ceil(array_capacity, 8);
+            MutableBuffer::from_len_zeroed(null_bytes)
+        } else {
+            // create 0 capacity mutable buffer with the intention that it won't be used
+            MutableBuffer::with_capacity(0)
+        };
 
         let extend_values = match &data_type {
             DataType::Dictionary(_, _) => {
@@ -487,13 +618,40 @@ impl<'a> MutableArrayData<'a> {
 
     /// Extends this [MutableArrayData] with null elements, disregarding the bound arrays
     pub fn extend_nulls(&mut self, len: usize) {
+        // TODO: null_buffer should probably be extended here as well
+        // otherwise is_valid() could later panic
+        // add test to confirm
         self.data.null_count += len;
         (self.extend_nulls)(&mut self.data, len);
         self.data.len += len;
     }
 
+    /// Returns the current length
+    #[inline]
+    pub fn len(&self) -> usize {
+        self.data.len
+    }
+
+    /// Returns true if len is 0
+    #[inline]
+    pub fn is_empty(&self) -> bool {
+        self.data.len == 0
+    }
+
+    /// Returns the current null count
+    #[inline]
+    pub fn null_count(&self) -> usize {
+        self.data.null_count
+    }
+
     /// Creates a [ArrayData] from the pushed regions up to this point, consuming `self`.
     pub fn freeze(self) -> ArrayData {
+        self.data.freeze(self.dictionary).build()
+    }
+
+    /// Creates a [ArrayDataBuilder] from the pushed regions up to this point, consuming `self`.
+    /// This is useful for extending the default behavior of MutableArrayData.
+    pub fn into_builder(self) -> ArrayDataBuilder {
         self.data.freeze(self.dictionary)
     }
 }

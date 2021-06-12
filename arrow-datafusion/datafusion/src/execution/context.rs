@@ -59,6 +59,7 @@ use crate::optimizer::filter_push_down::FilterPushDown;
 use crate::optimizer::limit_push_down::LimitPushDown;
 use crate::optimizer::optimizer::OptimizerRule;
 use crate::optimizer::projection_push_down::ProjectionPushDown;
+use crate::optimizer::simplify_expressions::SimplifyExpressions;
 use crate::physical_optimizer::coalesce_batches::CoalesceBatches;
 use crate::physical_optimizer::merge_exec::AddMergeExec;
 use crate::physical_optimizer::repartition::Repartition;
@@ -74,6 +75,7 @@ use crate::sql::{
 };
 use crate::variable::{VarProvider, VarType};
 use crate::{dataframe::DataFrame, physical_plan::udaf::AggregateUDF};
+use chrono::{DateTime, Utc};
 use parquet::arrow::ArrowWriter;
 use parquet::file::properties::WriterProperties;
 
@@ -159,6 +161,7 @@ impl ExecutionContext {
                 var_provider: HashMap::new(),
                 aggregate_functions: HashMap::new(),
                 config,
+                execution_props: ExecutionProps::new(),
             })),
         }
     }
@@ -454,12 +457,16 @@ impl ExecutionContext {
 
     /// Optimizes the logical plan by applying optimizer rules.
     pub fn optimize(&self, plan: &LogicalPlan) -> Result<LogicalPlan> {
-        let optimizers = &self.state.lock().unwrap().config.optimizers;
+        let state = &mut self.state.lock().unwrap();
+        let execution_props = &mut state.execution_props.clone();
+        let optimizers = &state.config.optimizers;
+
+        let execution_props = execution_props.start_execution();
 
         let mut new_plan = plan.clone();
         debug!("Logical plan:\n {:?}", plan);
         for optimizer in optimizers {
-            new_plan = optimizer.optimize(&new_plan)?;
+            new_plan = optimizer.optimize(&new_plan, execution_props)?;
         }
         debug!("Optimized logical plan:\n {:?}", new_plan);
         Ok(new_plan)
@@ -470,7 +477,9 @@ impl ExecutionContext {
         &self,
         logical_plan: &LogicalPlan,
     ) -> Result<Arc<dyn ExecutionPlan>> {
-        let state = self.state.lock().unwrap();
+        let mut state = self.state.lock().unwrap();
+        state.execution_props.start_execution();
+
         state
             .config
             .query_planner
@@ -628,6 +637,9 @@ pub struct ExecutionConfig {
     /// Should DataFusion repartition data using the join keys to execute joins in parallel
     /// using the provided `concurrency` level
     pub repartition_joins: bool,
+    /// Should DataFusion repartition data using the aggregate keys to execute aggregates in parallel
+    /// using the provided `concurrency` level
+    pub repartition_aggregations: bool,
 }
 
 impl ExecutionConfig {
@@ -641,6 +653,7 @@ impl ExecutionConfig {
                 Arc::new(EliminateLimit::new()),
                 Arc::new(ProjectionPushDown::new()),
                 Arc::new(FilterPushDown::new()),
+                Arc::new(SimplifyExpressions::new()),
                 Arc::new(HashBuildProbeOrder::new()),
                 Arc::new(LimitPushDown::new()),
             ],
@@ -655,6 +668,7 @@ impl ExecutionConfig {
             create_default_catalog_and_schema: true,
             information_schema: false,
             repartition_joins: true,
+            repartition_aggregations: true,
         }
     }
 
@@ -738,6 +752,20 @@ impl ExecutionConfig {
         self.repartition_joins = enabled;
         self
     }
+    /// Enables or disables the use of repartitioning for aggregations to improve parallelism
+    pub fn with_repartition_aggregations(mut self, enabled: bool) -> Self {
+        self.repartition_aggregations = enabled;
+        self
+    }
+}
+
+/// Holds per-execution properties and data (such as starting timestamps, etc).
+/// An instance of this struct is created each time a [`LogicalPlan`] is prepared for
+/// execution (optimized). If the same plan is optimized multiple times, a new
+/// `ExecutionProps` is created each time.
+#[derive(Clone)]
+pub struct ExecutionProps {
+    pub(crate) query_execution_start_time: DateTime<Utc>,
 }
 
 /// Execution context for registering data sources and executing queries
@@ -753,9 +781,38 @@ pub struct ExecutionContextState {
     pub aggregate_functions: HashMap<String, Arc<AggregateUDF>>,
     /// Context configuration
     pub config: ExecutionConfig,
+    /// Execution properties
+    pub execution_props: ExecutionProps,
+}
+
+impl ExecutionProps {
+    /// Creates a new execution props
+    pub fn new() -> Self {
+        ExecutionProps {
+            query_execution_start_time: chrono::Utc::now(),
+        }
+    }
+
+    /// Marks the execution of query started timestamp
+    pub fn start_execution(&mut self) -> &Self {
+        self.query_execution_start_time = chrono::Utc::now();
+        &*self
+    }
 }
 
 impl ExecutionContextState {
+    /// Returns new ExecutionContextState
+    pub fn new() -> Self {
+        ExecutionContextState {
+            catalog_list: Arc::new(MemoryCatalogList::new()),
+            scalar_functions: HashMap::new(),
+            var_provider: HashMap::new(),
+            aggregate_functions: HashMap::new(),
+            config: ExecutionConfig::new(),
+            execution_props: ExecutionProps::new(),
+        }
+    }
+
     fn resolve_table_ref<'a>(
         &'a self,
         table_ref: impl Into<TableReference<'a>>,
@@ -1214,6 +1271,35 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn window() -> Result<()> {
+        let results = execute(
+            "SELECT c1, c2, SUM(c2) OVER (), COUNT(c2) OVER (), MAX(c2) OVER (), MIN(c2) OVER (), AVG(c2) OVER () FROM test ORDER BY c1, c2 LIMIT 5",
+            4,
+        )
+        .await?;
+        // result in one batch, although e.g. having 2 batches do not change
+        // result semantics, having a len=1 assertion upfront keeps surprises
+        // at bay
+        assert_eq!(results.len(), 1);
+
+        let expected = vec![
+            "+----+----+---------+-----------+---------+---------+---------+",
+            "| c1 | c2 | SUM(c2) | COUNT(c2) | MAX(c2) | MIN(c2) | AVG(c2) |",
+            "+----+----+---------+-----------+---------+---------+---------+",
+            "| 0  | 1  | 220     | 40        | 10      | 1       | 5.5     |",
+            "| 0  | 2  | 220     | 40        | 10      | 1       | 5.5     |",
+            "| 0  | 3  | 220     | 40        | 10      | 1       | 5.5     |",
+            "| 0  | 4  | 220     | 40        | 10      | 1       | 5.5     |",
+            "| 0  | 5  | 220     | 40        | 10      | 1       | 5.5     |",
+            "+----+----+---------+-----------+---------+---------+---------+",
+        ];
+
+        // window function shall respect ordering
+        assert_batches_eq!(expected, &results);
+        Ok(())
+    }
+
+    #[tokio::test]
     async fn aggregate() -> Result<()> {
         let results = execute("SELECT SUM(c1), SUM(c2) FROM test", 4).await?;
         assert_eq!(results.len(), 1);
@@ -1305,7 +1391,6 @@ mod tests {
     #[tokio::test]
     async fn aggregate_grouped() -> Result<()> {
         let results = execute("SELECT c1, SUM(c2) FROM test GROUP BY c1", 4).await?;
-        assert_eq!(results.len(), 1);
 
         let expected = vec![
             "+----+---------+",
@@ -1325,7 +1410,6 @@ mod tests {
     #[tokio::test]
     async fn aggregate_grouped_avg() -> Result<()> {
         let results = execute("SELECT c1, AVG(c2) FROM test GROUP BY c1", 4).await?;
-        assert_eq!(results.len(), 1);
 
         let expected = vec![
             "+----+---------+",
@@ -1346,7 +1430,6 @@ mod tests {
     async fn boolean_literal() -> Result<()> {
         let results =
             execute("SELECT c1, c3 FROM test WHERE c1 > 2 AND c3 = true", 4).await?;
-        assert_eq!(results.len(), 1);
 
         let expected = vec![
             "+----+------+",
@@ -1368,7 +1451,6 @@ mod tests {
     async fn aggregate_grouped_empty() -> Result<()> {
         let results =
             execute("SELECT c1, AVG(c2) FROM test WHERE c1 = 123 GROUP BY c1", 4).await?;
-        assert_eq!(results.len(), 1);
 
         let expected = vec!["++", "||", "++", "++"];
         assert_batches_sorted_eq!(expected, &results);
@@ -1379,7 +1461,6 @@ mod tests {
     #[tokio::test]
     async fn aggregate_grouped_max() -> Result<()> {
         let results = execute("SELECT c1, MAX(c2) FROM test GROUP BY c1", 4).await?;
-        assert_eq!(results.len(), 1);
 
         let expected = vec![
             "+----+---------+",
@@ -1399,7 +1480,6 @@ mod tests {
     #[tokio::test]
     async fn aggregate_grouped_min() -> Result<()> {
         let results = execute("SELECT c1, MIN(c2) FROM test GROUP BY c1", 4).await?;
-        assert_eq!(results.len(), 1);
 
         let expected = vec![
             "+----+---------+",
@@ -1507,7 +1587,7 @@ mod tests {
             "+-------------------------+-------------------------+-------------------------+---------------------+",
             "| 2021-01-01 05:11:10.432 | 2021-01-01 05:11:10.432 | 2021-01-01 05:11:10.432 | 2021-01-01 05:11:10 |",
             "+-------------------------+-------------------------+-------------------------+---------------------+",
-];
+        ];
         assert_batches_sorted_eq!(expected, &results);
 
         Ok(())
@@ -1583,7 +1663,6 @@ mod tests {
     #[tokio::test]
     async fn count_aggregated() -> Result<()> {
         let results = execute("SELECT c1, COUNT(c2) FROM test GROUP BY c1", 4).await?;
-        assert_eq!(results.len(), 1);
 
         let expected = vec![
             "+----+-----------+",
@@ -1633,9 +1712,8 @@ mod tests {
 
         let results = plan_and_collect(
             &mut ctx,
-            "SELECT date_trunc('week', t1) as week, SUM(c2) FROM test GROUP BY date_trunc('week', t1)"
+            "SELECT date_trunc('week', t1) as week, SUM(c2) FROM test GROUP BY date_trunc('week', t1)",
         ).await?;
-        assert_eq!(results.len(), 1);
 
         let expected = vec![
             "+---------------------+---------+",
@@ -1879,18 +1957,16 @@ mod tests {
         ];
 
         let results = run_count_distinct_integers_aggregated_scenario(partitions).await?;
-        assert_eq!(results.len(), 1);
 
-        let expected = vec!
-[
-    "+---------+-----------------+------------------------+-------------------------+-------------------------+-------------------------+-------------------------+--------------------------+--------------------------+--------------------------+",
-    "| c_group | COUNT(c_uint64) | COUNT(DISTINCT c_int8) | COUNT(DISTINCT c_int16) | COUNT(DISTINCT c_int32) | COUNT(DISTINCT c_int64) | COUNT(DISTINCT c_uint8) | COUNT(DISTINCT c_uint16) | COUNT(DISTINCT c_uint32) | COUNT(DISTINCT c_uint64) |",
-    "+---------+-----------------+------------------------+-------------------------+-------------------------+-------------------------+-------------------------+--------------------------+--------------------------+--------------------------+",
-    "| a       | 3               | 2                      | 2                       | 2                       | 2                       | 2                       | 2                        | 2                        | 2                        |",
-    "| b       | 1               | 1                      | 1                       | 1                       | 1                       | 1                       | 1                        | 1                        | 1                        |",
-    "| c       | 3               | 2                      | 2                       | 2                       | 2                       | 2                       | 2                        | 2                        | 2                        |",
-    "+---------+-----------------+------------------------+-------------------------+-------------------------+-------------------------+-------------------------+--------------------------+--------------------------+--------------------------+",
-];
+        let expected = vec![
+            "+---------+-----------------+------------------------+-------------------------+-------------------------+-------------------------+-------------------------+--------------------------+--------------------------+--------------------------+",
+            "| c_group | COUNT(c_uint64) | COUNT(DISTINCT c_int8) | COUNT(DISTINCT c_int16) | COUNT(DISTINCT c_int32) | COUNT(DISTINCT c_int64) | COUNT(DISTINCT c_uint8) | COUNT(DISTINCT c_uint16) | COUNT(DISTINCT c_uint32) | COUNT(DISTINCT c_uint64) |",
+            "+---------+-----------------+------------------------+-------------------------+-------------------------+-------------------------+-------------------------+--------------------------+--------------------------+--------------------------+",
+            "| a       | 3               | 2                      | 2                       | 2                       | 2                       | 2                       | 2                        | 2                        | 2                        |",
+            "| b       | 1               | 1                      | 1                       | 1                       | 1                       | 1                       | 1                        | 1                        | 1                        |",
+            "| c       | 3               | 2                      | 2                       | 2                       | 2                       | 2                       | 2                        | 2                        | 2                        |",
+            "+---------+-----------------+------------------------+-------------------------+-------------------------+-------------------------+-------------------------+--------------------------+--------------------------+--------------------------+",
+        ];
         assert_batches_sorted_eq!(expected, &results);
 
         Ok(())
@@ -1907,17 +1983,16 @@ mod tests {
         ];
 
         let results = run_count_distinct_integers_aggregated_scenario(partitions).await?;
-        assert_eq!(results.len(), 1);
 
         let expected = vec![
-    "+---------+-----------------+------------------------+-------------------------+-------------------------+-------------------------+-------------------------+--------------------------+--------------------------+--------------------------+",
-    "| c_group | COUNT(c_uint64) | COUNT(DISTINCT c_int8) | COUNT(DISTINCT c_int16) | COUNT(DISTINCT c_int32) | COUNT(DISTINCT c_int64) | COUNT(DISTINCT c_uint8) | COUNT(DISTINCT c_uint16) | COUNT(DISTINCT c_uint32) | COUNT(DISTINCT c_uint64) |",
-    "+---------+-----------------+------------------------+-------------------------+-------------------------+-------------------------+-------------------------+--------------------------+--------------------------+--------------------------+",
-    "| a       | 5               | 3                      | 3                       | 3                       | 3                       | 3                       | 3                        | 3                        | 3                        |",
-    "| b       | 5               | 4                      | 4                       | 4                       | 4                       | 4                       | 4                        | 4                        | 4                        |",
-    "| c       | 1               | 1                      | 1                       | 1                       | 1                       | 1                       | 1                        | 1                        | 1                        |",
-    "+---------+-----------------+------------------------+-------------------------+-------------------------+-------------------------+-------------------------+--------------------------+--------------------------+--------------------------+",
-];
+            "+---------+-----------------+------------------------+-------------------------+-------------------------+-------------------------+-------------------------+--------------------------+--------------------------+--------------------------+",
+            "| c_group | COUNT(c_uint64) | COUNT(DISTINCT c_int8) | COUNT(DISTINCT c_int16) | COUNT(DISTINCT c_int32) | COUNT(DISTINCT c_int64) | COUNT(DISTINCT c_uint8) | COUNT(DISTINCT c_uint16) | COUNT(DISTINCT c_uint32) | COUNT(DISTINCT c_uint64) |",
+            "+---------+-----------------+------------------------+-------------------------+-------------------------+-------------------------+-------------------------+--------------------------+--------------------------+--------------------------+",
+            "| a       | 5               | 3                      | 3                       | 3                       | 3                       | 3                       | 3                        | 3                        | 3                        |",
+            "| b       | 5               | 4                      | 4                       | 4                       | 4                       | 4                       | 4                        | 4                        | 4                        |",
+            "| c       | 1               | 1                      | 1                       | 1                       | 1                       | 1                       | 1                        | 1                        | 1                        |",
+            "+---------+-----------------+------------------------+-------------------------+-------------------------+-------------------------+-------------------------+--------------------------+--------------------------+--------------------------+",
+        ];
         assert_batches_sorted_eq!(expected, &results);
 
         Ok(())
@@ -2311,6 +2386,7 @@ mod tests {
         }
         Ok(())
     }
+
     #[test]
     fn ctx_sql_should_optimize_plan() -> Result<()> {
         let mut ctx = ExecutionContext::new();
@@ -2844,13 +2920,11 @@ mod tests {
             .await
             .unwrap();
         let expected = vec![
-
-    "+---------------+--------------+------------+-------------+------------------+----------------+-------------+-----------+--------------------------+------------------------+-------------------+-------------------------+---------------+--------------------+---------------+",
-    "| table_catalog | table_schema | table_name | column_name | ordinal_position | column_default | is_nullable | data_type | character_maximum_length | character_octet_length | numeric_precision | numeric_precision_radix | numeric_scale | datetime_precision | interval_type |",
-    "+---------------+--------------+------------+-------------+------------------+----------------+-------------+-----------+--------------------------+------------------------+-------------------+-------------------------+---------------+--------------------+---------------+",
-    "| datafusion    | public       | t          | i           | 0                |                | YES         | Int32     |                          |                        | 32                | 2                       |               |                    |               |",
-    "+---------------+--------------+------------+-------------+------------------+----------------+-------------+-----------+--------------------------+------------------------+-------------------+-------------------------+---------------+--------------------+---------------+",
-
+            "+---------------+--------------+------------+-------------+------------------+----------------+-------------+-----------+--------------------------+------------------------+-------------------+-------------------------+---------------+--------------------+---------------+",
+            "| table_catalog | table_schema | table_name | column_name | ordinal_position | column_default | is_nullable | data_type | character_maximum_length | character_octet_length | numeric_precision | numeric_precision_radix | numeric_scale | datetime_precision | interval_type |",
+            "+---------------+--------------+------------+-------------+------------------+----------------+-------------+-----------+--------------------------+------------------------+-------------------+-------------------------+---------------+--------------------+---------------+",
+            "| datafusion    | public       | t          | i           | 0                |                | YES         | Int32     |                          |                        | 32                | 2                       |               |                    |               |",
+            "+---------------+--------------+------------+-------------+------------------+----------------+-------------+-----------+--------------------------+------------------------+-------------------+-------------------------+---------------+--------------------+---------------+",
         ];
         assert_batches_sorted_eq!(expected, &result);
 
@@ -2984,18 +3058,18 @@ mod tests {
                 .unwrap();
 
         let expected = vec![
-    "+---------------+--------------+------------+------------------+------------------+----------------+-------------+-----------------------------+--------------------------+------------------------+-------------------+-------------------------+---------------+--------------------+---------------+",
-    "| table_catalog | table_schema | table_name | column_name      | ordinal_position | column_default | is_nullable | data_type                   | character_maximum_length | character_octet_length | numeric_precision | numeric_precision_radix | numeric_scale | datetime_precision | interval_type |",
-    "+---------------+--------------+------------+------------------+------------------+----------------+-------------+-----------------------------+--------------------------+------------------------+-------------------+-------------------------+---------------+--------------------+---------------+",
-    "| my_catalog    | my_schema    | t1         | i                | 0                |                | YES         | Int32                       |                          |                        | 32                | 2                       |               |                    |               |",
-    "| my_catalog    | my_schema    | t2         | binary_col       | 4                |                | NO          | Binary                      |                          | 2147483647             |                   |                         |               |                    |               |",
-    "| my_catalog    | my_schema    | t2         | float64_col      | 1                |                | YES         | Float64                     |                          |                        | 24                | 2                       |               |                    |               |",
-    "| my_catalog    | my_schema    | t2         | int32_col        | 0                |                | NO          | Int32                       |                          |                        | 32                | 2                       |               |                    |               |",
-    "| my_catalog    | my_schema    | t2         | large_binary_col | 5                |                | NO          | LargeBinary                 |                          | 9223372036854775807    |                   |                         |               |                    |               |",
-    "| my_catalog    | my_schema    | t2         | large_utf8_col   | 3                |                | NO          | LargeUtf8                   |                          | 9223372036854775807    |                   |                         |               |                    |               |",
-    "| my_catalog    | my_schema    | t2         | timestamp_nanos  | 6                |                | NO          | Timestamp(Nanosecond, None) |                          |                        |                   |                         |               |                    |               |",
-    "| my_catalog    | my_schema    | t2         | utf8_col         | 2                |                | YES         | Utf8                        |                          | 2147483647             |                   |                         |               |                    |               |",
-    "+---------------+--------------+------------+------------------+------------------+----------------+-------------+-----------------------------+--------------------------+------------------------+-------------------+-------------------------+---------------+--------------------+---------------+",
+            "+---------------+--------------+------------+------------------+------------------+----------------+-------------+-----------------------------+--------------------------+------------------------+-------------------+-------------------------+---------------+--------------------+---------------+",
+            "| table_catalog | table_schema | table_name | column_name      | ordinal_position | column_default | is_nullable | data_type                   | character_maximum_length | character_octet_length | numeric_precision | numeric_precision_radix | numeric_scale | datetime_precision | interval_type |",
+            "+---------------+--------------+------------+------------------+------------------+----------------+-------------+-----------------------------+--------------------------+------------------------+-------------------+-------------------------+---------------+--------------------+---------------+",
+            "| my_catalog    | my_schema    | t1         | i                | 0                |                | YES         | Int32                       |                          |                        | 32                | 2                       |               |                    |               |",
+            "| my_catalog    | my_schema    | t2         | binary_col       | 4                |                | NO          | Binary                      |                          | 2147483647             |                   |                         |               |                    |               |",
+            "| my_catalog    | my_schema    | t2         | float64_col      | 1                |                | YES         | Float64                     |                          |                        | 24                | 2                       |               |                    |               |",
+            "| my_catalog    | my_schema    | t2         | int32_col        | 0                |                | NO          | Int32                       |                          |                        | 32                | 2                       |               |                    |               |",
+            "| my_catalog    | my_schema    | t2         | large_binary_col | 5                |                | NO          | LargeBinary                 |                          | 9223372036854775807    |                   |                         |               |                    |               |",
+            "| my_catalog    | my_schema    | t2         | large_utf8_col   | 3                |                | NO          | LargeUtf8                   |                          | 9223372036854775807    |                   |                         |               |                    |               |",
+            "| my_catalog    | my_schema    | t2         | timestamp_nanos  | 6                |                | NO          | Timestamp(Nanosecond, None) |                          |                        |                   |                         |               |                    |               |",
+            "| my_catalog    | my_schema    | t2         | utf8_col         | 2                |                | YES         | Utf8                        |                          | 2147483647             |                   |                         |               |                    |               |",
+            "+---------------+--------------+------------+------------------+------------------+----------------+-------------+-----------------------------+--------------------------+------------------------+-------------------+-------------------------+---------------+--------------------+---------------+",
         ];
         assert_batches_sorted_eq!(expected, &result);
     }

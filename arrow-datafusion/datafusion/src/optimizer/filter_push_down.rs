@@ -15,6 +15,7 @@
 //! Filter Push Down optimizer rule ensures that filters are applied as early as possible in the plan
 
 use crate::datasource::datasource::TableProviderFilterPushDown;
+use crate::execution::context::ExecutionProps;
 use crate::logical_plan::{and, LogicalPlan};
 use crate::logical_plan::{DFSchema, Expr};
 use crate::optimizer::optimizer::OptimizerRule;
@@ -233,6 +234,10 @@ fn split_members<'a>(predicate: &'a Expr, predicates: &mut Vec<&'a Expr>) {
 
 fn optimize(plan: &LogicalPlan, mut state: State) -> Result<LogicalPlan> {
     match plan {
+        LogicalPlan::Explain { .. } => {
+            // push the optimization to the plan of this explain
+            push_down(&state, plan)
+        }
         LogicalPlan::Filter { input, predicate } => {
             let mut predicates = vec![];
             split_members(predicate, &mut predicates);
@@ -378,6 +383,11 @@ fn optimize(plan: &LogicalPlan, mut state: State) -> Result<LogicalPlan> {
                 }
 
                 if add_to_provider {
+                    // Don't add expression again if it's already present in
+                    // pushed down filters.
+                    if new_filters.contains(filter_expr) {
+                        break;
+                    }
                     new_filters.push(filter_expr.clone());
                 }
             }
@@ -413,7 +423,7 @@ impl OptimizerRule for FilterPushDown {
         "filter_push_down"
     }
 
-    fn optimize(&self, plan: &LogicalPlan) -> Result<LogicalPlan> {
+    fn optimize(&self, plan: &LogicalPlan, _: &ExecutionProps) -> Result<LogicalPlan> {
         optimize(plan, State::default())
     }
 }
@@ -454,9 +464,14 @@ mod tests {
     use crate::{logical_plan::col, prelude::JoinType};
     use arrow::datatypes::SchemaRef;
 
-    fn assert_optimized_plan_eq(plan: &LogicalPlan, expected: &str) {
+    fn optimize_plan(plan: &LogicalPlan) -> LogicalPlan {
         let rule = FilterPushDown::new();
-        let optimized_plan = rule.optimize(plan).expect("failed to optimize plan");
+        rule.optimize(plan, &ExecutionProps::new())
+            .expect("failed to optimize plan")
+    }
+
+    fn assert_optimized_plan_eq(plan: &LogicalPlan, expected: &str) {
+        let optimized_plan = optimize_plan(plan);
         let formatted_plan = format!("{:?}", optimized_plan);
         assert_eq!(formatted_plan, expected);
     }
@@ -1031,6 +1046,23 @@ mod tests {
         Filter: #a Eq Int64(1)\
         \n  TableScan: projection=None, filters=[#a Eq Int64(1)]";
         assert_optimized_plan_eq(&plan, expected);
+        Ok(())
+    }
+
+    #[test]
+    fn filter_with_table_provider_multiple_invocations() -> Result<()> {
+        let plan =
+            table_scan_with_pushdown_provider(TableProviderFilterPushDown::Inexact)?;
+
+        let optimised_plan = optimize_plan(&plan);
+
+        let expected = "\
+        Filter: #a Eq Int64(1)\
+        \n  TableScan: projection=None, filters=[#a Eq Int64(1)]";
+
+        // Optimizing the same plan multiple times should produce the same plan
+        // each time.
+        assert_optimized_plan_eq(&optimised_plan, expected);
         Ok(())
     }
 

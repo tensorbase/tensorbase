@@ -17,34 +17,37 @@
 //! This module contains the  `LogicalPlan` enum that describes queries
 //! via a logical query plan.
 
-use std::{
-    cmp::min,
-    fmt::{self, Display},
-    sync::Arc,
-};
-
-use arrow::datatypes::{DataType, Field, Schema, SchemaRef};
-
-use crate::datasource::TableProvider;
-use crate::sql::parser::FileType;
-
 use super::expr::Expr;
 use super::extension::UserDefinedLogicalNode;
 use super::{
     col,
     display::{GraphvizVisitor, IndentVisitor},
 };
+use crate::datasource::TableProvider;
 use crate::logical_plan::dfschema::DFSchemaRef;
+use crate::sql::parser::FileType;
+use arrow::datatypes::{DataType, Field, Schema, SchemaRef};
+use std::{
+    cmp::min,
+    fmt::{self, Display},
+    sync::Arc,
+};
 
 /// Join type
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum JoinType {
-    /// Inner join
+    /// Inner Join
     Inner,
-    /// Left join
+    /// Left Join
     Left,
-    /// Right join
+    /// Right Join
     Right,
+    /// Full Join
+    Full,
+    /// Semi Join
+    Semi,
+    /// Anti Join
+    Anti,
 }
 
 /// A LogicalPlan represents the different types of relational
@@ -80,6 +83,21 @@ pub enum LogicalPlan {
         predicate: Expr,
         /// The incoming logical plan
         input: Arc<LogicalPlan>,
+    },
+    /// Window its input based on a set of window spec and window function (e.g. SUM or RANK)
+    Window {
+        /// The incoming logical plan
+        input: Arc<LogicalPlan>,
+        /// The window function expression
+        window_expr: Vec<Expr>,
+        /// Filter by expressions
+        // filter_by_expr: Vec<Expr>,
+        /// Partition by expressions
+        // partition_by_expr: Vec<Expr>,
+        /// Window Frame
+        // window_frame: Option<WindowFrame>,
+        /// The schema description of the window output
+        schema: DFSchemaRef,
     },
     /// Aggregates its input based on a set of grouping and aggregate
     /// expressions (e.g. SUM).
@@ -209,6 +227,7 @@ impl LogicalPlan {
             } => &projected_schema,
             LogicalPlan::Projection { schema, .. } => &schema,
             LogicalPlan::Filter { input, .. } => input.schema(),
+            LogicalPlan::Window { schema, .. } => &schema,
             LogicalPlan::Aggregate { schema, .. } => &schema,
             LogicalPlan::Sort { input, .. } => input.schema(),
             LogicalPlan::Join { schema, .. } => &schema,
@@ -228,7 +247,8 @@ impl LogicalPlan {
             LogicalPlan::TableScan {
                 projected_schema, ..
             } => vec![&projected_schema],
-            LogicalPlan::Aggregate { input, schema, .. }
+            LogicalPlan::Window { input, schema, .. }
+            | LogicalPlan::Aggregate { input, schema, .. }
             | LogicalPlan::Projection { input, schema, .. } => {
                 let mut schemas = input.all_schemas();
                 schemas.insert(0, &schema);
@@ -286,15 +306,12 @@ impl LogicalPlan {
                 Partitioning::Hash(expr, _) => expr.clone(),
                 _ => vec![],
             },
+            LogicalPlan::Window { window_expr, .. } => window_expr.clone(),
             LogicalPlan::Aggregate {
                 group_expr,
                 aggr_expr,
                 ..
-            } => {
-                let mut result = group_expr.clone();
-                result.extend(aggr_expr.clone());
-                result
-            }
+            } => group_expr.iter().chain(aggr_expr.iter()).cloned().collect(),
             LogicalPlan::Join { on, .. } => {
                 on.iter().flat_map(|(l, r)| vec![col(l), col(r)]).collect()
             }
@@ -320,6 +337,7 @@ impl LogicalPlan {
             LogicalPlan::Projection { input, .. } => vec![input],
             LogicalPlan::Filter { input, .. } => vec![input],
             LogicalPlan::Repartition { input, .. } => vec![input],
+            LogicalPlan::Window { input, .. } => vec![input],
             LogicalPlan::Aggregate { input, .. } => vec![input],
             LogicalPlan::Sort { input, .. } => vec![input],
             LogicalPlan::Join { left, right, .. } => vec![left, right],
@@ -327,11 +345,11 @@ impl LogicalPlan {
             LogicalPlan::Limit { input, .. } => vec![input],
             LogicalPlan::Extension { node } => node.inputs(),
             LogicalPlan::Union { inputs, .. } => inputs.iter().collect(),
+            LogicalPlan::Explain { plan, .. } => vec![plan],
             // plans without inputs
             LogicalPlan::TableScan { .. }
             | LogicalPlan::EmptyRelation { .. }
-            | LogicalPlan::CreateExternalTable { .. }
-            | LogicalPlan::Explain { .. } => vec![],
+            | LogicalPlan::CreateExternalTable { .. } => vec![],
         }
     }
 }
@@ -354,13 +372,15 @@ pub enum Partitioning {
 /// after all children have been visited.
 ////
 /// To use, define a struct that implements this trait and then invoke
-/// "LogicalPlan::accept".
+/// [`LogicalPlan::accept`].
 ///
 /// For example, for a logical plan like:
 ///
+/// ```text
 /// Projection: #id
 ///    Filter: #state Eq Utf8(\"CO\")\
 ///       CsvScan: employee.csv projection=Some([0, 3])";
+/// ```
 ///
 /// The sequence of visit operations would be:
 /// ```text
@@ -411,6 +431,7 @@ impl LogicalPlan {
             LogicalPlan::Projection { input, .. } => input.accept(visitor)?,
             LogicalPlan::Filter { input, .. } => input.accept(visitor)?,
             LogicalPlan::Repartition { input, .. } => input.accept(visitor)?,
+            LogicalPlan::Window { input, .. } => input.accept(visitor)?,
             LogicalPlan::Aggregate { input, .. } => input.accept(visitor)?,
             LogicalPlan::Sort { input, .. } => input.accept(visitor)?,
             LogicalPlan::Join { left, right, .. }
@@ -434,11 +455,11 @@ impl LogicalPlan {
                 }
                 true
             }
+            LogicalPlan::Explain { plan, .. } => plan.accept(visitor)?,
             // plans without inputs
             LogicalPlan::TableScan { .. }
             | LogicalPlan::EmptyRelation { .. }
-            | LogicalPlan::CreateExternalTable { .. }
-            | LogicalPlan::Explain { .. } => true,
+            | LogicalPlan::CreateExternalTable { .. } => true,
         };
         if !recurse {
             return Ok(false);
@@ -663,6 +684,11 @@ impl LogicalPlan {
                         predicate: ref expr,
                         ..
                     } => write!(f, "Filter: {:?}", expr),
+                    LogicalPlan::Window {
+                        ref window_expr, ..
+                    } => {
+                        write!(f, "WindowAggr: windowExpr=[{:?}]", window_expr)
+                    }
                     LogicalPlan::Aggregate {
                         ref group_expr,
                         ref aggr_expr,

@@ -52,7 +52,10 @@ fn optimize_concurrency(
             .map(|child| {
                 optimize_concurrency(
                     concurrency,
-                    plan.required_child_distribution() == Distribution::SinglePartition,
+                    matches!(
+                        plan.required_child_distribution(),
+                        Distribution::SinglePartition
+                    ),
                     child.clone(),
                 )
             })
@@ -112,6 +115,7 @@ mod tests {
 
     #[test]
     fn added_repartition_to_single_partition() -> Result<()> {
+        let schema = Arc::new(Schema::empty());
         let parquet_project = ProjectionExec::try_new(
             vec![],
             Arc::new(ParquetExec::new(
@@ -119,7 +123,7 @@ mod tests {
                     filenames: vec!["x".to_string()],
                     statistics: Statistics::default(),
                 }],
-                Schema::empty(),
+                schema,
                 None,
                 None,
                 2048,
@@ -146,6 +150,7 @@ mod tests {
 
     #[test]
     fn repartition_deepest_node() -> Result<()> {
+        let schema = Arc::new(Schema::empty());
         let parquet_project = ProjectionExec::try_new(
             vec![],
             Arc::new(ProjectionExec::try_new(
@@ -155,7 +160,7 @@ mod tests {
                         filenames: vec!["x".to_string()],
                         statistics: Statistics::default(),
                     }],
-                    Schema::empty(),
+                    schema,
                     None,
                     None,
                     2048,

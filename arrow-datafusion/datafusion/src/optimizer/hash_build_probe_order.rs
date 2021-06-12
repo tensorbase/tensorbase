@@ -27,6 +27,7 @@ use crate::optimizer::optimizer::OptimizerRule;
 use crate::{error::Result, prelude::JoinType};
 
 use super::utils;
+use crate::execution::context::ExecutionProps;
 
 /// BuildProbeOrder reorders the build and probe phase of
 /// hash joins. This uses the amount of rows that a datasource has.
@@ -52,6 +53,10 @@ fn get_num_rows(logical_plan: &LogicalPlan) -> Option<usize> {
         LogicalPlan::Limit { n: limit, input } => {
             let num_rows_input = get_num_rows(input);
             num_rows_input.map(|rows| std::cmp::min(*limit, rows))
+        }
+        LogicalPlan::Window { input, .. } => {
+            // window functions do not change num of rows
+            get_num_rows(input)
         }
         LogicalPlan::Aggregate { .. } => {
             // we cannot yet predict how many rows will be produced by an aggregate because
@@ -101,12 +106,23 @@ fn should_swap_join_order(left: &LogicalPlan, right: &LogicalPlan) -> bool {
     }
 }
 
+fn supports_swap(join_type: JoinType) -> bool {
+    match join_type {
+        JoinType::Inner | JoinType::Left | JoinType::Right | JoinType::Full => true,
+        JoinType::Semi | JoinType::Anti => false,
+    }
+}
+
 impl OptimizerRule for HashBuildProbeOrder {
     fn name(&self) -> &str {
         "hash_build_probe_order"
     }
 
-    fn optimize(&self, plan: &LogicalPlan) -> Result<LogicalPlan> {
+    fn optimize(
+        &self,
+        plan: &LogicalPlan,
+        execution_props: &ExecutionProps,
+    ) -> Result<LogicalPlan> {
         match plan {
             // Main optimization rule, swaps order of left and right
             // based on number of rows in each table
@@ -117,9 +133,9 @@ impl OptimizerRule for HashBuildProbeOrder {
                 join_type,
                 schema,
             } => {
-                let left = self.optimize(left)?;
-                let right = self.optimize(right)?;
-                if should_swap_join_order(&left, &right) {
+                let left = self.optimize(left, execution_props)?;
+                let right = self.optimize(right, execution_props)?;
+                if should_swap_join_order(&left, &right) && supports_swap(*join_type) {
                     // Swap left and right, change join type and (equi-)join key order
                     Ok(LogicalPlan::Join {
                         left: Arc::new(right),
@@ -147,8 +163,8 @@ impl OptimizerRule for HashBuildProbeOrder {
                 right,
                 schema,
             } => {
-                let left = self.optimize(left)?;
-                let right = self.optimize(right)?;
+                let left = self.optimize(left, execution_props)?;
+                let right = self.optimize(right, execution_props)?;
                 if should_swap_join_order(&left, &right) {
                     // Swap left and right
                     Ok(LogicalPlan::CrossJoin {
@@ -167,6 +183,7 @@ impl OptimizerRule for HashBuildProbeOrder {
             }
             // Rest: recurse into plan, apply optimization where possible
             LogicalPlan::Projection { .. }
+            | LogicalPlan::Window { .. }
             | LogicalPlan::Aggregate { .. }
             | LogicalPlan::TableScan { .. }
             | LogicalPlan::Limit { .. }
@@ -184,7 +201,7 @@ impl OptimizerRule for HashBuildProbeOrder {
                 let inputs = plan.inputs();
                 let new_inputs = inputs
                     .iter()
-                    .map(|plan| self.optimize(plan))
+                    .map(|plan| self.optimize(plan, execution_props))
                     .collect::<Result<Vec<_>>>()?;
 
                 utils::from_plan(plan, &expr, &new_inputs)
@@ -203,8 +220,10 @@ impl HashBuildProbeOrder {
 fn swap_join_type(join_type: JoinType) -> JoinType {
     match join_type {
         JoinType::Inner => JoinType::Inner,
+        JoinType::Full => JoinType::Full,
         JoinType::Left => JoinType::Right,
         JoinType::Right => JoinType::Left,
+        _ => unreachable!(),
     }
 }
 

@@ -967,7 +967,6 @@ const EPOCH_DAYS_FROM_CE: i32 = 719_163;
 /// Arrays should have the same primitive data type, otherwise this should fail.
 /// We do not perform this check on primitive data types as we only use this
 /// function internally, where it is guaranteed to be infallible.
-#[allow(clippy::unnecessary_wraps)]
 fn cast_array_data<TO>(array: &ArrayRef, to_type: DataType) -> Result<ArrayRef>
 where
     TO: ArrowNumericType,
@@ -985,7 +984,6 @@ where
 }
 
 /// Convert Array into a PrimitiveArray of type, and apply numeric cast
-#[allow(clippy::unnecessary_wraps)]
 fn cast_numeric_arrays<FROM, TO>(from: &ArrayRef) -> Result<ArrayRef>
 where
     FROM: ArrowNumericType,
@@ -1017,7 +1015,6 @@ where
 }
 
 /// Cast numeric types to Utf8
-#[allow(clippy::unnecessary_wraps)]
 fn cast_numeric_to_string<FROM, OffsetSize>(array: &ArrayRef) -> Result<ArrayRef>
 where
     FROM: ArrowNumericType,
@@ -1046,7 +1043,6 @@ where
 }
 
 /// Cast numeric types to Utf8
-#[allow(clippy::unnecessary_wraps)]
 fn cast_string_to_numeric<T, Offset: StringOffsetSizeTrait>(
     from: &ArrayRef,
     cast_options: &CastOptions,
@@ -1112,7 +1108,6 @@ where
 }
 
 /// Casts generic string arrays to Date32Array
-#[allow(clippy::unnecessary_wraps)]
 fn cast_string_to_date32<Offset: StringOffsetSizeTrait>(
     array: &dyn Array,
     cast_options: &CastOptions,
@@ -1175,7 +1170,6 @@ fn cast_string_to_date32<Offset: StringOffsetSizeTrait>(
 }
 
 /// Casts generic string arrays to Date64Array
-#[allow(clippy::unnecessary_wraps)]
 fn cast_string_to_date64<Offset: StringOffsetSizeTrait>(
     array: &dyn Array,
     cast_options: &CastOptions,
@@ -1237,7 +1231,6 @@ fn cast_string_to_date64<Offset: StringOffsetSizeTrait>(
 }
 
 /// Casts generic string arrays to TimeStampNanosecondArray
-#[allow(clippy::unnecessary_wraps)]
 fn cast_string_to_timestamp_ns<Offset: StringOffsetSizeTrait>(
     array: &dyn Array,
     cast_options: &CastOptions,
@@ -1365,7 +1358,6 @@ where
 /// Cast Boolean types to numeric
 ///
 /// `false` returns 0 while `true` returns 1
-#[allow(clippy::unnecessary_wraps)]
 fn cast_bool_to_numeric<TO>(
     from: &ArrayRef,
     cast_options: &CastOptions,
@@ -1427,11 +1419,12 @@ fn dictionary_cast<K: ArrowDictionaryKeyType>(
                     )
                 })?;
 
-            let keys_array: ArrayRef = Arc::new(dict_array.keys_array());
-            let values_array: ArrayRef = dict_array.values();
+            let keys_array: ArrayRef =
+                Arc::new(PrimitiveArray::<K>::from(dict_array.keys().data().clone()));
+            let values_array = dict_array.values();
             let cast_keys = cast_with_options(&keys_array, to_index_type, &cast_options)?;
             let cast_values =
-                cast_with_options(&values_array, to_value_type, &cast_options)?;
+                cast_with_options(values_array, to_value_type, &cast_options)?;
 
             // Failure to cast keys (because they don't fit in the
             // target type) results in NULL values;
@@ -1507,7 +1500,8 @@ where
         cast_with_options(&dict_array.values(), to_type, cast_options)?;
 
     // Note take requires first casting the indices to u32
-    let keys_array: ArrayRef = Arc::new(dict_array.keys_array());
+    let keys_array: ArrayRef =
+        Arc::new(PrimitiveArray::<K>::from(dict_array.keys().data().clone()));
     let indicies = cast_with_options(&keys_array, &DataType::UInt32, cast_options)?;
     let u32_indicies =
         indicies
@@ -1744,6 +1738,7 @@ where
     };
 
     let mut builder = ArrayData::builder(dtype)
+        .offset(array.offset())
         .len(array.len())
         .add_buffer(offset_buffer)
         .add_buffer(str_values_buf);
@@ -1801,7 +1796,12 @@ where
         _ => unreachable!(),
     };
 
-    let offsets = data.buffer::<OffsetSizeFrom>(0);
+    // Safety:
+    //      The first buffer is the offsets and they are aligned to OffSetSizeFrom: (i64 or i32)
+    // Justification:
+    //      The safe variant data.buffer::<OffsetSizeFrom> take the offset into account and we
+    //      cannot create a list array with offsets starting at non zero.
+    let offsets = unsafe { data.buffers()[0].as_slice().align_to::<OffsetSizeFrom>() }.1;
 
     let iter = offsets.iter().map(|idx| {
         let idx: OffsetSizeTo = NumCast::from(*idx).unwrap();
@@ -1814,6 +1814,7 @@ where
 
     // wrap up
     let mut builder = ArrayData::builder(out_dtype)
+        .offset(array.offset())
         .len(array.len())
         .add_buffer(offset_buffer)
         .add_child_data(value_data);
@@ -3578,6 +3579,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore)] // running forever
     fn test_can_cast_types() {
         // this function attempts to ensure that can_cast_types stays
         // in sync with cast.  It simply tries all combinations of
@@ -3896,5 +3898,31 @@ mod tests {
             Dictionary(Box::new(DataType::Int16), Box::new(DataType::Utf8)),
             Dictionary(Box::new(DataType::UInt32), Box::new(DataType::Utf8)),
         ]
+    }
+
+    #[test]
+    fn test_utf8_cast_offsets() {
+        // test if offset of the array is taken into account during cast
+        let str_array = StringArray::from(vec!["a", "b", "c"]);
+        let str_array = str_array.slice(1, 2);
+
+        let out = cast(&str_array, &DataType::LargeUtf8).unwrap();
+
+        let large_str_array = out.as_any().downcast_ref::<LargeStringArray>().unwrap();
+        let strs = large_str_array.into_iter().flatten().collect::<Vec<_>>();
+        assert_eq!(strs, &["b", "c"])
+    }
+
+    #[test]
+    fn test_list_cast_offsets() {
+        // test if offset of the array is taken into account during cast
+        let array1 = make_list_array().slice(1, 2);
+        let array2 = Arc::new(make_list_array()) as ArrayRef;
+
+        let dt = DataType::LargeList(Box::new(Field::new("item", DataType::Int32, true)));
+        let out1 = cast(&array1, &dt).unwrap();
+        let out2 = cast(&array2, &dt).unwrap();
+
+        assert_eq!(&out1, &out2.slice(1, 2))
     }
 }

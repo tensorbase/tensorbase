@@ -22,6 +22,7 @@ use std::{collections::HashSet, sync::Arc};
 use arrow::datatypes::Schema;
 
 use super::optimizer::OptimizerRule;
+use crate::execution::context::ExecutionProps;
 use crate::logical_plan::{
     Expr, LogicalPlan, Operator, Partitioning, PlanType, Recursion, StringifiedPlan,
     ToDFSchema,
@@ -35,6 +36,8 @@ use crate::{
 
 const CASE_EXPR_MARKER: &str = "__DATAFUSION_CASE_EXPR__";
 const CASE_ELSE_MARKER: &str = "__DATAFUSION_CASE_ELSE__";
+const WINDOW_PARTITION_MARKER: &str = "__DATAFUSION_WINDOW_PARTITION__";
+const WINDOW_SORT_MARKER: &str = "__DATAFUSION_WINDOW_SORT__";
 
 /// Recursively walk a list of expression trees, collecting the unique set of column
 /// names referenced in the expression
@@ -77,6 +80,7 @@ impl ExpressionVisitor for ColumnNameVisitor<'_> {
             Expr::Sort { .. } => {}
             Expr::ScalarFunction { .. } => {}
             Expr::ScalarUDF { .. } => {}
+            Expr::WindowFunction { .. } => {}
             Expr::AggregateFunction { .. } => {}
             Expr::AggregateUDF { .. } => {}
             Expr::InList { .. } => {}
@@ -101,11 +105,12 @@ pub fn optimize_explain(
     plan: &LogicalPlan,
     stringified_plans: &[StringifiedPlan],
     schema: &Schema,
+    execution_props: &ExecutionProps,
 ) -> Result<LogicalPlan> {
     // These are the fields of LogicalPlan::Explain It might be nice
     // to transform that enum Variant into its own struct and avoid
     // passing the fields individually
-    let plan = Arc::new(optimizer.optimize(plan)?);
+    let plan = Arc::new(optimizer.optimize(plan, execution_props)?);
     let mut stringified_plans = stringified_plans.to_vec();
     let optimizer_name = optimizer.name().into();
     stringified_plans.push(StringifiedPlan::new(
@@ -128,6 +133,7 @@ pub fn optimize_explain(
 pub fn optimize_children(
     optimizer: &impl OptimizerRule,
     plan: &LogicalPlan,
+    execution_props: &ExecutionProps,
 ) -> Result<LogicalPlan> {
     if let LogicalPlan::Explain {
         verbose,
@@ -142,6 +148,7 @@ pub fn optimize_children(
             &*plan,
             stringified_plans,
             &schema.as_ref().to_owned().into(),
+            execution_props,
         );
     }
 
@@ -149,7 +156,7 @@ pub fn optimize_children(
     let new_inputs = plan
         .inputs()
         .into_iter()
-        .map(|plan| optimizer.optimize(plan))
+        .map(|plan| optimizer.optimize(plan, execution_props))
         .collect::<Result<Vec<_>>>()?;
 
     from_plan(plan, &new_exprs, &new_inputs)
@@ -184,6 +191,15 @@ pub fn from_plan(
                 input: Arc::new(inputs[0].clone()),
             }),
         },
+        LogicalPlan::Window {
+            window_expr,
+            schema,
+            ..
+        } => Ok(LogicalPlan::Window {
+            input: Arc::new(inputs[0].clone()),
+            window_expr: expr[0..window_expr.len()].to_vec(),
+            schema: schema.clone(),
+        }),
         LogicalPlan::Aggregate {
             group_expr, schema, ..
         } => Ok(LogicalPlan::Aggregate {
@@ -243,6 +259,20 @@ pub fn expr_sub_expressions(expr: &Expr) -> Result<Vec<Expr>> {
         Expr::IsNotNull(e) => Ok(vec![e.as_ref().to_owned()]),
         Expr::ScalarFunction { args, .. } => Ok(args.clone()),
         Expr::ScalarUDF { args, .. } => Ok(args.clone()),
+        Expr::WindowFunction {
+            args,
+            partition_by,
+            order_by,
+            ..
+        } => {
+            let mut expr_list: Vec<Expr> = vec![];
+            expr_list.extend(args.clone());
+            expr_list.push(lit(WINDOW_PARTITION_MARKER));
+            expr_list.extend(partition_by.clone());
+            expr_list.push(lit(WINDOW_SORT_MARKER));
+            expr_list.extend(order_by.clone());
+            Ok(expr_list)
+        }
         Expr::AggregateFunction { args, .. } => Ok(args.clone()),
         Expr::AggregateUDF { args, .. } => Ok(args.clone()),
         Expr::Case {
@@ -315,6 +345,49 @@ pub fn rewrite_expression(expr: &Expr, expressions: &[Expr]) -> Result<Expr> {
             fun: fun.clone(),
             args: expressions.to_vec(),
         }),
+        Expr::WindowFunction {
+            fun, window_frame, ..
+        } => {
+            let partition_index = expressions
+                .iter()
+                .position(|expr| {
+                    matches!(expr, Expr::Literal(ScalarValue::Utf8(Some(str)))
+            if str == WINDOW_PARTITION_MARKER)
+                })
+                .ok_or_else(|| {
+                    DataFusionError::Internal(
+                        "Ill-formed window function expressions: unexpected marker"
+                            .to_owned(),
+                    )
+                })?;
+
+            let sort_index = expressions
+                .iter()
+                .position(|expr| {
+                    matches!(expr, Expr::Literal(ScalarValue::Utf8(Some(str)))
+            if str == WINDOW_SORT_MARKER)
+                })
+                .ok_or_else(|| {
+                    DataFusionError::Internal(
+                        "Ill-formed window function expressions".to_owned(),
+                    )
+                })?;
+
+            if partition_index >= sort_index {
+                Err(DataFusionError::Internal(
+                    "Ill-formed window function expressions: partition index too large"
+                        .to_owned(),
+                ))
+            } else {
+                Ok(Expr::WindowFunction {
+                    fun: fun.clone(),
+                    args: expressions[..partition_index].to_vec(),
+                    partition_by: expressions[partition_index + 1..sort_index].to_vec(),
+                    order_by: expressions[sort_index + 1..].to_vec(),
+                    window_frame: *window_frame,
+                })
+            }
+        }
         Expr::AggregateFunction { fun, distinct, .. } => Ok(Expr::AggregateFunction {
             fun: fun.clone(),
             args: expressions.to_vec(),
@@ -443,7 +516,11 @@ mod tests {
     struct TestOptimizer {}
 
     impl OptimizerRule for TestOptimizer {
-        fn optimize(&self, plan: &LogicalPlan) -> Result<LogicalPlan> {
+        fn optimize(
+            &self,
+            plan: &LogicalPlan,
+            _: &ExecutionProps,
+        ) -> Result<LogicalPlan> {
             Ok(plan.clone())
         }
 
@@ -465,6 +542,7 @@ mod tests {
             &empty_plan,
             &[StringifiedPlan::new(PlanType::LogicalPlan, "...")],
             schema.as_ref(),
+            &ExecutionProps::new(),
         )?;
 
         match &optimized_explain {

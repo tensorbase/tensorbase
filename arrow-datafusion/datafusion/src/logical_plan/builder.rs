@@ -24,18 +24,17 @@ use arrow::{
     record_batch::RecordBatch,
 };
 
-use crate::datasource::TableProvider;
-use crate::error::{DataFusionError, Result};
-use crate::{
-    datasource::{empty::EmptyTable, parquet::ParquetTable, CsvFile, MemTable},
-    prelude::CsvReadOptions,
-};
-
 use super::dfschema::ToDFSchema;
 use super::{
     col, exprlist_to_fields, Expr, JoinType, LogicalPlan, PlanType, StringifiedPlan,
 };
+use crate::datasource::TableProvider;
+use crate::error::{DataFusionError, Result};
 use crate::logical_plan::{DFField, DFSchema, DFSchemaRef, Partitioning};
+use crate::{
+    datasource::{empty::EmptyTable, parquet::ParquetTable, CsvFile, MemTable},
+    prelude::CsvReadOptions,
+};
 use std::collections::HashSet;
 
 /// Builder for logical plans
@@ -289,6 +288,30 @@ impl LogicalPlanBuilder {
         }))
     }
 
+    /// Apply a window
+    ///
+    /// NOTE: this feature is under development and this API will be changing
+    ///
+    /// - https://github.com/apache/arrow-datafusion/issues/359 basic structure
+    /// - https://github.com/apache/arrow-datafusion/issues/298 empty over clause
+    /// - https://github.com/apache/arrow-datafusion/issues/299 with partition clause
+    /// - https://github.com/apache/arrow-datafusion/issues/360 with order by
+    /// - https://github.com/apache/arrow-datafusion/issues/361 with window frame
+    pub fn window(&self, window_expr: Vec<Expr>) -> Result<Self> {
+        let all_expr = window_expr.iter();
+        validate_unique_names("Windows", all_expr.clone(), self.plan.schema())?;
+
+        let mut window_fields: Vec<DFField> =
+            exprlist_to_fields(all_expr, self.plan.schema())?;
+        window_fields.extend_from_slice(self.plan.schema().fields());
+
+        Ok(Self::from(&LogicalPlan::Window {
+            input: Arc::new(self.plan.clone()),
+            window_expr,
+            schema: Arc::new(DFSchema::new(window_fields)?),
+        }))
+    }
+
     /// Apply an aggregate: grouping on the `group_expr` expressions
     /// and calculating `aggr_expr` aggregates for each distinct
     /// value of the `group_expr`;
@@ -347,7 +370,7 @@ fn build_join_schema(
     join_type: &JoinType,
 ) -> Result<DFSchema> {
     let fields: Vec<DFField> = match join_type {
-        JoinType::Inner | JoinType::Left => {
+        JoinType::Inner | JoinType::Left | JoinType::Full => {
             // remove right-side join keys if they have the same names as the left-side
             let duplicate_keys = &on
                 .iter()
@@ -364,6 +387,10 @@ fn build_join_schema(
 
             // left then right
             left_fields.chain(right_fields).cloned().collect()
+        }
+        JoinType::Semi | JoinType::Anti => {
+            // Only use the left side for the schema
+            left.fields().clone()
         }
         JoinType::Right => {
             // remove left-side join keys if they have the same names as the right-side

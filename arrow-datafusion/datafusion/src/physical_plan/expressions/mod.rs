@@ -40,7 +40,9 @@ mod literal;
 mod min_max;
 mod negative;
 mod not;
+mod nth_value;
 mod nullif;
+mod row_number;
 mod sum;
 mod try_cast;
 
@@ -57,7 +59,9 @@ pub use literal::{lit, Literal};
 pub use min_max::{Max, Min};
 pub use negative::{negative, NegativeExpr};
 pub use not::{not, NotExpr};
+pub use nth_value::NthValue;
 pub use nullif::{nullif_func, SUPPORTED_NULLIF_TYPES};
+pub use row_number::RowNumber;
 pub use sum::{sum_return_type, Sum};
 pub use try_cast::{try_cast, TryCastExpr};
 /// returns the name of the state
@@ -72,6 +76,19 @@ pub struct PhysicalSortExpr {
     pub expr: Arc<dyn PhysicalExpr>,
     /// Option to specify how the given column should be sorted
     pub options: SortOptions,
+}
+
+impl std::fmt::Display for PhysicalSortExpr {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let opts_string = match (self.options.descending, self.options.nulls_first) {
+            (true, true) => "DESC",
+            (true, false) => "DESC NULLS LAST",
+            (false, true) => "ASC",
+            (false, false) => "ASC NULLS LAST",
+        };
+
+        write!(f, "{} {}", self.expr, opts_string)
+    }
 }
 
 impl PhysicalSortExpr {

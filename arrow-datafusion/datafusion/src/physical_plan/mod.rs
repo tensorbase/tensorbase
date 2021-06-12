@@ -17,23 +17,27 @@
 
 //! Traits for physical query plan, supporting parallel execution for partitioned relations.
 
+use std::fmt;
 use std::fmt::{Debug, Display};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
-use std::{any::Any, pin::Pin};
 
 use crate::execution::context::ExecutionContextState;
 use crate::logical_plan::LogicalPlan;
-use crate::{error::Result, scalar::ScalarValue};
+use crate::{
+    error::{DataFusionError, Result},
+    scalar::ScalarValue,
+};
 use arrow::datatypes::{DataType, Schema, SchemaRef};
 use arrow::error::Result as ArrowResult;
 use arrow::record_batch::RecordBatch;
 use arrow::{array::ArrayRef, datatypes::Field};
-
 use async_trait::async_trait;
+pub use display::DisplayFormatType;
 use futures::stream::Stream;
+use std::{any::Any, pin::Pin};
 
-use self::merge::MergeExec;
+use self::{display::DisplayableExecutionPlan, merge::MergeExec};
 use hashbrown::HashMap;
 
 /// Trait for types that stream [arrow::record_batch::RecordBatch]
@@ -120,7 +124,16 @@ pub trait PhysicalPlanner {
     ) -> Result<Arc<dyn ExecutionPlan>>;
 }
 
-/// Partition-aware execution plan for a relation
+/// `ExecutionPlan` represent nodes in the DataFusion Physical Plan.
+///
+/// Each `ExecutionPlan` is Partition-aware and is responsible for
+/// creating the actual `async` [`SendableRecordBatchStream`]s
+/// of [`RecordBatch`] that incrementally compute the operator's
+/// output from its input partition.
+///
+/// [`ExecutionPlan`] can be displayed in an simplified form using the
+/// return value from [`displayable`] in addition to the (normally
+/// quite verbose) `Debug` output.
 #[async_trait]
 pub trait ExecutionPlan: Debug + Send + Sync {
     /// Returns the execution plan as [`Any`](std::any::Any) so that it can be
@@ -152,6 +165,137 @@ pub trait ExecutionPlan: Debug + Send + Sync {
     fn metrics(&self) -> HashMap<String, SQLMetric> {
         HashMap::new()
     }
+
+    /// Format this `ExecutionPlan` to `f` in the specified type.
+    ///
+    /// Should not include a newline
+    ///
+    /// Note this function prints a placeholder by default to preserve
+    /// backwards compatibility.
+    fn fmt_as(&self, _t: DisplayFormatType, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "ExecutionPlan(PlaceHolder)")
+    }
+}
+
+/// Return a [wrapper](DisplayableExecutionPlan) around an
+/// [`ExecutionPlan`] which can be displayed in various easier to
+/// understand ways.
+///
+/// ```
+/// use datafusion::prelude::*;
+/// use datafusion::physical_plan::displayable;
+///
+/// // Hard code concurrency as it appears in the RepartitionExec output
+/// let config = ExecutionConfig::new()
+///     .with_concurrency(3);
+/// let mut ctx = ExecutionContext::with_config(config);
+///
+/// // register the a table
+/// ctx.register_csv("example", "tests/example.csv", CsvReadOptions::new()).unwrap();
+///
+/// // create a plan to run a SQL query
+/// let plan = ctx
+///    .create_logical_plan("SELECT a FROM example WHERE a < 5")
+///    .unwrap();
+/// let plan = ctx.optimize(&plan).unwrap();
+/// let physical_plan = ctx.create_physical_plan(&plan).unwrap();
+///
+/// // Format using display string
+/// let displayable_plan = displayable(physical_plan.as_ref());
+/// let plan_string = format!("{}", displayable_plan.indent());
+///
+/// assert_eq!("ProjectionExec: expr=[a]\
+///            \n  CoalesceBatchesExec: target_batch_size=4096\
+///            \n    FilterExec: a < 5\
+///            \n      RepartitionExec: partitioning=RoundRobinBatch(3)\
+///            \n        CsvExec: source=Path(tests/example.csv: [tests/example.csv]), has_header=true",
+///             plan_string.trim());
+/// ```
+///
+pub fn displayable(plan: &dyn ExecutionPlan) -> DisplayableExecutionPlan<'_> {
+    DisplayableExecutionPlan::new(plan)
+}
+
+/// Visit all children of this plan, according to the order defined on `ExecutionPlanVisitor`.
+// Note that this would be really nice if it were a method on
+// ExecutionPlan, but it can not be because it takes a generic
+// parameter and `ExecutionPlan` is a trait
+pub fn accept<V: ExecutionPlanVisitor>(
+    plan: &dyn ExecutionPlan,
+    visitor: &mut V,
+) -> std::result::Result<(), V::Error> {
+    visitor.pre_visit(plan)?;
+    for child in plan.children() {
+        visit_execution_plan(child.as_ref(), visitor)?;
+    }
+    visitor.post_visit(plan)?;
+    Ok(())
+}
+
+/// Trait that implements the [Visitor
+/// pattern](https://en.wikipedia.org/wiki/Visitor_pattern) for a
+/// depth first walk of `ExecutionPlan` nodes. `pre_visit` is called
+/// before any children are visited, and then `post_visit` is called
+/// after all children have been visited.
+////
+/// To use, define a struct that implements this trait and then invoke
+/// ['accept'].
+///
+/// For example, for an execution plan that looks like:
+///
+/// ```text
+/// ProjectionExec: #id
+///    FilterExec: state = CO
+///       CsvExec:
+/// ```
+///
+/// The sequence of visit operations would be:
+/// ```text
+/// visitor.pre_visit(ProjectionExec)
+/// visitor.pre_visit(FilterExec)
+/// visitor.pre_visit(CsvExec)
+/// visitor.post_visit(CsvExec)
+/// visitor.post_visit(FilterExec)
+/// visitor.post_visit(ProjectionExec)
+/// ```
+pub trait ExecutionPlanVisitor {
+    /// The type of error returned by this visitor
+    type Error;
+
+    /// Invoked on an `ExecutionPlan` plan before any of its child
+    /// inputs have been visited. If Ok(true) is returned, the
+    /// recursion continues. If Err(..) or Ok(false) are returned, the
+    /// recursion stops immediately and the error, if any, is returned
+    /// to `accept`
+    fn pre_visit(
+        &mut self,
+        plan: &dyn ExecutionPlan,
+    ) -> std::result::Result<bool, Self::Error>;
+
+    /// Invoked on an `ExecutionPlan` plan *after* all of its child
+    /// inputs have been visited. The return value is handled the same
+    /// as the return value of `pre_visit`. The provided default
+    /// implementation returns `Ok(true)`.
+    fn post_visit(
+        &mut self,
+        _plan: &dyn ExecutionPlan,
+    ) -> std::result::Result<bool, Self::Error> {
+        Ok(true)
+    }
+}
+
+/// Recursively calls `pre_visit` and `post_visit` for this node and
+/// all of its children, as described on [`ExecutionPlanVisitor`]
+pub fn visit_execution_plan<V: ExecutionPlanVisitor>(
+    plan: &dyn ExecutionPlan,
+    visitor: &mut V,
+) -> std::result::Result<(), V::Error> {
+    visitor.pre_visit(plan)?;
+    for child in plan.children() {
+        visit_execution_plan(child.as_ref(), visitor)?;
+    }
+    visitor.post_visit(plan)?;
+    Ok(())
 }
 
 /// Execute the [ExecutionPlan] and collect the results in memory
@@ -218,12 +362,15 @@ impl Partitioning {
 }
 
 /// Distribution schemes
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone)]
 pub enum Distribution {
     /// Unspecified distribution
     UnspecifiedDistribution,
     /// A single partition is required
     SinglePartition,
+    /// Requires children to be distributed in such a way that the same
+    /// values of the keys end up in the same partition
+    HashPartitioned(Vec<Arc<dyn PhysicalExpr>>),
 }
 
 /// Represents the result from an expression
@@ -290,10 +437,45 @@ pub trait AggregateExpr: Send + Sync + Debug {
     /// expressions that are passed to the Accumulator.
     /// Single-column aggregations such as `sum` return a single value, others (e.g. `cov`) return many.
     fn expressions(&self) -> Vec<Arc<dyn PhysicalExpr>>;
+
+    /// Human readable name such as `"MIN(c2)"`. The default
+    /// implementation returns placeholder text.
+    fn name(&self) -> &str {
+        "AggregateExpr: default name"
+    }
+}
+
+/// A window expression that:
+/// * knows its resulting field
+pub trait WindowExpr: Send + Sync + Debug {
+    /// Returns the window expression as [`Any`](std::any::Any) so that it can be
+    /// downcast to a specific implementation.
+    fn as_any(&self) -> &dyn Any;
+
+    /// the field of the final result of this window function.
+    fn field(&self) -> Result<Field>;
+
+    /// Human readable name such as `"MIN(c2)"` or `"RANK()"`. The default
+    /// implementation returns placeholder text.
+    fn name(&self) -> &str {
+        "WindowExpr: default name"
+    }
+
+    /// the accumulator used to accumulate values from the expressions.
+    /// the accumulator expects the same number of arguments as `expressions` and must
+    /// return states with the same description as `state_fields`
+    fn create_accumulator(&self) -> Result<Box<dyn WindowAccumulator>>;
+
+    /// expressions that are passed to the WindowAccumulator.
+    /// Functions which take a single input argument, such as `sum`, return a single [`Expr`],
+    /// others (e.g. `cov`) return many.
+    fn expressions(&self) -> Vec<Arc<dyn PhysicalExpr>>;
 }
 
 /// An accumulator represents a stateful object that lives throughout the evaluation of multiple rows and
-/// generically accumulates values. An accumulator knows how to:
+/// generically accumulates values.
+///
+/// An accumulator knows how to:
 /// * update its state from inputs via `update`
 /// * convert its internal state to a vector of scalar values
 /// * update its state from multiple accumulators' states via `merge`
@@ -342,6 +524,58 @@ pub trait Accumulator: Send + Sync + Debug {
     fn evaluate(&self) -> Result<ScalarValue>;
 }
 
+/// A window accumulator represents a stateful object that lives throughout the evaluation of multiple
+/// rows and generically accumulates values.
+///
+/// An accumulator knows how to:
+/// * update its state from inputs via `update`
+/// * convert its internal state to a vector of scalar values
+/// * update its state from multiple accumulators' states via `merge`
+/// * compute the final value from its internal state via `evaluate`
+pub trait WindowAccumulator: Send + Sync + Debug {
+    /// scans the accumulator's state from a vector of scalars, similar to Accumulator it also
+    /// optionally generates values.
+    fn scan(&mut self, values: &[ScalarValue]) -> Result<Option<ScalarValue>>;
+
+    /// scans the accumulator's state from a vector of arrays.
+    fn scan_batch(
+        &mut self,
+        num_rows: usize,
+        values: &[ArrayRef],
+    ) -> Result<Option<ArrayRef>> {
+        if values.is_empty() {
+            return Ok(None);
+        };
+        // transpose columnar to row based so that we can apply window
+        let result = (0..num_rows)
+            .map(|index| {
+                let v = values
+                    .iter()
+                    .map(|array| ScalarValue::try_from_array(array, index))
+                    .collect::<Result<Vec<_>>>()?;
+                self.scan(&v)
+            })
+            .collect::<Result<Vec<Option<ScalarValue>>>>()?
+            .into_iter()
+            .collect::<Option<Vec<ScalarValue>>>();
+
+        Ok(match result {
+            Some(arr) if num_rows == arr.len() => Some(ScalarValue::iter_to_array(arr)?),
+            None => None,
+            Some(arr) => {
+                return Err(DataFusionError::Internal(format!(
+                    "expect scan batch to return {:?} rows, but got {:?}",
+                    num_rows,
+                    arr.len()
+                )))
+            }
+        })
+    }
+
+    /// returns its value based on its current state.
+    fn evaluate(&self) -> Result<Option<ScalarValue>>;
+}
+
 pub mod aggregates;
 pub mod array_expressions;
 pub mod coalesce_batches;
@@ -351,6 +585,7 @@ pub mod cross_join;
 pub mod crypto_expressions;
 pub mod csv;
 pub mod datetime_expressions;
+pub mod display;
 pub mod distinct_expressions;
 pub mod empty;
 pub mod explain;
@@ -361,6 +596,7 @@ pub mod group_scalar;
 pub mod hash_aggregate;
 pub mod hash_join;
 pub mod hash_utils;
+pub mod json;
 pub mod limit;
 pub mod math_expressions;
 pub mod memory;
@@ -372,6 +608,8 @@ pub mod projection;
 pub mod regex_expressions;
 pub mod repartition;
 pub mod sort;
+pub mod sort_preserving_merge;
+pub mod source;
 pub mod string_expressions;
 pub mod type_coercion;
 pub mod udaf;
@@ -379,3 +617,5 @@ pub mod udf;
 #[cfg(feature = "unicode_expressions")]
 pub mod unicode_expressions;
 pub mod union;
+pub mod window_functions;
+pub mod windows;

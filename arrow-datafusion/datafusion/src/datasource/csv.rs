@@ -25,7 +25,7 @@
 //! use datafusion::datasource::TableProvider;
 //! use datafusion::datasource::csv::{CsvFile, CsvReadOptions};
 //!
-//! let testdata = arrow::util::test_util::arrow_test_data();
+//! let testdata = datafusion::test_util::arrow_test_data();
 //! let csvdata = CsvFile::try_new(
 //!     &format!("{}/csv/aggregate_test_100.csv", testdata),
 //!     CsvReadOptions::new().delimiter(b'|'),
@@ -40,20 +40,12 @@ use std::string::String;
 use std::sync::{Arc, Mutex};
 
 use crate::datasource::datasource::Statistics;
-use crate::datasource::TableProvider;
+use crate::datasource::{Source, TableProvider};
 use crate::error::{DataFusionError, Result};
 use crate::logical_plan::Expr;
 use crate::physical_plan::csv::CsvExec;
 pub use crate::physical_plan::csv::CsvReadOptions;
 use crate::physical_plan::{common, ExecutionPlan};
-
-enum Source {
-    /// Path to a single CSV file or a directory containing one of more CSV files
-    Path(String),
-
-    /// Read CSV data from a reader
-    Reader(Mutex<Option<Box<dyn Read + Send + Sync + 'static>>>),
-}
 
 /// Represents a CSV file with a provided schema
 pub struct CsvFile {
@@ -230,7 +222,7 @@ mod tests {
 
     #[tokio::test]
     async fn csv_file_from_reader() -> Result<()> {
-        let testdata = arrow::util::test_util::arrow_test_data();
+        let testdata = crate::test_util::arrow_test_data();
         let filename = "aggregate_test_100.csv";
         let path = format!("{}/csv/{}", testdata, filename);
         let buf = std::fs::read(path).unwrap();

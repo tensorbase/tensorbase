@@ -69,7 +69,7 @@ fn min_max_string<T: StringOffsetSizeTrait, F: Fn(&str, &str) -> bool>(
 
 /// Returns the minimum value in the array, according to the natural order.
 /// For floating point arrays any NaN values are considered to be greater than any other non-null value
-#[cfg(not(simd))]
+#[cfg(not(feature = "simd"))]
 pub fn min<T>(array: &PrimitiveArray<T>) -> Option<T::Native>
 where
     T: ArrowNumericType,
@@ -80,7 +80,7 @@ where
 
 /// Returns the maximum value in the array, according to the natural order.
 /// For floating point arrays any NaN values are considered to be greater than any other non-null value
-#[cfg(not(simd))]
+#[cfg(not(feature = "simd"))]
 pub fn max<T>(array: &PrimitiveArray<T>) -> Option<T::Native>
 where
     T: ArrowNumericType,
@@ -193,7 +193,7 @@ pub fn max_boolean(array: &BooleanArray) -> Option<bool> {
 /// Returns the sum of values in the array.
 ///
 /// Returns `None` if the array is empty or only contains null values.
-#[cfg(not(simd))]
+#[cfg(not(feature = "simd"))]
 pub fn sum<T>(array: &PrimitiveArray<T>) -> Option<T::Native>
 where
     T: ArrowNumericType,
@@ -247,116 +247,7 @@ where
     }
 }
 
-
-#[cfg(not(simd))]
-pub fn sum_i64<T>(array: &PrimitiveArray<T>) -> Option<i64>
-where
-    T: ArrowNumericType,
-    T::Native: Add<Output = T::Native>,
-{
-    let null_count = array.null_count();
-
-    if null_count == array.len() {
-        return None;
-    }
-
-    let data: &[T::Native] = array.values();
-
-    match array.data().null_buffer() {
-        None => {
-            let sum = data.iter().fold(0i64, |accumulator, value| {
-                accumulator + (*value).to_isize().unwrap() as i64
-            });
-
-            Some(sum)
-        }
-        Some(buffer) => {
-            let mut sum = T::default_value();
-            let data_chunks = data.chunks_exact(64);
-            let remainder = data_chunks.remainder();
-
-            let bit_chunks = buffer.bit_chunks(array.offset(), array.len());
-            data_chunks
-                .zip(bit_chunks.iter())
-                .for_each(|(chunk, mask)| {
-                    // index_mask has value 1 << i in the loop
-                    let mut index_mask = 1;
-                    chunk.iter().for_each(|value| {
-                        if (mask & index_mask) != 0 {
-                            sum = sum + *value;
-                        }
-                        index_mask <<= 1;
-                    });
-                });
-
-            let remainder_bits = bit_chunks.remainder_bits();
-
-            remainder.iter().enumerate().for_each(|(i, value)| {
-                if remainder_bits & (1 << i) != 0 {
-                    sum = sum + *value;
-                }
-            });
-
-            Some(sum.to_isize().unwrap() as i64)
-        }
-    }
-}
-
-#[cfg(not(simd))]
-pub fn sum_u64<T>(array: &PrimitiveArray<T>) -> Option<u64>
-where
-    T: ArrowNumericType,
-    T::Native: Add<Output = T::Native>,
-{
-    let null_count = array.null_count();
-
-    if null_count == array.len() {
-        return None;
-    }
-
-    let data: &[T::Native] = array.values();
-
-    match array.data().null_buffer() {
-        None => {
-            let sum = data.iter().fold(0u64, |accumulator, value| {
-                accumulator + (*value).to_usize().unwrap() as u64
-            });
-
-            Some(sum)
-        }
-        Some(buffer) => {
-            let mut sum = T::default_value();
-            let data_chunks = data.chunks_exact(64);
-            let remainder = data_chunks.remainder();
-
-            let bit_chunks = buffer.bit_chunks(array.offset(), array.len());
-            data_chunks
-                .zip(bit_chunks.iter())
-                .for_each(|(chunk, mask)| {
-                    // index_mask has value 1 << i in the loop
-                    let mut index_mask = 1;
-                    chunk.iter().for_each(|value| {
-                        if (mask & index_mask) != 0 {
-                            sum = sum + *value;
-                        }
-                        index_mask <<= 1;
-                    });
-                });
-
-            let remainder_bits = bit_chunks.remainder_bits();
-
-            remainder.iter().enumerate().for_each(|(i, value)| {
-                if remainder_bits & (1 << i) != 0 {
-                    sum = sum + *value;
-                }
-            });
-
-            Some(sum.to_usize().unwrap() as u64)
-        }
-    }
-}
-
-#[cfg(simd)]
+#[cfg(feature = "simd")]
 mod simd {
     use super::is_nan;
     use crate::array::{Array, PrimitiveArray};
@@ -701,7 +592,7 @@ mod simd {
 /// Returns the sum of values in the array.
 ///
 /// Returns `None` if the array is empty or only contains null values.
-#[cfg(simd)]
+#[cfg(feature = "simd")]
 pub fn sum<T: ArrowNumericType>(array: &PrimitiveArray<T>) -> Option<T::Native>
 where
     T::Native: Add<Output = T::Native>,
@@ -711,7 +602,7 @@ where
     simd::simd_aggregation::<T, SumAggregate<T>>(&array)
 }
 
-#[cfg(simd)]
+#[cfg(feature = "simd")]
 /// Returns the minimum value in the array, according to the natural order.
 /// For floating point arrays any NaN values are considered to be greater than any other non-null value
 pub fn min<T: ArrowNumericType>(array: &PrimitiveArray<T>) -> Option<T::Native>
@@ -723,7 +614,7 @@ where
     simd::simd_aggregation::<T, MinAggregate<T>>(&array)
 }
 
-#[cfg(simd)]
+#[cfg(feature = "simd")]
 /// Returns the maximum value in the array, according to the natural order.
 /// For floating point arrays any NaN values are considered to be greater than any other non-null value
 pub fn max<T: ArrowNumericType>(array: &PrimitiveArray<T>) -> Option<T::Native>

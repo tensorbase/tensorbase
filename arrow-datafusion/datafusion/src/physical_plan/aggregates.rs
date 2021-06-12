@@ -37,7 +37,6 @@ use crate::physical_plan::expressions;
 use arrow::datatypes::{DataType, Schema, TimeUnit};
 use expressions::{avg_return_type, sum_return_type};
 use std::{fmt, str::FromStr, sync::Arc};
-
 /// the implementation of an aggregate function
 pub type AccumulatorFunctionImplementation =
     Arc<dyn Fn() -> Result<Box<dyn Accumulator>> + Send + Sync>;
@@ -114,7 +113,14 @@ pub fn create_aggregate_expr(
     name: String,
 ) -> Result<Arc<dyn AggregateExpr>> {
     // coerce
-    let arg = coerce(args, input_schema, &signature(fun))?[0].clone();
+    let arg = coerce(args, input_schema, &signature(fun))?;
+    if arg.is_empty() {
+        return Err(DataFusionError::Plan(format!(
+            "Invalid or wrong number of arguments passed to aggregate: '{}'",
+            name,
+        )));
+    }
+    let arg = arg[0].clone();
 
     let arg_types = args
         .iter()
@@ -184,7 +190,7 @@ static TIMESTAMPS: &[DataType] = &[
 ];
 
 /// the signatures supported by the function `fun`.
-fn signature(fun: &AggregateFunction) -> Signature {
+pub fn signature(fun: &AggregateFunction) -> Signature {
     // note: the physical expression must accept the type returned by this function or the execution panics.
     match fun {
         AggregateFunction::Count => Signature::Any(1),

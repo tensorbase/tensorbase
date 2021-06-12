@@ -33,6 +33,7 @@ use super::{
     type_coercion::{coerce, data_types},
     ColumnarValue, PhysicalExpr,
 };
+use crate::execution::context::ExecutionContextState;
 use crate::physical_plan::array_expressions;
 use crate::physical_plan::datetime_expressions;
 use crate::physical_plan::expressions::{nullif_func, SUPPORTED_NULLIF_TYPES};
@@ -43,13 +44,14 @@ use crate::{
     scalar::ScalarValue,
 };
 use arrow::{
-    array::ArrayRef,
+    array::{ArrayRef, NullArray},
     compute::kernels::length::{bit_length, length},
     datatypes::TimeUnit,
     datatypes::{DataType, Field, Int32Type, Int64Type, Schema},
     record_batch::RecordBatch,
 };
 use fmt::{Debug, Formatter};
+use std::convert::From;
 use std::{any::Any, fmt, str::FromStr, sync::Arc};
 
 /// A function's signature, which defines the function's supported argument types.
@@ -75,6 +77,13 @@ pub enum Signature {
 }
 
 /// Scalar function
+///
+/// The Fn param is the wrapped function but be aware that the function will
+/// be passed with the slice / vec of columnar values (either scalar or array)
+/// with the exception of zero param function, where a singular element vec
+/// will be passed. In that case the single element is a null array to indicate
+/// the batch's row count (so that the generative zero-argument function can know
+/// the result array size).
 pub type ScalarFunctionImplementation =
     Arc<dyn Fn(&[ColumnarValue]) -> Result<ColumnarValue> + Send + Sync>;
 
@@ -85,6 +94,9 @@ pub type ReturnTypeFunction =
 /// Enum of all built-in scalar functions
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum BuiltinScalarFunction {
+    /// date and time
+    /// to_date
+    ToDate,
     // math functions
     /// abs
     Abs,
@@ -160,6 +172,8 @@ pub enum BuiltinScalarFunction {
     NullIf,
     /// octet_length
     OctetLength,
+    /// random
+    Random,
     /// regexp_replace
     RegexpReplace,
     /// repeat
@@ -194,8 +208,8 @@ pub enum BuiltinScalarFunction {
     ToHex,
     /// to_timestamp
     ToTimestamp,
-    /// to_date 
-    ToDate,
+    ///now
+    Now,
     /// translate
     Translate,
     /// trim
@@ -204,6 +218,17 @@ pub enum BuiltinScalarFunction {
     Upper,
     /// regexp_match
     RegexpMatch,
+}
+
+impl BuiltinScalarFunction {
+    /// an allowlist of functions to take zero arguments, so that they will get special treatment
+    /// while executing.
+    fn supports_zero_argument(&self) -> bool {
+        matches!(
+            self,
+            BuiltinScalarFunction::Random | BuiltinScalarFunction::Now
+        )
+    }
 }
 
 impl fmt::Display for BuiltinScalarFunction {
@@ -217,6 +242,7 @@ impl FromStr for BuiltinScalarFunction {
     type Err = DataFusionError;
     fn from_str(name: &str) -> Result<BuiltinScalarFunction> {
         Ok(match name {
+            "to_date" => BuiltinScalarFunction::ToDate,
             // math functions
             "abs" => BuiltinScalarFunction::Abs,
             "acos" => BuiltinScalarFunction::Acos,
@@ -258,6 +284,7 @@ impl FromStr for BuiltinScalarFunction {
             "md5" => BuiltinScalarFunction::MD5,
             "nullif" => BuiltinScalarFunction::NullIf,
             "octet_length" => BuiltinScalarFunction::OctetLength,
+            "random" => BuiltinScalarFunction::Random,
             "regexp_replace" => BuiltinScalarFunction::RegexpReplace,
             "repeat" => BuiltinScalarFunction::Repeat,
             "replace" => BuiltinScalarFunction::Replace,
@@ -275,12 +302,11 @@ impl FromStr for BuiltinScalarFunction {
             "substr" => BuiltinScalarFunction::Substr,
             "to_hex" => BuiltinScalarFunction::ToHex,
             "to_timestamp" => BuiltinScalarFunction::ToTimestamp,
-            "to_date" => BuiltinScalarFunction::ToDate,
+            "now" => BuiltinScalarFunction::Now,
             "translate" => BuiltinScalarFunction::Translate,
             "trim" => BuiltinScalarFunction::Trim,
             "upper" => BuiltinScalarFunction::Upper,
             "regexp_match" => BuiltinScalarFunction::RegexpMatch,
-
             _ => {
                 return Err(DataFusionError::Plan(format!(
                     "There is no built-in function named {}",
@@ -290,6 +316,28 @@ impl FromStr for BuiltinScalarFunction {
         })
     }
 }
+
+macro_rules! make_utf8_to_return_type {
+    ($FUNC:ident, $largeUtf8Type:expr, $utf8Type:expr) => {
+        fn $FUNC(arg_type: &DataType, name: &str) -> Result<DataType> {
+            Ok(match arg_type {
+                DataType::LargeUtf8 => $largeUtf8Type,
+                DataType::Utf8 => $utf8Type,
+                _ => {
+                    // this error is internal as `data_types` should have captured this.
+                    return Err(DataFusionError::Internal(format!(
+                        "The {:?} function can only accept strings.",
+                        name
+                    )));
+                }
+            })
+        }
+    };
+}
+
+make_utf8_to_return_type!(utf8_to_str_type, DataType::LargeUtf8, DataType::Utf8);
+make_utf8_to_return_type!(utf8_to_int_type, DataType::Int64, DataType::Int32);
+make_utf8_to_return_type!(utf8_to_binary_type, DataType::Binary, DataType::Binary);
 
 /// Returns the datatype of the scalar function
 pub fn return_type(
@@ -302,53 +350,22 @@ pub fn return_type(
     // verify that this is a valid set of data types for this function
     data_types(&arg_types, &signature(fun))?;
 
-    if arg_types.is_empty() {
-        // functions currently cannot be evaluated without arguments, as they can't
-        // know the number of rows to return.
-        return Err(DataFusionError::Plan(format!(
-            "Function '{}' requires at least one argument",
-            fun
-        )));
-    }
-
     // the return type of the built in function.
     // Some built-in functions' return type depends on the incoming type.
     match fun {
+        BuiltinScalarFunction::ToDate => {
+            Ok(DataType::Date16)
+        }
         BuiltinScalarFunction::Array => Ok(DataType::FixedSizeList(
             Box::new(Field::new("item", arg_types[0].clone(), true)),
             arg_types.len() as i32,
         )),
         BuiltinScalarFunction::Ascii => Ok(DataType::Int32),
-        BuiltinScalarFunction::BitLength => Ok(match arg_types[0] {
-            DataType::LargeUtf8 => DataType::Int64,
-            DataType::Utf8 => DataType::Int32,
-            _ => {
-                // this error is internal as `data_types` should have captured this.
-                return Err(DataFusionError::Internal(
-                    "The bit_length function can only accept strings.".to_string(),
-                ));
-            }
-        }),
-        BuiltinScalarFunction::Btrim => Ok(match arg_types[0] {
-            DataType::LargeUtf8 => DataType::LargeUtf8,
-            DataType::Utf8 => DataType::Utf8,
-            _ => {
-                // this error is internal as `data_types` should have captured this.
-                return Err(DataFusionError::Internal(
-                    "The btrim function can only accept strings.".to_string(),
-                ));
-            }
-        }),
-        BuiltinScalarFunction::CharacterLength => Ok(match arg_types[0] {
-            DataType::LargeUtf8 => DataType::Int64,
-            DataType::Utf8 => DataType::Int32,
-            _ => {
-                // this error is internal as `data_types` should have captured this.
-                return Err(DataFusionError::Internal(
-                    "The character_length function can only accept strings.".to_string(),
-                ));
-            }
-        }),
+        BuiltinScalarFunction::BitLength => utf8_to_int_type(&arg_types[0], "bit_length"),
+        BuiltinScalarFunction::Btrim => utf8_to_str_type(&arg_types[0], "btrim"),
+        BuiltinScalarFunction::CharacterLength => {
+            utf8_to_int_type(&arg_types[0], "character_length")
+        }
         BuiltinScalarFunction::Chr => Ok(DataType::Utf8),
         BuiltinScalarFunction::Concat => Ok(DataType::Utf8),
         BuiltinScalarFunction::ConcatWithSeparator => Ok(DataType::Utf8),
@@ -356,222 +373,38 @@ pub fn return_type(
         BuiltinScalarFunction::DateTrunc => {
             Ok(DataType::Timestamp(TimeUnit::Nanosecond, None))
         }
-        BuiltinScalarFunction::InitCap => Ok(match arg_types[0] {
-            DataType::LargeUtf8 => DataType::LargeUtf8,
-            DataType::Utf8 => DataType::Utf8,
-            _ => {
-                // this error is internal as `data_types` should have captured this.
-                return Err(DataFusionError::Internal(
-                    "The initcap function can only accept strings.".to_string(),
-                ));
-            }
-        }),
-        BuiltinScalarFunction::Left => Ok(match arg_types[0] {
-            DataType::LargeUtf8 => DataType::LargeUtf8,
-            DataType::Utf8 => DataType::Utf8,
-            _ => {
-                // this error is internal as `data_types` should have captured this.
-                return Err(DataFusionError::Internal(
-                    "The left function can only accept strings.".to_string(),
-                ));
-            }
-        }),
-        BuiltinScalarFunction::Lower => Ok(match arg_types[0] {
-            DataType::LargeUtf8 => DataType::LargeUtf8,
-            DataType::Utf8 => DataType::Utf8,
-            _ => {
-                // this error is internal as `data_types` should have captured this.
-                return Err(DataFusionError::Internal(
-                    "The upper function can only accept strings.".to_string(),
-                ));
-            }
-        }),
-        BuiltinScalarFunction::Lpad => Ok(match arg_types[0] {
-            DataType::LargeUtf8 => DataType::LargeUtf8,
-            DataType::Utf8 => DataType::Utf8,
-            _ => {
-                // this error is internal as `data_types` should have captured this.
-                return Err(DataFusionError::Internal(
-                    "The lpad function can only accept strings.".to_string(),
-                ));
-            }
-        }),
-        BuiltinScalarFunction::Ltrim => Ok(match arg_types[0] {
-            DataType::LargeUtf8 => DataType::LargeUtf8,
-            DataType::Utf8 => DataType::Utf8,
-            _ => {
-                // this error is internal as `data_types` should have captured this.
-                return Err(DataFusionError::Internal(
-                    "The ltrim function can only accept strings.".to_string(),
-                ));
-            }
-        }),
-        BuiltinScalarFunction::MD5 => Ok(match arg_types[0] {
-            DataType::LargeUtf8 => DataType::LargeUtf8,
-            DataType::Utf8 => DataType::Utf8,
-            _ => {
-                // this error is internal as `data_types` should have captured this.
-                return Err(DataFusionError::Internal(
-                    "The md5 function can only accept strings.".to_string(),
-                ));
-            }
-        }),
+        BuiltinScalarFunction::InitCap => utf8_to_str_type(&arg_types[0], "initcap"),
+        BuiltinScalarFunction::Left => utf8_to_str_type(&arg_types[0], "left"),
+        BuiltinScalarFunction::Lower => utf8_to_str_type(&arg_types[0], "lower"),
+        BuiltinScalarFunction::Lpad => utf8_to_str_type(&arg_types[0], "lpad"),
+        BuiltinScalarFunction::Ltrim => utf8_to_str_type(&arg_types[0], "ltrim"),
+        BuiltinScalarFunction::MD5 => utf8_to_str_type(&arg_types[0], "md5"),
         BuiltinScalarFunction::NullIf => {
             // NULLIF has two args and they might get coerced, get a preview of this
             let coerced_types = data_types(arg_types, &signature(fun));
             coerced_types.map(|typs| typs[0].clone())
         }
-        BuiltinScalarFunction::OctetLength => Ok(match arg_types[0] {
-            DataType::LargeUtf8 => DataType::Int64,
-            DataType::Utf8 => DataType::Int32,
-            _ => {
-                // this error is internal as `data_types` should have captured this.
-                return Err(DataFusionError::Internal(
-                    "The octet_length function can only accept strings.".to_string(),
-                ));
-            }
-        }),
-        BuiltinScalarFunction::RegexpReplace => Ok(match arg_types[0] {
-            DataType::LargeUtf8 => DataType::LargeUtf8,
-            DataType::Utf8 => DataType::Utf8,
-            _ => {
-                // this error is internal as `data_types` should have captured this.
-                return Err(DataFusionError::Internal(
-                    "The regexp_replace function can only accept strings.".to_string(),
-                ));
-            }
-        }),
-        BuiltinScalarFunction::Repeat => Ok(match arg_types[0] {
-            DataType::LargeUtf8 => DataType::LargeUtf8,
-            DataType::Utf8 => DataType::Utf8,
-            _ => {
-                // this error is internal as `data_types` should have captured this.
-                return Err(DataFusionError::Internal(
-                    "The repeat function can only accept strings.".to_string(),
-                ));
-            }
-        }),
-        BuiltinScalarFunction::Replace => Ok(match arg_types[0] {
-            DataType::LargeUtf8 => DataType::LargeUtf8,
-            DataType::Utf8 => DataType::Utf8,
-            _ => {
-                // this error is internal as `data_types` should have captured this.
-                return Err(DataFusionError::Internal(
-                    "The replace function can only accept strings.".to_string(),
-                ));
-            }
-        }),
-        BuiltinScalarFunction::Reverse => Ok(match arg_types[0] {
-            DataType::LargeUtf8 => DataType::LargeUtf8,
-            DataType::Utf8 => DataType::Utf8,
-            _ => {
-                // this error is internal as `data_types` should have captured this.
-                return Err(DataFusionError::Internal(
-                    "The reverse function can only accept strings.".to_string(),
-                ));
-            }
-        }),
-        BuiltinScalarFunction::Right => Ok(match arg_types[0] {
-            DataType::LargeUtf8 => DataType::LargeUtf8,
-            DataType::Utf8 => DataType::Utf8,
-            _ => {
-                // this error is internal as `data_types` should have captured this.
-                return Err(DataFusionError::Internal(
-                    "The right function can only accept strings.".to_string(),
-                ));
-            }
-        }),
-        BuiltinScalarFunction::Rpad => Ok(match arg_types[0] {
-            DataType::LargeUtf8 => DataType::LargeUtf8,
-            DataType::Utf8 => DataType::Utf8,
-            _ => {
-                // this error is internal as `data_types` should have captured this.
-                return Err(DataFusionError::Internal(
-                    "The rpad function can only accept strings.".to_string(),
-                ));
-            }
-        }),
-        BuiltinScalarFunction::Rtrim => Ok(match arg_types[0] {
-            DataType::LargeUtf8 => DataType::LargeUtf8,
-            DataType::Utf8 => DataType::Utf8,
-            _ => {
-                // this error is internal as `data_types` should have captured this.
-                return Err(DataFusionError::Internal(
-                    "The rtrim function can only accept strings.".to_string(),
-                ));
-            }
-        }),
-        BuiltinScalarFunction::SHA224 => Ok(match arg_types[0] {
-            DataType::LargeUtf8 => DataType::Binary,
-            DataType::Utf8 => DataType::Binary,
-            _ => {
-                // this error is internal as `data_types` should have captured this.
-                return Err(DataFusionError::Internal(
-                    "The sha224 function can only accept strings.".to_string(),
-                ));
-            }
-        }),
-        BuiltinScalarFunction::SHA256 => Ok(match arg_types[0] {
-            DataType::LargeUtf8 => DataType::Binary,
-            DataType::Utf8 => DataType::Binary,
-            _ => {
-                // this error is internal as `data_types` should have captured this.
-                return Err(DataFusionError::Internal(
-                    "The sha256 function can only accept strings.".to_string(),
-                ));
-            }
-        }),
-        BuiltinScalarFunction::SHA384 => Ok(match arg_types[0] {
-            DataType::LargeUtf8 => DataType::Binary,
-            DataType::Utf8 => DataType::Binary,
-            _ => {
-                // this error is internal as `data_types` should have captured this.
-                return Err(DataFusionError::Internal(
-                    "The sha384 function can only accept strings.".to_string(),
-                ));
-            }
-        }),
-        BuiltinScalarFunction::SHA512 => Ok(match arg_types[0] {
-            DataType::LargeUtf8 => DataType::Binary,
-            DataType::Utf8 => DataType::Binary,
-            _ => {
-                // this error is internal as `data_types` should have captured this.
-                return Err(DataFusionError::Internal(
-                    "The sha512 function can only accept strings.".to_string(),
-                ));
-            }
-        }),
-        BuiltinScalarFunction::SplitPart => Ok(match arg_types[0] {
-            DataType::LargeUtf8 => DataType::LargeUtf8,
-            DataType::Utf8 => DataType::Utf8,
-            _ => {
-                // this error is internal as `data_types` should have captured this.
-                return Err(DataFusionError::Internal(
-                    "The split_part function can only accept strings.".to_string(),
-                ));
-            }
-        }),
+        BuiltinScalarFunction::OctetLength => {
+            utf8_to_int_type(&arg_types[0], "octet_length")
+        }
+        BuiltinScalarFunction::Random => Ok(DataType::Float64),
+        BuiltinScalarFunction::RegexpReplace => {
+            utf8_to_str_type(&arg_types[0], "regex_replace")
+        }
+        BuiltinScalarFunction::Repeat => utf8_to_str_type(&arg_types[0], "repeat"),
+        BuiltinScalarFunction::Replace => utf8_to_str_type(&arg_types[0], "replace"),
+        BuiltinScalarFunction::Reverse => utf8_to_str_type(&arg_types[0], "reverse"),
+        BuiltinScalarFunction::Right => utf8_to_str_type(&arg_types[0], "right"),
+        BuiltinScalarFunction::Rpad => utf8_to_str_type(&arg_types[0], "rpad"),
+        BuiltinScalarFunction::Rtrim => utf8_to_str_type(&arg_types[0], "rtrimp"),
+        BuiltinScalarFunction::SHA224 => utf8_to_binary_type(&arg_types[0], "sha224"),
+        BuiltinScalarFunction::SHA256 => utf8_to_binary_type(&arg_types[0], "sha256"),
+        BuiltinScalarFunction::SHA384 => utf8_to_binary_type(&arg_types[0], "sha384"),
+        BuiltinScalarFunction::SHA512 => utf8_to_binary_type(&arg_types[0], "sha512"),
+        BuiltinScalarFunction::SplitPart => utf8_to_str_type(&arg_types[0], "split_part"),
         BuiltinScalarFunction::StartsWith => Ok(DataType::Boolean),
-        BuiltinScalarFunction::Strpos => Ok(match arg_types[0] {
-            DataType::LargeUtf8 => DataType::Int64,
-            DataType::Utf8 => DataType::Int32,
-            _ => {
-                // this error is internal as `data_types` should have captured this.
-                return Err(DataFusionError::Internal(
-                    "The strpos function can only accept strings.".to_string(),
-                ));
-            }
-        }),
-        BuiltinScalarFunction::Substr => Ok(match arg_types[0] {
-            DataType::LargeUtf8 => DataType::LargeUtf8,
-            DataType::Utf8 => DataType::Utf8,
-            _ => {
-                // this error is internal as `data_types` should have captured this.
-                return Err(DataFusionError::Internal(
-                    "The substr function can only accept strings.".to_string(),
-                ));
-            }
-        }),
+        BuiltinScalarFunction::Strpos => utf8_to_int_type(&arg_types[0], "strpos"),
+        BuiltinScalarFunction::Substr => utf8_to_str_type(&arg_types[0], "substr"),
         BuiltinScalarFunction::ToHex => Ok(match arg_types[0] {
             DataType::Int8 | DataType::Int16 | DataType::Int32 | DataType::Int64 => {
                 DataType::Utf8
@@ -586,39 +419,10 @@ pub fn return_type(
         BuiltinScalarFunction::ToTimestamp => {
             Ok(DataType::Timestamp(TimeUnit::Nanosecond, None))
         }
-        BuiltinScalarFunction::ToDate => {
-            Ok(DataType::Date16)
-        }
-        BuiltinScalarFunction::Translate => Ok(match arg_types[0] {
-            DataType::LargeUtf8 => DataType::LargeUtf8,
-            DataType::Utf8 => DataType::Utf8,
-            _ => {
-                // this error is internal as `data_types` should have captured this.
-                return Err(DataFusionError::Internal(
-                    "The translate function can only accept strings.".to_string(),
-                ));
-            }
-        }),
-        BuiltinScalarFunction::Trim => Ok(match arg_types[0] {
-            DataType::LargeUtf8 => DataType::LargeUtf8,
-            DataType::Utf8 => DataType::Utf8,
-            _ => {
-                // this error is internal as `data_types` should have captured this.
-                return Err(DataFusionError::Internal(
-                    "The trim function can only accept strings.".to_string(),
-                ));
-            }
-        }),
-        BuiltinScalarFunction::Upper => Ok(match arg_types[0] {
-            DataType::LargeUtf8 => DataType::LargeUtf8,
-            DataType::Utf8 => DataType::Utf8,
-            _ => {
-                // this error is internal as `data_types` should have captured this.
-                return Err(DataFusionError::Internal(
-                    "The upper function can only accept strings.".to_string(),
-                ));
-            }
-        }),
+        BuiltinScalarFunction::Now => Ok(DataType::Timestamp(TimeUnit::Nanosecond, None)),
+        BuiltinScalarFunction::Translate => utf8_to_str_type(&arg_types[0], "translate"),
+        BuiltinScalarFunction::Trim => utf8_to_str_type(&arg_types[0], "trim"),
+        BuiltinScalarFunction::Upper => utf8_to_str_type(&arg_types[0], "upper"),
         BuiltinScalarFunction::RegexpMatch => Ok(match arg_types[0] {
             DataType::LargeUtf8 => {
                 DataType::List(Box::new(Field::new("item", DataType::LargeUtf8, true)))
@@ -721,6 +525,7 @@ pub fn create_physical_expr(
     fun: &BuiltinScalarFunction,
     args: &[Arc<dyn PhysicalExpr>],
     input_schema: &Schema,
+    ctx_state: &ExecutionContextState,
 ) -> Result<Arc<dyn PhysicalExpr>> {
     let fun_expr: ScalarFunctionImplementation = Arc::new(match fun {
         // math functions
@@ -736,6 +541,7 @@ pub fn create_physical_expr(
         BuiltinScalarFunction::Ln => math_expressions::ln,
         BuiltinScalarFunction::Log10 => math_expressions::log10,
         BuiltinScalarFunction::Log2 => math_expressions::log2,
+        BuiltinScalarFunction::Random => math_expressions::random,
         BuiltinScalarFunction::Round => math_expressions::round,
         BuiltinScalarFunction::Signum => math_expressions::signum,
         BuiltinScalarFunction::Sin => math_expressions::sin,
@@ -812,6 +618,22 @@ pub fn create_physical_expr(
         }
         BuiltinScalarFunction::DatePart => datetime_expressions::date_part,
         BuiltinScalarFunction::DateTrunc => datetime_expressions::date_trunc,
+        BuiltinScalarFunction::Now => {
+            // bind value for now at plan time
+            let fun_expr = Arc::new(datetime_expressions::make_now(
+                ctx_state.execution_props.query_execution_start_time,
+            ));
+
+            // TODO refactor code to not return here, but instead fall through below
+            let args = vec![];
+            let arg_types = vec![]; // has no args
+            return Ok(Arc::new(ScalarFunctionExpr::new(
+                &format!("{}", fun),
+                fun_expr,
+                args,
+                &return_type(&fun, &arg_types)?,
+            )));
+        }
         BuiltinScalarFunction::InitCap => |args| match args[0].data_type() {
             DataType::Utf8 => {
                 make_scalar_function(string_expressions::initcap::<i32>)(args)
@@ -1292,6 +1114,7 @@ fn signature(fun: &BuiltinScalarFunction) -> Signature {
             Signature::Exact(vec![DataType::Utf8, DataType::Utf8, DataType::Utf8]),
             Signature::Exact(vec![DataType::LargeUtf8, DataType::Utf8, DataType::Utf8]),
         ]),
+        BuiltinScalarFunction::Random => Signature::Exact(vec![]),
         // math expressions expect 1 argument of type f64 or f32
         // priority is given to f64 because e.g. `sqrt(1i32)` is in IR (real numbers) and thus we
         // return the best approximation for it (in f64).
@@ -1372,6 +1195,17 @@ impl fmt::Display for ScalarFunctionExpr {
     }
 }
 
+/// null columnar values are implemented as a null array in order to pass batch
+/// num_rows
+type NullColumnarValue = ColumnarValue;
+
+impl From<&RecordBatch> for NullColumnarValue {
+    fn from(batch: &RecordBatch) -> Self {
+        let num_rows = batch.num_rows();
+        ColumnarValue::Array(Arc::new(NullArray::new(num_rows)))
+    }
+}
+
 impl PhysicalExpr for ScalarFunctionExpr {
     /// Return a reference to Any that can be used for downcasting
     fn as_any(&self) -> &dyn Any {
@@ -1387,12 +1221,18 @@ impl PhysicalExpr for ScalarFunctionExpr {
     }
 
     fn evaluate(&self, batch: &RecordBatch) -> Result<ColumnarValue> {
-        // evaluate the arguments
-        let inputs = self
-            .args
-            .iter()
-            .map(|e| e.evaluate(batch))
-            .collect::<Result<Vec<_>>>()?;
+        // evaluate the arguments, if there are no arguments we'll instead pass in a null array
+        // indicating the batch size (as a convention)
+        let inputs = match (self.args.len(), self.name.parse::<BuiltinScalarFunction>()) {
+            (0, Ok(scalar_fun)) if scalar_fun.supports_zero_argument() => {
+                vec![NullColumnarValue::from(batch)]
+            }
+            _ => self
+                .args
+                .iter()
+                .map(|e| e.evaluate(batch))
+                .collect::<Result<Vec<_>>>()?,
+        };
 
         // evaluate the function
         let fun = self.fun.as_ref();
@@ -1400,7 +1240,7 @@ impl PhysicalExpr for ScalarFunctionExpr {
     }
 }
 
-/// decorates a function to handle [`ScalarValue`]s by coverting them to arrays before calling the function
+/// decorates a function to handle [`ScalarValue`]s by converting them to arrays before calling the function
 /// and vice-versa after evaluation.
 pub fn make_scalar_function<F>(inner: F) -> ScalarFunctionImplementation
 where
@@ -1449,7 +1289,7 @@ mod tests {
     use arrow::{
         array::{
             Array, ArrayRef, BinaryArray, BooleanArray, FixedSizeListArray, Float64Array,
-            Int32Array, ListArray, StringArray, UInt32Array, UInt64Array,
+            Int32Array, StringArray, UInt32Array, UInt64Array,
         },
         datatypes::Field,
         record_batch::RecordBatch,
@@ -1465,13 +1305,14 @@ mod tests {
         ($FUNC:ident, $ARGS:expr, $EXPECTED:expr, $EXPECTED_TYPE:ty, $DATA_TYPE: ident, $ARRAY_TYPE:ident) => {
             // used to provide type annotation
             let expected: Result<Option<$EXPECTED_TYPE>> = $EXPECTED;
+            let ctx_state = ExecutionContextState::new();
 
             // any type works here: we evaluate against a literal of `value`
             let schema = Schema::new(vec![Field::new("a", DataType::Int32, false)]);
             let columns: Vec<ArrayRef> = vec![Arc::new(Int32Array::from(vec![1]))];
 
             let expr =
-                create_physical_expr(&BuiltinScalarFunction::$FUNC, $ARGS, &schema)?;
+                create_physical_expr(&BuiltinScalarFunction::$FUNC, $ARGS, &schema, &ctx_state)?;
 
             // type is correct
             assert_eq!(expr.data_type(&schema)?, DataType::$DATA_TYPE);
@@ -3630,7 +3471,20 @@ mod tests {
 
     #[test]
     fn test_concat_error() -> Result<()> {
-        let result = return_type(&BuiltinScalarFunction::Concat, &[]);
+        let ctx_state = ExecutionContextState::new();
+        let schema = Schema::new(vec![Field::new("a", DataType::Int32, false)]);
+
+        let expr = create_physical_expr(
+            &BuiltinScalarFunction::Concat,
+            &[],
+            &schema,
+            &ctx_state,
+        )?;
+
+        let columns: Vec<ArrayRef> = vec![Arc::new(Int32Array::from(vec![1]))];
+        let batch = RecordBatch::try_new(Arc::new(schema.clone()), columns)?;
+        let result = expr.evaluate(&batch);
+
         if result.is_ok() {
             Err(DataFusionError::Plan(
                 "Function 'concat' cannot accept zero arguments".to_string(),
@@ -3652,11 +3506,13 @@ mod tests {
             Field::new("b", value2.data_type().clone(), false),
         ]);
         let columns: Vec<ArrayRef> = vec![value1, value2];
+        let ctx_state = ExecutionContextState::new();
 
         let expr = create_physical_expr(
             &BuiltinScalarFunction::Array,
             &[col("a"), col("b")],
             &schema,
+            &ctx_state,
         )?;
 
         // type is correct
@@ -3711,7 +3567,9 @@ mod tests {
     #[test]
     #[cfg(feature = "regex_expressions")]
     fn test_regexp_match() -> Result<()> {
+        use arrow::array::ListArray;
         let schema = Schema::new(vec![Field::new("a", DataType::Utf8, false)]);
+        let ctx_state = ExecutionContextState::new();
 
         // concat(value, value)
         let col_value: ArrayRef = Arc::new(StringArray::from(vec!["aaa-555"]));
@@ -3721,6 +3579,7 @@ mod tests {
             &BuiltinScalarFunction::RegexpMatch,
             &[col("a"), pattern],
             &schema,
+            &ctx_state,
         )?;
 
         // type is correct
@@ -3748,7 +3607,9 @@ mod tests {
     #[test]
     #[cfg(feature = "regex_expressions")]
     fn test_regexp_match_all_literals() -> Result<()> {
+        use arrow::array::ListArray;
         let schema = Schema::new(vec![Field::new("a", DataType::Int32, false)]);
+        let ctx_state = ExecutionContextState::new();
 
         // concat(value, value)
         let col_value = lit(ScalarValue::Utf8(Some("aaa-555".to_string())));
@@ -3758,6 +3619,7 @@ mod tests {
             &BuiltinScalarFunction::RegexpMatch,
             &[col_value, pattern],
             &schema,
+            &ctx_state,
         )?;
 
         // type is correct
