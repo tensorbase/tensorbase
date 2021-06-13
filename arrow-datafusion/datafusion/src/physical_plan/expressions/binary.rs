@@ -18,6 +18,7 @@
 use std::{any::Any, sync::Arc};
 
 use arrow::array::*;
+use arrow::array::LargeStringArray;
 use arrow::compute::kernels::arithmetic::{
     add, divide, divide_scalar, multiply, subtract,
 };
@@ -122,6 +123,27 @@ macro_rules! compute_utf8_op_scalar {
 }
 
 /// Invoke a compute kernel on a data array and a scalar value
+macro_rules! compute_largeutf8_op_scalar {
+    ($LEFT:expr, $RIGHT:expr, $OP:ident, $DT:ident) => {{
+        let ll = $LEFT
+            .as_any()
+            .downcast_ref::<$DT>()
+            .expect("compute_op failed to downcast array");
+        if let ScalarValue::LargeUtf8(Some(string_value)) = $RIGHT {
+            Ok(Arc::new(paste::expr! {[<$OP _utf8_scalar>]}(
+                &ll,
+                &string_value,
+            )?))
+        } else {
+            Err(DataFusionError::Internal(format!(
+                "compute_largeutf8_op_scalar failed to cast literal value {}",
+                $RIGHT
+            )))
+        }
+    }};
+}
+
+/// Invoke a compute kernel on a data array and a scalar value
 macro_rules! compute_op_scalar {
     ($LEFT:expr, $RIGHT:expr, $OP:ident, $DT:ident) => {{
         use std::convert::TryInto;
@@ -166,6 +188,7 @@ macro_rules! binary_string_array_op_scalar {
     ($LEFT:expr, $RIGHT:expr, $OP:ident) => {{
         let result: Result<Arc<dyn Array>> = match $LEFT.data_type() {
             DataType::Utf8 => compute_utf8_op_scalar!($LEFT, $RIGHT, $OP, StringArray),
+            DataType::LargeUtf8 => compute_largeutf8_op_scalar!($LEFT, $RIGHT, $OP, LargeStringArray),
             other => Err(DataFusionError::Internal(format!(
                 "Data type {:?} not supported for scalar operation on string array",
                 other
@@ -253,6 +276,7 @@ macro_rules! binary_array_op_scalar {
             DataType::Float32 => compute_op_scalar!($LEFT, $RIGHT, $OP, Float32Array),
             DataType::Float64 => compute_op_scalar!($LEFT, $RIGHT, $OP, Float64Array),
             DataType::Utf8 => compute_utf8_op_scalar!($LEFT, $RIGHT, $OP, StringArray),
+            DataType::LargeUtf8 => compute_largeutf8_op_scalar!($LEFT, $RIGHT, $OP, LargeStringArray),
             DataType::Timestamp(TimeUnit::Nanosecond, None) => {
                 compute_op_scalar!($LEFT, $RIGHT, $OP, TimestampNanosecondArray)
             }

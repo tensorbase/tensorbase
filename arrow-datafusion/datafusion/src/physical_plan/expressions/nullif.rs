@@ -24,7 +24,7 @@ use arrow::array::Array;
 use arrow::array::{
     ArrayRef, BooleanArray, Date16Array, Date32Array, Date64Array, Float32Array, Float64Array,
     Int16Array, Int32Array, Int64Array, Int8Array, StringArray, TimestampNanosecondArray,
-    UInt16Array, UInt32Array, UInt64Array, UInt8Array,
+    UInt16Array, UInt32Array, UInt64Array, UInt8Array, LargeStringArray
 };
 use arrow::compute::kernels::boolean::nullif;
 use arrow::compute::kernels::comparison::{eq, eq_scalar, eq_utf8, eq_utf8_scalar};
