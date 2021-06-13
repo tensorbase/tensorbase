@@ -43,6 +43,10 @@ SHOW TABLES IN db
 ```sql
 SHOW CREATE TABLE [db.]table
 ```
+* desc table
+```sql
+DESC TABLE [db.]table
+```
 * drop database 
 ```sql
 DROP DATABASE IF EXISTS db
