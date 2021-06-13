@@ -79,6 +79,7 @@ where
     let mut b = Int32Builder::new(array.len());
     match array.data_type() {
         &DataType::Date32
+        | DataType::Date16
         | &DataType::Date64
         | &DataType::Timestamp32(_)
         | &DataType::Timestamp(_, _) => {
