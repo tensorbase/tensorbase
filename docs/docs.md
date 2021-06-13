@@ -1,3 +1,7 @@
+## TensorBase Book Series
+
+Read the [TensorBase book series here](/docs/books.md).
+
 ## Project organizations
 
 Read the [Project organizations here](/docs/arch.md).
