@@ -3,10 +3,7 @@ use std::io::prelude::*;
 use std::io::BufReader;
 use std::{fs::File, path::Path};
 
-// use ch_client::prelude::errors;
-// use ch_client::prelude::*;
-
-use ch_client::prelude::{Options, Pool};
+use client::prelude::{Options, Pool};
 use std::convert::TryInto;
 use std::env;
 use url::Url;

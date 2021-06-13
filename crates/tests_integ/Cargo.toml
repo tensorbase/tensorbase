@@ -6,7 +6,7 @@ edition = "2018"
 
 [dependencies]
 clap = "3.0.0-beta.2"
-ch_client = { path = "./ch_client" }
+client = { path = "../client" }
 url = "^2"
 tokio = { version = "0.2", features = [
     "rt-core",

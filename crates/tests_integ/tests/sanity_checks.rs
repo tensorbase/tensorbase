@@ -1,8 +1,8 @@
-use ch_client::{prelude::errors, types::SqlType};
-use ch_client::prelude::*;
+use client::{prelude::errors, types::SqlType};
+use client::prelude::*;
 mod common;
 use common::get_pool;
-use ch_client::prelude::types::Decimal;
+use client::prelude::types::Decimal;
 use chrono::{DateTime, Utc, TimeZone};
 // macro_rules! get {
 //     ($row:ident, $idx: expr, $msg: expr) => {

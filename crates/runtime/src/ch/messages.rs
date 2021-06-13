@@ -297,17 +297,21 @@ fn response_query(
     // SettingsWriteFormat::STRINGS_WITH_FLAGS : SettingsWriteFormat::BINARY
     //FIXME only support STRINGS_WITH_FLAGS? but allow empty?
     //FIXME now just allow empty setting?
-    let setting_str = rb.read_str()?;
-    if setting_str.len() != 0 {
-        if setting_str != "format_csv_delimiter" {
-            log::error!("setting_str: {}", setting_str);
-            return Err(BaseRtError::UnsupportedFunctionality2(
-                "TensorBase does not support such settings",
-            ));
-        } else {
-            //FIXME temp workaround for tpch
-            let _ = rb.read_str()?;
-            let _ = rb.read_str()?;
+    // log::debug!("rb[..3]: {:?}", &rb[..3]);
+    //FIXME silly workaround for jdbc
+    if rb.len()>2 && &rb[..3] != [2u8, 1, 38] {
+        let setting_str = rb.read_str()?;
+        if setting_str.len() != 0 {
+            if setting_str != "format_csv_delimiter" {
+                log::error!("setting_str: {}", setting_str);
+                return Err(BaseRtError::UnsupportedFunctionality2(
+                    "TensorBase does not support such settings",
+                ));
+            } else {
+                //FIXME temp workaround for tpch
+                let _ = rb.read_str()?;
+                let _ = rb.read_str()?;
+            }
         }
     }
 
@@ -445,9 +449,7 @@ pub(crate) fn process_data_blk(
         lz4::decompress(&rb[..comp_size], dst_bs)
             .map_err(|_| BaseRtError::BlockDecompressionError)?;
 
-        unsafe {
-            rb1.advance_mut(raw_size)
-        };
+        unsafe { rb1.advance_mut(raw_size) };
         // log::debug!(
         //     "== heading 16B of rb0[len={}] after decompression: {:02x?}",
         //     rb0.len(),

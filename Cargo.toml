@@ -7,6 +7,7 @@ members = [
     "crates/lightjit",
     "crates/server",
     "crates/engine",
+    "crates/client",
     "crates/test_utils",
     "crates/tests_integ",
 ]

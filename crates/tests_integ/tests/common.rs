@@ -1,5 +1,5 @@
 #![allow(dead_code)]
-use ch_client::prelude::{Options, Pool};
+use client::prelude::{Options, Pool};
 use std::convert::TryInto;
 use std::env;
 use url::Url;
