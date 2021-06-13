@@ -524,6 +524,59 @@ async fn tests_integ_desc_table() -> errors::Result<()> {
     Ok(())
 }
 
+
+#[allow(non_snake_case)]
+#[tokio::test]
+async fn tests_integ_cast_LargeUtf8_to_Utf8() -> errors::Result<()> {
+    let pool = get_pool();
+    let mut conn = pool.connection().await?;
+
+    conn.execute("create database if not exists test_db")
+        .await?;
+    conn.execute("use test_db").await?;
+
+    conn.execute(format!("DROP TABLE IF EXISTS test_tab"))
+        .await?;
+    conn.execute(format!("CREATE TABLE test_tab(s String)"))
+        .await?;
+
+    let data_s = vec!["a", "ab", "abc"];
+    let count_res = data_s.len() as i64;
+    let block = Block::new("test_tab").add("s", data_s.clone());
+
+    let mut insert = conn.insert(&block).await?;
+    insert.commit().await?;
+
+    drop(insert);
+    {
+        let sql = "select count(s) from test_tab";
+        let mut query_result = conn.query(sql).await?;
+
+        while let Some(block) = query_result.next().await? {
+            for row in block.iter_rows() {
+                let agg_res = row.value::<u64>(0)?.unwrap() as i64;
+                assert_eq!(agg_res, count_res);
+            }
+        }
+    }
+
+    {
+        let sql = "select count(s) from test_tab where s = 'ab'";
+        let mut query_result = conn.query(sql).await?;
+
+        while let Some(block) = query_result.next().await? {
+            for (i, row) in block.iter_rows().enumerate() {
+                let res: u64 = row.value(0)?.unwrap();
+                println!("{}", res);
+                assert_eq!(res, 1);
+            }
+        }
+    }
+
+    // conn.execute("drop database if exists test_db").await?;
+    Ok(())
+}
+
 // #[tokio::test]
 // async fn test_insert_large_block() -> errors::Result<()> {
 //     let pool = get_pool();
