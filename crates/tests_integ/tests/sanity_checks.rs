@@ -577,6 +577,64 @@ async fn tests_integ_cast_LargeUtf8_to_Utf8() -> errors::Result<()> {
     Ok(())
 }
 
+
+#[tokio::test]
+async fn tests_integ_date_cast() -> errors::Result<()> {
+    let pool = get_pool();
+    let mut conn = pool.connection().await?;
+
+    conn.execute("create database if not exists test_db")
+        .await?;
+    conn.execute("use test_db").await?;
+
+    conn.execute(format!("DROP TABLE IF EXISTS test_tab_date"))
+        .await?;
+    conn.execute(format!("CREATE TABLE test_tab_date(a Date)"))
+        .await?;
+
+    let data_a = vec![Utc.ymd(2010, 10, 20), Utc.ymd(2020, 1, 7)];
+    let checks = vec!["2010-10-20", "2020-01-07"];
+    let block = { Block::new("test_tab_date").add("a", data_a) };
+
+    let mut insert = conn.insert(&block).await?;
+    insert.commit().await?;
+
+    drop(insert);
+    {
+        let sql = "select a from test_tab_date";
+        let mut query_result = conn.query(sql).await?;
+
+        while let Some(block) = query_result.next().await? {
+            let mut i = 0;
+
+            for row in block.iter_rows() {
+                println!("{:?}",row);
+                let res: DateTime<Utc> = row.value(0)?.unwrap();
+                assert_eq!(res.date().naive_utc().to_string(), checks[i]);
+                i += 1;
+            }
+        }
+    }
+
+    {
+        let sql = "select a from test_tab_date where a < '2010-02-02' ";
+        let mut query_result = conn.query(sql).await?;
+
+        while let Some(block) = query_result.next().await? {
+            for row in block.iter_rows() {
+                println!("{:?}",row);
+                let res: DateTime<Utc> = row.value(0)?.unwrap();
+                // assert_eq!(res.date().naive_utc().to_string(), checks[i]);
+            }
+        }
+    }
+
+    // conn.execute("drop database if exists test_db").await?;
+    Ok(())
+}
+
+
+
 // #[tokio::test]
 // async fn test_insert_large_block() -> errors::Result<()> {
 //     let pool = get_pool();
