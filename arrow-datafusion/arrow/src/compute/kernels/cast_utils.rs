@@ -197,6 +197,28 @@ pub fn string_to_timestamp32(s: &str) -> Result<i32> {
     )))
 }
 
+/// ref to: [`string_to_timestamp_nanos`]
+#[inline]
+pub fn string_to_date16(s: &str) -> Result<i32> {
+    // without a timezone specifier as a local time, using ' ' as a
+    // separator, no fractional seconds
+    // Example: 2020-09-08 13:42:29
+    if let Ok(ts) = NaiveDateTime::parse_from_str(s, "%Y-%m-%d") {
+        return naive_datetime_to_timestamp32(s, ts);
+    }
+
+    // Note we don't pass along the error message from the underlying
+    // chrono parsing because we tried several different format
+    // strings and we don't know which the user was trying to
+    // match. Ths any of the specific error messages is likely to be
+    // be more confusing than helpful
+    Err(ArrowError::CastError(format!(
+        "Error parsing '{}' as timestamp",
+        s
+    )))
+}
+
+
 /// Converts the naive datetime (which has no specific timezone) to a
 /// nanosecond epoch timestamp relative to UTC.
 fn naive_datetime_to_timestamp(s: &str, datetime: NaiveDateTime) -> Result<i64> {

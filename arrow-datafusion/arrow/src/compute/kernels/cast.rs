@@ -98,6 +98,7 @@ pub fn can_cast_types(from_type: &DataType, to_type: &DataType) -> bool {
         (Utf8, Timestamp(TimeUnit::Nanosecond, None)) => true,
         (Utf8, Timestamp32(None)) => true,
         (Utf8, _) => DataType::is_numeric(to_type),
+        (LargeUtf8, Date16) => true,
         (LargeUtf8, Date32) => true,
         (LargeUtf8, Date64) => true,
         (LargeUtf8, Timestamp(TimeUnit::Nanosecond, None)) => true,
@@ -452,6 +453,7 @@ pub fn cast_with_options(
             Float64 => cast_string_to_numeric::<Float64Type, i32>(array, cast_options),
             Date32 => cast_string_to_date32::<i32>(&**array, cast_options),
             Date64 => cast_string_to_date64::<i32>(&**array, cast_options),
+            Date16 => cast_string_to_date16::<i32>(&**array, cast_options),
             Timestamp32(None) => {
                 cast_string_to_timestamp32::<i32>(&**array, cast_options)
             }
@@ -557,6 +559,7 @@ pub fn cast_with_options(
             Float64 => cast_string_to_numeric::<Float64Type, i64>(array, cast_options),
             Date32 => cast_string_to_date32::<i64>(&**array, cast_options),
             Date64 => cast_string_to_date64::<i64>(&**array, cast_options),
+            Date16 => cast_string_to_date16::<i64>(&**array, cast_options),
             Timestamp32(None) => {
                 cast_string_to_timestamp32::<i64>(&**array, cast_options)
             }
@@ -1105,6 +1108,68 @@ where
         //     The iterator is trustedLen because it comes from an `StringArray`.
         Ok(unsafe { PrimitiveArray::<T>::from_trusted_len_iter(vec.iter()) })
     }
+}
+
+/// Casts generic string arrays to Date32Array
+fn cast_string_to_date16<Offset: StringOffsetSizeTrait>(
+    array: &dyn Array,
+    cast_options: &CastOptions,
+) -> Result<ArrayRef> {
+    use chrono::Datelike;
+    let string_array = array
+        .as_any()
+        .downcast_ref::<GenericStringArray<Offset>>()
+        .unwrap();
+
+    let array = if cast_options.safe {
+        let iter = (0..string_array.len()).map(|i| {
+            if string_array.is_null(i) {
+                None
+            } else {
+                string_array
+                    .value(i)
+                    .parse::<chrono::NaiveDate>()
+                    .map(|date| (date.num_days_from_ce() - EPOCH_DAYS_FROM_CE) as u16)
+                    .ok()
+            }
+        });
+
+        // Benefit:
+        //     20% performance improvement
+        // Soundness:
+        //     The iterator is trustedLen because it comes from an `StringArray`.
+        unsafe { Date16Array::from_trusted_len_iter(iter) }
+    } else {
+        let vec = (0..string_array.len())
+            .map(|i| {
+                if string_array.is_null(i) {
+                    Ok(None)
+                } else {
+                    let string = string_array
+                        .value(i);
+
+                    let result = string
+                        .parse::<chrono::NaiveDate>()
+                        .map(|date| (date.num_days_from_ce() - EPOCH_DAYS_FROM_CE) as u16);
+
+                    Some(result.map_err(|_| {
+                        ArrowError::CastError(
+                            format!("Cannot cast string '{}' to value of arrow::datatypes::types::Date32Type type", string),
+                        )
+                    }))
+                        .transpose()
+                }
+            })
+            .collect::<Result<Vec<Option<u16>>>>()?;
+
+        // Benefit:
+        //     20% performance improvement
+        // Soundness:
+        //     The iterator is trustedLen because it comes from an `StringArray`.
+        unsafe { Date16Array::from_trusted_len_iter(vec.iter()) }
+    };
+
+    Ok(Arc::new(array) as ArrayRef)
 }
 
 /// Casts generic string arrays to Date32Array

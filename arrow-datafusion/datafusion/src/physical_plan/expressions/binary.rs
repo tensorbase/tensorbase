@@ -18,7 +18,6 @@
 use std::{any::Any, sync::Arc};
 
 use arrow::array::*;
-use arrow::array::LargeStringArray;
 use arrow::compute::kernels::arithmetic::{
     add, divide, divide_scalar, multiply, subtract,
 };
