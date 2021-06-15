@@ -1061,23 +1061,13 @@ pub trait Literal {
 
 impl Literal for &str {
     fn lit(&self) -> Expr {
-        //FIXME debug_assert!(self.len()<128);
-        let mut s = String::new();
-        debug_assert!(self.len()<128);
-        s.push(self.len() as u8 as char);
-        s.push_str(self);
-        Expr::Literal(ScalarValue::LargeUtf8(Some(s)))
+        Expr::Literal(ScalarValue::LargeUtf8(Some((*self).to_owned())))
     }
 }
 
 impl Literal for String {
     fn lit(&self) -> Expr {
-        //FIXME debug_assert!(self.len()<128);
-        let mut s = String::new();
-        debug_assert!(self.len()<128);
-        s.push(self.len() as u8 as char);
-        s.push_str(self);
-        Expr::Literal(ScalarValue::LargeUtf8(Some(s)))
+        Expr::Literal(ScalarValue::LargeUtf8(Some((*self).to_owned())))
     }
 }
 

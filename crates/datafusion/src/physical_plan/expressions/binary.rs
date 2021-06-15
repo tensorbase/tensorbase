@@ -129,9 +129,14 @@ macro_rules! compute_largeutf8_op_scalar {
             .downcast_ref::<$DT>()
             .expect("compute_op failed to downcast array");
         if let ScalarValue::LargeUtf8(Some(string_value)) = $RIGHT {
+            //FIXME debug_assert!(self.len()<128);
+            let mut s = String::new();
+            debug_assert!(string_value.len()<128);
+            s.push(string_value.len() as u8 as char);
+            s.push_str(&string_value);
             Ok(Arc::new(paste::expr! {[<$OP _utf8_scalar>]}(
                 &ll,
-                &string_value,
+                &s,
             )?))
         } else {
             Err(DataFusionError::Internal(format!(

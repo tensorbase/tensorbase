@@ -141,9 +141,10 @@ pub(crate) fn run(
             return Err(EngineError::UnexpectedDataLoadingError);
         }
         log::debug!(
-            "got {} copas, with {} copa per copas",
+            "got {} copas, with {} copa per copas for {}",
             copass.len(),
             copass[0].len(),
+            tid,
         );
 
         setup_tables(tab.as_str(), schema, &mut ctx, &cis, &copass)?;
