@@ -10,6 +10,10 @@ members = [
     "crates/client",
     "crates/test_utils",
     "crates/tests_integ",
+    "crates/arrow",
+    "crates/arrow-flight",
+    "crates/datafusion",
+    "crates/parquet",
 ]
 
 [profile.release]

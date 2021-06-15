@@ -63,7 +63,7 @@ impl CoPaInfo {
 
     #[inline(always)]
     pub fn len_in_bytes_om(size: usize) -> usize {
-        size * std::mem::size_of::<u64>()
+        (size + 1) * std::mem::size_of::<u64>()
     }
 }
 
@@ -209,10 +209,8 @@ impl<'a> PartStore<'a> {
     #[inline]
     fn is_locked(&self, tid: Id) -> MetaResult<bool> {
         let kbs = tid.to_be_bytes();
-        let res = self
-            .tree_locks
-            .get(kbs)
-            .map_err(|_| MetaError::FailToLockTable)?;
+        let res =
+            self.tree_locks.get(kbs).map_err(|_| MetaError::FailToLockTable)?;
         match res {
             Some(iv) => {
                 let v = *(&*iv).into_ref::<u8>();
@@ -353,8 +351,9 @@ impl<'a> PartStore<'a> {
                     let fpath = get_part_path(tid, *cid, ptk, dp)?;
                     // println!("fpath: {}", std::str::from_utf8(&fpath).unwrap());
                     let pfd = open_file_as_fd(&fpath)?;
-                    let len_in_bytes =
-                        CoPaInfo::len_in_bytes(size, *col_typ, *cid, ptk, self)?;
+                    let len_in_bytes = CoPaInfo::len_in_bytes(
+                        size, *col_typ, *cid, ptk, self,
+                    )?;
                     // log::debug!("--- copar size: {}, len: {}", size, len_in_bytes);
                     let addr = mm_file_ro(pfd, len_in_bytes)?;
                     //issue#22 add om
@@ -368,12 +367,7 @@ impl<'a> PartStore<'a> {
                     unsafe {
                         close(pfd as i32);
                     }
-                    cps.push(CoPaInfo {
-                        addr,
-                        addr_om,
-                        size,
-                        len_in_bytes,
-                    })
+                    cps.push(CoPaInfo { addr, addr_om, size, len_in_bytes })
                 } else {
                     return Err(MetaError::GetPartInfoError);
                 }
@@ -385,13 +379,16 @@ impl<'a> PartStore<'a> {
     }
 
     pub fn clear(&self, _tid: Id, _cids: &[Id]) -> MetaResult<()> {
-        //Clear the information of _tid and _cids 
+        //Clear the information of _tid and _cids
         for r in self.tree_prids.iter().keys() {
             let k = r.map_err(|_| MetaError::EntityDelError)?;
             let kbs = &*k;
             let (tid, _) = kbs.into_ref::<(u64, u64)>();
             if *tid == _tid.to_be() {
-                let _ = self.tree_prids.remove(k).map_err(|_|MetaError::EntityDelError)?;
+                let _ = self
+                    .tree_prids
+                    .remove(k)
+                    .map_err(|_| MetaError::EntityDelError)?;
             }
         }
 
@@ -400,7 +397,10 @@ impl<'a> PartStore<'a> {
             let kbs = &*k;
             let (tid, _) = kbs.into_ref::<(Id, Id)>();
             if *tid == _tid.to_be() {
-                let _ = self.tree_part_size.remove(k).map_err(|_|MetaError::EntityDelError)?;
+                let _ = self
+                    .tree_part_size
+                    .remove(k)
+                    .map_err(|_| MetaError::EntityDelError)?;
             }
         }
 
@@ -408,10 +408,12 @@ impl<'a> PartStore<'a> {
             let iter = self.tree_parts.scan_prefix(_cid.to_be_bytes());
             for kv in iter {
                 let (k, _) = kv.map_err(|_| MetaError::EntityDelError)?;
-                self.tree_parts.remove(k).map_err(|_| MetaError::EntityDelError)?;
+                self.tree_parts
+                    .remove(k)
+                    .map_err(|_| MetaError::EntityDelError)?;
             }
         }
-        
+
         Ok(())
     }
 
@@ -729,7 +731,6 @@ mod unit_tests {
                 ps.insert_copa_int_ptk(*cid, ptk, 0)?;
             }
         }
-
 
         let mut cpss = Vec::new();
         ps.fill_copainfos_int_by_ptk_range(&mut cpss, tid, &cids, 0, 20200105)?;

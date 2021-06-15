@@ -1,0 +1,1 @@
+Crates arrow, arrow-flight, datafusion and parquet are modified sources from Apache Arrow and DataFusion. Based on the specificity of these crates, they are maintained by core committers. All changes to these directory should be in a dedicated commit. You can consult more infos from the core committers if you want to make changes in this directory.
