@@ -565,7 +565,7 @@ async fn tests_integ_cast_LargeUtf8_to_Utf8() -> errors::Result<()> {
         let mut query_result = conn.query(sql).await?;
 
         while let Some(block) = query_result.next().await? {
-            for (i, row) in block.iter_rows().enumerate() {
+            for (_, row) in block.iter_rows().enumerate() {
                 let res: u64 = row.value(0)?.unwrap();
                 println!("{}", res);
                 assert_eq!(res, 1);
@@ -617,14 +617,14 @@ async fn tests_integ_date_cast() -> errors::Result<()> {
     }
 
     {
-        let sql = "select a from test_tab_date where a < '2010-02-02' ";
+        let sql = "select count(1) from test_tab_date where a < '2011-11-11' ";
         let mut query_result = conn.query(sql).await?;
 
         while let Some(block) = query_result.next().await? {
             for row in block.iter_rows() {
                 println!("{:?}",row);
-                let res: DateTime<Utc> = row.value(0)?.unwrap();
-                // assert_eq!(res.date().naive_utc().to_string(), checks[i]);
+                let res: u64 = row.value(0)?.unwrap();
+                assert_eq!(res, 1);
             }
         }
     }
