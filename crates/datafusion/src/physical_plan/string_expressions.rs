@@ -570,6 +570,24 @@ pub fn starts_with<T: StringOffsetSizeTrait>(args: &[ArrayRef]) -> Result<ArrayR
     Ok(Arc::new(result) as ArrayRef)
 }
 
+/// Returns true if string ends with suffix.
+/// ends_with('alphabet', 'abet') = 't'
+pub fn ends_with<T: StringOffsetSizeTrait>(args: &[ArrayRef]) -> Result<ArrayRef> {
+    let string_array = downcast_string_arg!(args[0], "string", T);
+    let suffix_array = downcast_string_arg!(args[1], "suffix", T);
+
+    let result = string_array
+        .iter()
+        .zip(suffix_array.iter())
+        .map(|(string, suffix)| match (string, suffix) {
+            (Some(string), Some(suffix)) => Some(string.ends_with(suffix)),
+            _ => None,
+        })
+        .collect::<BooleanArray>();
+
+    Ok(Arc::new(result) as ArrayRef)
+}
+
 /// Converts the number to its equivalent hexadecimal representation.
 /// to_hex(2147483647) = '7fffffff'
 pub fn to_hex<T: ArrowPrimitiveType>(args: &[ArrayRef]) -> Result<ArrayRef>

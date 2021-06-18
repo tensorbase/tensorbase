@@ -1171,6 +1171,7 @@ unary_scalar_expr!(SHA384, sha384);
 unary_scalar_expr!(SHA512, sha512);
 unary_scalar_expr!(SplitPart, split_part);
 unary_scalar_expr!(StartsWith, starts_with);
+unary_scalar_expr!(EndsWith, ends_with);
 unary_scalar_expr!(Strpos, strpos);
 unary_scalar_expr!(Substr, substr);
 unary_scalar_expr!(ToHex, to_hex);
