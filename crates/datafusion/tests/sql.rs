@@ -2997,10 +2997,17 @@ async fn test_string_expressions() -> Result<()> {
         "split_part('abc~@~def~@~ghi', '~@~', CAST(NULL AS INT))",
         "NULL"
     );
+
     test_expression!("starts_with('alphabet', 'alph')", "true");
     test_expression!("starts_with('alphabet', 'blph')", "false");
     test_expression!("starts_with(NULL, 'blph')", "NULL");
     test_expression!("starts_with('alphabet', NULL)", "NULL");
+
+    test_expression!("ends_with('alphabet', 'abet')", "true");
+    test_expression!("ends_with('alphabet', 'blph')", "false");
+    test_expression!("ends_with(NULL, 'blph')", "NULL");
+    test_expression!("ends_with('alphabet', NULL)", "NULL");
+
     test_expression!("to_hex(2147483647)", "7fffffff");
     test_expression!("to_hex(9223372036854775807)", "7fffffffffffffff");
     test_expression!("to_hex(CAST(NULL AS int))", "NULL");

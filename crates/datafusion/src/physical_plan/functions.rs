@@ -203,6 +203,8 @@ pub enum BuiltinScalarFunction {
     SplitPart,
     /// starts_with
     StartsWith,
+    /// ends_with
+    EndsWith,
     /// strpos
     Strpos,
     /// substr
@@ -302,6 +304,7 @@ impl FromStr for BuiltinScalarFunction {
             "sha512" => BuiltinScalarFunction::SHA512,
             "split_part" => BuiltinScalarFunction::SplitPart,
             "starts_with" => BuiltinScalarFunction::StartsWith,
+            "ends_with" => BuiltinScalarFunction::EndsWith,
             "strpos" => BuiltinScalarFunction::Strpos,
             "substr" => BuiltinScalarFunction::Substr,
             "to_hex" => BuiltinScalarFunction::ToHex,
@@ -410,6 +413,7 @@ pub fn return_type(
         BuiltinScalarFunction::SHA512 => utf8_to_binary_type(&arg_types[0], "sha512"),
         BuiltinScalarFunction::SplitPart => utf8_to_str_type(&arg_types[0], "split_part"),
         BuiltinScalarFunction::StartsWith => Ok(DataType::Boolean),
+        BuiltinScalarFunction::EndsWith => Ok(DataType::Boolean),
         BuiltinScalarFunction::Strpos => utf8_to_int_type(&arg_types[0], "strpos"),
         BuiltinScalarFunction::Substr => utf8_to_str_type(&arg_types[0], "substr"),
         BuiltinScalarFunction::ToHex => Ok(match arg_types[0] {
@@ -875,6 +879,18 @@ pub fn create_physical_expr(
                 other,
             ))),
         },
+        BuiltinScalarFunction::EndsWith => |args| match args[0].data_type() {
+            DataType::Utf8 => {
+                make_scalar_function(string_expressions::ends_with::<i32>)(args)
+            }
+            DataType::LargeUtf8 => {
+                make_scalar_function(string_expressions::ends_with::<i64>)(args)
+            }
+            other => Err(DataFusionError::Internal(format!(
+                "Unsupported data type {:?} for function ends_with",
+                other,
+            ))),
+        },
         BuiltinScalarFunction::Strpos => |args| match args[0].data_type() {
             DataType::Utf8 => {
                 let func = invoke_if_unicode_expressions_feature_flag!(
@@ -1087,7 +1103,8 @@ fn signature(fun: &BuiltinScalarFunction) -> Signature {
             ]),
         ]),
 
-        BuiltinScalarFunction::Strpos | BuiltinScalarFunction::StartsWith => {
+        BuiltinScalarFunction::Strpos | BuiltinScalarFunction::StartsWith |
+        BuiltinScalarFunction::EndsWith => {
             Signature::OneOf(vec![
                 Signature::Exact(vec![DataType::Utf8, DataType::Utf8]),
                 Signature::Exact(vec![DataType::Utf8, DataType::LargeUtf8]),
@@ -3060,6 +3077,51 @@ mod tests {
         );
         test_function!(
             StartsWith,
+            &[
+                lit(ScalarValue::Utf8(Some("alphabet".to_string()))),
+                lit(ScalarValue::Utf8(None)),
+            ],
+            Ok(None),
+            bool,
+            Boolean,
+            BooleanArray
+        );
+
+        test_function!(
+            EndsWith,
+            &[
+                lit(ScalarValue::Utf8(Some("alphabet".to_string()))),
+                lit(ScalarValue::Utf8(Some("abet".to_string()))),
+            ],
+            Ok(Some(true)),
+            bool,
+            Boolean,
+            BooleanArray
+        );
+        test_function!(
+            EndsWith,
+            &[
+                lit(ScalarValue::Utf8(Some("alphabet".to_string()))),
+                lit(ScalarValue::Utf8(Some("blph".to_string()))),
+            ],
+            Ok(Some(false)),
+            bool,
+            Boolean,
+            BooleanArray
+        );
+        test_function!(
+            EndsWith,
+            &[
+                lit(ScalarValue::Utf8(None)),
+                lit(ScalarValue::Utf8(Some("alph".to_string()))),
+            ],
+            Ok(None),
+            bool,
+            Boolean,
+            BooleanArray
+        );
+        test_function!(
+            EndsWith,
             &[
                 lit(ScalarValue::Utf8(Some("alphabet".to_string()))),
                 lit(ScalarValue::Utf8(None)),

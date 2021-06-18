@@ -40,7 +40,7 @@ pub use expr::{
     initcap, left, length, lit, ln, log10, log2, lower, lpad, ltrim, max, md5, min, now,
     octet_length, or, random, regexp_match, regexp_replace, repeat, replace, reverse,
     right, round, rpad, rtrim, sha224, sha256, sha384, sha512, signum, sin, split_part,
-    sqrt, starts_with, strpos, substr, sum, tan, to_hex, translate, trim, trunc, upper,
+    sqrt, starts_with, ends_with, strpos, substr, sum, tan, to_hex, translate, trim, trunc, upper,
     when, Expr, ExprRewriter, ExpressionVisitor, Literal, Recursion, to_date,
 };
 pub use extension::UserDefinedLogicalNode;
