@@ -62,7 +62,7 @@ More detail about all benchmarks seen [in benchmarks](https://github.com/tensorb
 
 ## Roadmap
 
-* [Base Space Station](/issues/141)
+* [Base Space Station](/tensorbase/tensorbase/issues/141)
 * [This Week in TensorBase](https://tensorbase.io/tw/)
 
 ## Working Groups
