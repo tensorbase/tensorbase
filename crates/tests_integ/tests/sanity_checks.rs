@@ -93,6 +93,44 @@ fn assert_results(row: Row, count_res: i64) -> errors::Result<()> {
 }
 
 #[tokio::test]
+async fn tests_integ_string_functions() -> errors::Result<()> {
+    let pool = get_pool();
+    let mut conn = pool.connection().await?;
+
+    let database_name = "string_functions";
+    conn.execute(format!("create database if not exists {}", database_name)).await?;
+    conn.execute(format!("use {}", database_name)).await?;
+
+    let table_name = "string_functions_actor";
+    let field_name = "left_value";
+    conn.execute(format!("DROP TABLE IF EXISTS {}", table_name)).await?;
+    conn.execute(format!("CREATE TABLE {}({} String)", table_name, field_name)).await?;
+ 
+    let data_s = vec!["alphabet"];
+    let block = Block::new(table_name).add(field_name, data_s.clone());
+    let mut insert = conn.insert(&block).await?;
+    insert.commit().await?;
+
+    drop(insert);
+    {
+        let sql = format!("select {}  from {} where ends_with({}, 'abet') = true", field_name, table_name, field_name);
+        let mut query_result = conn.query(sql).await?;
+
+        while let Some(block) = query_result.next().await? {
+            let mut i =0;
+
+            for row in block.iter_rows() {
+                let res: &str = row.value(0)?.unwrap();
+                assert_eq!(res.to_string(), data_s[i]);
+                i += i;
+            }
+        }
+    }
+
+    Ok(())
+}
+
+#[tokio::test]
 async fn tests_integ_basic_insert_float() -> errors::Result<()> {
     let pool = get_pool();
     let mut conn = pool.connection().await?;
