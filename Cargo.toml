@@ -27,6 +27,7 @@ lto = 'thin'
 
 [profile.bench]
 opt-level = 3
-lto = 'fat'
-codegen-units = 1
-incremental = false
+lto = 'thin'
+# lto = 'fat'
+# codegen-units = 1
+# incremental = false
