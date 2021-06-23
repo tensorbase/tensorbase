@@ -32,6 +32,12 @@ pub fn unixtime_to_ymd(unixtime: i32) -> YMD {
 }
 
 #[inline(always)]
+pub fn unixtime_to_year(unixtime: i32) -> u16 {
+    let (days, _) = div_mod_floor(unixtime as i64, 86_400);
+    days_to_year(days as i32)
+}
+
+#[inline(always)]
 pub fn days_to_ymd(days: i32) -> YMD {
     days.to_i32()
         .and_then(|days| days.checked_add(719_163))
@@ -40,7 +46,19 @@ pub fn days_to_ymd(days: i32) -> YMD {
             y: date.year() as u16,
             m: date.month() as u8,
             d: date.day() as u8,
-        }).unwrap_or(YMD::default() )
+        })
+        .unwrap_or(YMD::default())
+}
+
+#[inline(always)]
+const fn leaps(years: i32) -> i32 {
+    (years - 1) / 4 - (years - 1) / 100 + (years - 1) / 400
+}
+
+#[inline(always)]
+pub const fn days_to_year(days0: i32) -> u16 {
+    let days = days0 + 719162;
+    (1 + (days - leaps(days / 365)) / 365) as u16
 }
 
 #[inline]
@@ -133,26 +151,23 @@ mod unit_tests {
         Ok(())
     }
 
-    // #[test]
-    // fn stress_test_ymdhms_to_unixtime() {
-    //     // let day0 = Utc.ymd(1970, 0, 0).and_hms(0, 0, 0);
-    //     let day0 = Utc.timestamp(0, 0);
-    //     let day1 = Utc.ymd(2036, 12, 31).and_hms(0, 0, 0);
-    //     let dmax = day1 - day0;
-    //     let mut ymd = day0;
-    //     while (ymd - day0) <= dmax {
-    //         // println!("ymd: {}", ymd);
-    //         let y = ymd.year();
-    //         let m = ymd.month();
-    //         let d = ymd.day();
-    //         let ut =
-    //             ymdhms_to_unixtime(YMDHMS(y as i16, m as u8, d as u8, 0, 0, 0));
-    //         let ut_c = unsafe {
-    //             ymdhms_to_unixtime(y as i16, m as u8, d as u8, 0, 0, 0)
-    //         };
-    //         assert_eq!(ymd.timestamp() as u32, ut);
-    //         assert_eq!(ut_c as u32, ut);
-    //         ymd = ymd + Duration::days(1);
-    //     }
-    // }
+    #[test]
+    fn test_days_to_year() {
+        for days in 0..4096 * 20 {
+            let ymd = days_to_ymd(days);
+            let y = days_to_year(days);
+            assert_eq!(y, ymd.y);
+        }
+        // println!("y: {}", days_to_year(4096*10));
+    }
+
+    #[test]
+    fn test_unixtime_to_year() {
+        for epoch in (1..1000_000_000).step_by(1000) {
+            let ymd = unixtime_to_ymd(epoch);
+            let y = unixtime_to_year(epoch);
+            assert_eq!(y, ymd.y);
+        }
+        // println!("y: {}", days_to_year(4096*10));
+    }
 }
