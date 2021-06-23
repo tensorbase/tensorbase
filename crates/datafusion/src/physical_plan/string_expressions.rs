@@ -573,19 +573,24 @@ pub fn starts_with<T: StringOffsetSizeTrait>(args: &[ArrayRef]) -> Result<ArrayR
 /// Returns true if string ends with suffix.
 /// ends_with('alphabet', 'abet') = 't'
 pub fn ends_with<T: StringOffsetSizeTrait>(args: &[ArrayRef]) -> Result<ArrayRef> {
-    let string_array = downcast_string_arg!(args[0], "string", T);
-    let suffix_array = downcast_string_arg!(args[1], "suffix", T);
+    match args.len() {
+        2 => {
+            let string_array = downcast_string_arg!(args[0], "string", T);
+            let suffix_array = downcast_string_arg!(args[1], "suffix", T);
+            let suffix = suffix_array.value(0);
 
-    let result = string_array
-        .iter()
-        .zip(suffix_array.iter())
-        .map(|(string, suffix)| match (string, suffix) {
-            (Some(string), Some(suffix)) => Some(string.ends_with(suffix)),
-            _ => None,
-        })
-        .collect::<BooleanArray>();
+            let result = string_array
+                .iter()
+                .map(|string| string.map(|string: &str| string.ends_with(suffix)))
+                .collect::<BooleanArray>();
+            Ok(Arc::new(result) as ArrayRef)
+        }
 
-    Ok(Arc::new(result) as ArrayRef)
+        other => Err(DataFusionError::Internal(format!(
+            "rtrim was called with {} arguments. It requires 2.",
+            other
+        ))),
+    }
 }
 
 /// Converts the number to its equivalent hexadecimal representation.

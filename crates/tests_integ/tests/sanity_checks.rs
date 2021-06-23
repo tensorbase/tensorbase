@@ -116,15 +116,20 @@ async fn tests_integ_string_functions() -> errors::Result<()> {
         let sql = format!("select {}  from {} where ends_with({}, 'abet') = true", field_name, table_name, field_name);
         let mut query_result = conn.query(sql).await?;
 
+        let mut is_empty = true;
+
         while let Some(block) = query_result.next().await? {
             let mut i =0;
 
             for row in block.iter_rows() {
+                is_empty = false;
                 let res: &str = row.value(0)?.unwrap();
                 assert_eq!(res.to_string(), data_s[i]);
                 i += i;
             }
         }
+
+        assert!(!is_empty);
     }
 
     Ok(())
