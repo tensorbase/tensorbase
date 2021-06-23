@@ -66,6 +66,7 @@ regex = { version = "^1.4.3", optional = true }
 lazy_static = { version = "^1.4.0", optional = true }
 smallvec = { version = "1.6", features = ["union"] }
 rand = "0.8"
+base = { path = "../base" }
 
 [dev-dependencies]
 criterion = "0.3"

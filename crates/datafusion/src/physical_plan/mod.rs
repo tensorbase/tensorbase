@@ -619,3 +619,5 @@ pub mod unicode_expressions;
 pub mod union;
 pub mod window_functions;
 pub mod windows;
+
+pub mod ch_fns;
