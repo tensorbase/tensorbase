@@ -33,7 +33,7 @@ use super::{
     type_coercion::{coerce, data_types},
     ColumnarValue, PhysicalExpr,
 };
-use crate::execution::context::ExecutionContextState;
+use crate::{execution::context::ExecutionContextState, physical_plan::ch_fns};
 use crate::physical_plan::array_expressions;
 use crate::physical_plan::datetime_expressions;
 use crate::physical_plan::expressions::{nullif_func, SUPPORTED_NULLIF_TYPES};
@@ -94,9 +94,12 @@ pub type ReturnTypeFunction =
 /// Enum of all built-in scalar functions
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum BuiltinScalarFunction {
-    /// date and time
+    //TB for CH builtins
     /// to_date
     ToDate,
+    /// toYear
+    ToYear,
+
     // math functions
     /// abs
     Abs,
@@ -242,6 +245,7 @@ impl FromStr for BuiltinScalarFunction {
     type Err = DataFusionError;
     fn from_str(name: &str) -> Result<BuiltinScalarFunction> {
         Ok(match name {
+            "toyear" | "toyyyy" => BuiltinScalarFunction::ToYear,
             "to_date" => BuiltinScalarFunction::ToDate,
             // math functions
             "abs" => BuiltinScalarFunction::Abs,
@@ -355,6 +359,9 @@ pub fn return_type(
     match fun {
         BuiltinScalarFunction::ToDate => {
             Ok(DataType::Date16)
+        }
+        BuiltinScalarFunction::ToYear => {
+            Ok(DataType::UInt16)
         }
         BuiltinScalarFunction::Array => Ok(DataType::FixedSizeList(
             Box::new(Field::new("item", arg_types[0].clone(), true)),
@@ -528,6 +535,9 @@ pub fn create_physical_expr(
     ctx_state: &ExecutionContextState,
 ) -> Result<Arc<dyn PhysicalExpr>> {
     let fun_expr: ScalarFunctionImplementation = Arc::new(match fun {
+        // TB
+        BuiltinScalarFunction::ToYear => ch_fns::expr_to_year,
+
         // math functions
         BuiltinScalarFunction::Abs => math_expressions::abs,
         BuiltinScalarFunction::Acos => math_expressions::acos,
@@ -971,6 +981,11 @@ fn signature(fun: &BuiltinScalarFunction) -> Signature {
 
     // for now, the list is small, as we do not have many built-in functions.
     match fun {
+        //TB
+        BuiltinScalarFunction::ToYear => {
+            Signature::Uniform(1, vec![DataType::Date16, DataType::Timestamp32(None)])
+        }
+        //DF
         BuiltinScalarFunction::Array => {
             Signature::Variadic(array_expressions::SUPPORTED_ARRAY_TYPES.to_vec())
         }
