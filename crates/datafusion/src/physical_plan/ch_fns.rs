@@ -1,10 +1,15 @@
 use std::sync::Arc;
 
 use arrow::{
-    array::{Array, Date16Array, Timestamp32Array, UInt16Array, UInt16Builder},
+    array::{
+        Array, Date16Array, Timestamp32Array, UInt16Array, UInt16Builder,
+        UInt8Array, UInt8Builder,
+    },
     datatypes::DataType,
 };
-use base::datetimes::{days_to_year, unixtime_to_year};
+use base::datetimes::{
+    days_to_year, days_to_ymd, unixtime_to_year, unixtime_to_ymd,
+};
 
 use crate::error::DataFusionError;
 
@@ -13,9 +18,7 @@ use super::ColumnarValue;
 /// Extracts the years from Date16 array
 pub fn date16_to_year(
     array: &Date16Array,
-) -> arrow::error::Result<UInt16Array>
-where
-{
+) -> arrow::error::Result<UInt16Array> {
     let mut b = UInt16Builder::new(array.len());
     for i in 0..array.len() {
         if array.is_null(i) {
@@ -27,12 +30,40 @@ where
     Ok(b.finish())
 }
 
+/// Extracts the months from Date16 array
+pub fn date16_to_month(
+    array: &Date16Array,
+) -> arrow::error::Result<UInt8Array> {
+    let mut b = UInt8Builder::new(array.len());
+    for i in 0..array.len() {
+        if array.is_null(i) {
+            b.append_null()?;
+        } else {
+            b.append_value(days_to_ymd(array.value(i) as i32).m)?;
+        }
+    }
+    Ok(b.finish())
+}
+
+/// Extracts the days of month from Date16 array
+pub fn date16_to_day_of_month(
+    array: &Date16Array,
+) -> arrow::error::Result<UInt8Array> {
+    let mut b = UInt8Builder::new(array.len());
+    for i in 0..array.len() {
+        if array.is_null(i) {
+            b.append_null()?;
+        } else {
+            b.append_value(days_to_ymd(array.value(i) as i32).d)?;
+        }
+    }
+    Ok(b.finish())
+}
+
 /// Extracts the years from Timestamp32 array
 pub fn timestamp32_to_year(
     array: &Timestamp32Array,
-) -> arrow::error::Result<UInt16Array>
-where
-{
+) -> arrow::error::Result<UInt16Array> {
     let mut b = UInt16Builder::new(array.len());
     for i in 0..array.len() {
         if array.is_null(i) {
@@ -44,89 +75,84 @@ where
     Ok(b.finish())
 }
 
-/// wrapping to backend to_year logics
-pub fn expr_to_year(
-    args: &[ColumnarValue],
-) -> crate::error::Result<ColumnarValue> {
-    match args[0].data_type() {
-        DataType::Date16 => match &args[0] {
-            ColumnarValue::Array(array) => {
-                let ra = array.as_any().downcast_ref::<Date16Array>();
-                match ra {
-                    Some(a) => {
-                        let res: UInt16Array = date16_to_year(a)?;
-                        Ok(ColumnarValue::Array(Arc::new(res)))
-                    }
-                    _ => {
-                        return Err(DataFusionError::Internal(
-                            "expr_to_year Date16 error".to_string(),
-                        ));
-                    }
-                }
-            }
-            _ => {
-                return Err(DataFusionError::Internal(
-                    "expr_to_year Date16 error".to_string(),
-                ));
-            }
-        },
-        DataType::Timestamp32(_) => match &args[0] {
-            ColumnarValue::Array(array) => {
-                let ra = array.as_any().downcast_ref::<Timestamp32Array>();
-                match ra {
-                    Some(a) => {
-                        let res: UInt16Array = timestamp32_to_year(a)?;
-                        Ok(ColumnarValue::Array(Arc::new(res)))
-                    }
-                    _ => {
-                        return Err(DataFusionError::Internal(
-                            "expr_to_year Timestamp32 error".to_string(),
-                        ));
-                    }
-                }
-            }
-            _ => {
-                return Err(DataFusionError::Internal(
-                    "expr_to_year Timestamp32 error".to_string(),
-                ));
-            }
-        },
-        other => Err(DataFusionError::Internal(format!(
-            "Unsupported data type {:?} for function toYear",
-            other,
-        ))),
+/// Extracts the months from Timestamp32 array
+pub fn timestamp32_to_month(
+    array: &Timestamp32Array,
+) -> arrow::error::Result<UInt8Array> {
+    let mut b = UInt8Builder::new(array.len());
+    for i in 0..array.len() {
+        if array.is_null(i) {
+            b.append_null()?;
+        } else {
+            b.append_value(unixtime_to_ymd(array.value(i) as i32).m)?;
+        }
     }
+    Ok(b.finish())
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use arrow::array::Array;
-    use arrow::{array::PrimitiveArray, datatypes::Date16Type};
-
-    #[test]
-    fn test_to_year() {
-        let a: PrimitiveArray<Date16Type> =
-            vec![Some(1), None, Some(366)].into();
-
-        let b = date16_to_year(&a).unwrap();
-        assert_eq!(1970, b.value(0));
-        assert_eq!(false, b.is_valid(1));
-        assert_eq!(1971, b.value(2));
-    }
-
-    #[test]
-    fn stress_to_year() {
-        let v: Vec<u16> = (0..4096).collect();
-        let a: PrimitiveArray<Date16Type> = v.into();
-
-        let ts = ::std::time::Instant::now();
-        let mut s = 0;
-        for _ in 0..100 {
-            let b = date16_to_year(&a).unwrap();
-            // let b = arrow::compute::kernels::temporal::year(&a).unwrap();
-            s += b.len() as usize;
+/// Extracts the days of month from Timestamp32 array
+pub fn timestamp32_to_day_of_month(
+    array: &Timestamp32Array,
+) -> arrow::error::Result<UInt8Array> {
+    let mut b = UInt8Builder::new(array.len());
+    for i in 0..array.len() {
+        if array.is_null(i) {
+            b.append_null()?;
+        } else {
+            b.append_value(unixtime_to_ymd(array.value(i) as i32).d)?;
         }
-        println!("ts: {:?}, s: {}", ts.elapsed(), s);
+    }
+    Ok(b.finish())
+}
+
+macro_rules! wrap_datetime_fn {
+    ( $(
+        $(#[$OUTER:meta])* $CH_FN:literal => fn $NAME:ident {
+            $( $DATA_TYPE:pat => fn $OP:ident($INPUT_TY:ty) -> $OUTPUT_TY:ty, )*
+        }
+    )* ) => { $(
+        $(#[$OUTER])*
+        pub fn $NAME(args: &[ColumnarValue]) -> crate::error::Result<ColumnarValue> {
+            match args[0].data_type() {
+                $(
+                $DATA_TYPE => if let ColumnarValue::Array(array) = &args[0] {
+                    if let Some(a) = array.as_any().downcast_ref::<$INPUT_TY>() {
+                        let res: $OUTPUT_TY = $OP(a)?;
+                        Ok(ColumnarValue::Array(Arc::new(res)))
+                    } else {
+                        return Err(DataFusionError::Internal(
+                            format!("{} Date16 error", stringify!($NAME)),
+                        ));
+                    }
+                } else {
+                    return Err(DataFusionError::Internal(
+                        format!("{} Date16 error", stringify!($NAME)),
+                    ));
+                },
+                )*
+                other => Err(DataFusionError::Internal(format!(
+                    "Unsupported data type {:?} for function {}",
+                    other, $CH_FN,
+                ))),
+            }
+        }
+    )* }
+}
+
+wrap_datetime_fn! {
+    /// wrapping to backend to_year logics
+    "toYear" => fn expr_to_year {
+        DataType::Date16 => fn date16_to_year(Date16Array) -> UInt16Array,
+        DataType::Timestamp32(_) => fn timestamp32_to_year(Timestamp32Array) -> UInt16Array,
+    }
+    /// wrapping to backend to_month logics
+    "toMonth" => fn expr_to_month {
+        DataType::Date16 => fn date16_to_month(Date16Array) -> UInt8Array,
+        DataType::Timestamp32(_) => fn timestamp32_to_month(Timestamp32Array) -> UInt8Array,
+    }
+    /// wrapping to backend to_day_of_month logics
+    "toDayOfMonth" => fn expr_to_day_of_month {
+        DataType::Date16 => fn date16_to_day_of_month(Date16Array) -> UInt8Array,
+        DataType::Timestamp32(_) => fn timestamp32_to_day_of_month(Timestamp32Array) -> UInt8Array,
     }
 }

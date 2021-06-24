@@ -99,6 +99,10 @@ pub enum BuiltinScalarFunction {
     ToDate,
     /// toYear
     ToYear,
+    /// toMonth
+    ToMonth,
+    /// toDayOfMonth,
+    ToDayOfMonth,
 
     // math functions
     /// abs
@@ -245,8 +249,12 @@ impl FromStr for BuiltinScalarFunction {
     type Err = DataFusionError;
     fn from_str(name: &str) -> Result<BuiltinScalarFunction> {
         Ok(match name {
+            // date and time functions
             "toyear" | "toyyyy" => BuiltinScalarFunction::ToYear,
+            "tomonth" => BuiltinScalarFunction::ToMonth,
+            "todayofmonth" => BuiltinScalarFunction::ToDayOfMonth,
             "to_date" => BuiltinScalarFunction::ToDate,
+
             // math functions
             "abs" => BuiltinScalarFunction::Abs,
             "acos" => BuiltinScalarFunction::Acos,
@@ -363,6 +371,8 @@ pub fn return_type(
         BuiltinScalarFunction::ToYear => {
             Ok(DataType::UInt16)
         }
+        BuiltinScalarFunction::ToMonth => Ok(DataType::UInt8),
+        BuiltinScalarFunction::ToDayOfMonth => Ok(DataType::UInt8),
         BuiltinScalarFunction::Array => Ok(DataType::FixedSizeList(
             Box::new(Field::new("item", arg_types[0].clone(), true)),
             arg_types.len() as i32,
@@ -537,6 +547,8 @@ pub fn create_physical_expr(
     let fun_expr: ScalarFunctionImplementation = Arc::new(match fun {
         // TB
         BuiltinScalarFunction::ToYear => ch_fns::expr_to_year,
+        BuiltinScalarFunction::ToMonth => ch_fns::expr_to_month,
+        BuiltinScalarFunction::ToDayOfMonth => ch_fns::expr_to_day_of_month,
 
         // math functions
         BuiltinScalarFunction::Abs => math_expressions::abs,
@@ -985,6 +997,12 @@ fn signature(fun: &BuiltinScalarFunction) -> Signature {
         BuiltinScalarFunction::ToYear => {
             Signature::Uniform(1, vec![DataType::Date16, DataType::Timestamp32(None)])
         }
+        BuiltinScalarFunction::ToMonth => {
+            Signature::Uniform(1, vec![DataType::Date16, DataType::Timestamp32(None)])
+        }
+        BuiltinScalarFunction::ToDayOfMonth => {
+            Signature::Uniform(1, vec![DataType::Date16, DataType::Timestamp32(None)])
+        }
         //DF
         BuiltinScalarFunction::Array => {
             Signature::Variadic(array_expressions::SUPPORTED_ARRAY_TYPES.to_vec())
@@ -1045,7 +1063,7 @@ fn signature(fun: &BuiltinScalarFunction) -> Signature {
             Signature::Exact(vec![DataType::Utf8, DataType::Int64]),
             Signature::Exact(vec![DataType::LargeUtf8, DataType::Int64]),
         ]),
-        BuiltinScalarFunction::ToTimestamp 
+        BuiltinScalarFunction::ToTimestamp
         | BuiltinScalarFunction::ToDate => Signature::Uniform(1, vec![DataType::Utf8]),
         BuiltinScalarFunction::DateTrunc => Signature::Exact(vec![
             DataType::Utf8,
