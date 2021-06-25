@@ -20,4 +20,4 @@ COPY . /
 # replace-with = 'sjtu'\n\
 # [source.sjtu]\n\
 # registry = \"http://mirrors.sjtug.sjtu.edu.cn/git/crates.io-index\"\n" > $CARGO_HOME/config
-RUN cargo build --release
+RUN CARGO_PROFILE_RELEASE_LTO='thin' CARGO_PROFILE_RELEASE_CODEGEN_UNITS=1 cargo build --release
