@@ -40,9 +40,7 @@ The development of TensorBase is same to the idiom of Rust engineering.
 
         clickhouse-client --port 9528
         
-    NOTE:
-    + here 9528 is the default port of TensorBase
-    + if clickhouse-client version >= 21.5, need to add arg **--compression=true** for INSERT statement
+    NOTE: here 9528 is the default port of TensorBase
 
 6. execute query like this:
 
