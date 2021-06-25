@@ -13,6 +13,7 @@ members = [
     "crates/arrow",
     "crates/arrow-flight",
     "crates/datafusion",
+    "crates/datafusion_tests",
     "crates/parquet",
 ]
 
