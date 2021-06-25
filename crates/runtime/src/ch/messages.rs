@@ -4,7 +4,9 @@ use std::str;
 
 use crate::mgmt::{BaseCommandKind, BMS, WRITE};
 
-use crate::ch::blocks::Block;
+use crate::ch::blocks::{
+    Block, COMPRESSED_EMPTY_CLIENT_BLK_BYTES_LEN, EMPTY_CLIENT_BLK_BYTES_LEN,
+};
 use crate::ch::codecs::{BytesExt, CHMsgReadAware, CHMsgWriteAware};
 use crate::ch::protocol::{
     ClientCodes, ClientInfo, ConnCtx, Interface, QueryKind, ServerCodes,
@@ -20,6 +22,17 @@ const DBMS_VERSION_MINOR: u64 = 5;
 const REVISION: u64 = 54405; //54441?
 const DBMS_VERSION_PATCH: u64 = 0;
 
+#[inline]
+fn check_empty_blk_bytes_len(
+    rb: &mut &[u8],
+    is_compressed: bool,
+) -> BaseRtResult<()> {
+    if is_compressed {
+        rb.ensure_enough_bytes_to_read(COMPRESSED_EMPTY_CLIENT_BLK_BYTES_LEN)
+    } else {
+        rb.ensure_enough_bytes_to_read(EMPTY_CLIENT_BLK_BYTES_LEN)
+    }
+}
 /// main entrance for CH related logics
 //FIXME BaseRtError: return directly with rb clearing
 //      IncompletedWireFormat: retry
@@ -37,7 +50,7 @@ pub fn response_to(
     //FIXME assume rb0 has at least 1 byte to read?
     match cctx.stage {
         StageKind::DataEODP => {
-            rb.ensure_enough_bytes_to_read(38)?;
+            check_empty_blk_bytes_len(rb, cctx.is_compressed)?;
             if is_eodp(rb, cctx.is_compressed) {
                 // rb0.advance(rb.len());
                 //EoS
@@ -53,7 +66,7 @@ pub fn response_to(
             }
         }
         StageKind::DataEODPInsertQuery => {
-            rb.ensure_enough_bytes_to_read(38)?;
+            check_empty_blk_bytes_len(rb, cctx.is_compressed)?;
             if is_eodp(rb, cctx.is_compressed) {
                 rb.advance(rb.len());
                 cctx.stage = StageKind::DataPacket;
@@ -64,7 +77,7 @@ pub fn response_to(
             }
         }
         StageKind::DataPacket => {
-            rb.ensure_enough_bytes_to_read(38)?;
+            check_empty_blk_bytes_len(rb, cctx.is_compressed)?;
             if is_eodp(rb, cctx.is_compressed) {
                 // rb0.advance(rb.len()); //consume for rb
                 log::debug!("all data packet received");
@@ -77,16 +90,18 @@ pub fn response_to(
                 Ok(true)
                 // Ok(false)
             } else {
-                let intcode = rb.read_varint()? as u8;
-                log::debug!("to process a data packet: {}", intcode);
                 //NOTE now only insert into
                 //handle data packets pipelining
                 // --------message----------
                 // PKID TMPF data buffer blk (STUPID: 1 or more, which belongs to 1 data packat)
                 //   1   0
                 // | - | - | ----------- |
-                let _ = rb.ensure_enough_bytes_to_read(1)?;
-                let _tmp_tn = rb.read_str()?;
+                if cctx.is_compressed {
+                    let intcode = rb.read_varint()? as u8;
+                    log::debug!("to process a data packet: {}", intcode);
+                    let _ = rb.ensure_enough_bytes_to_read(1)?;
+                    let _tmp_tn = rb.read_str()?;
+                }
                 let rb1 = cctx
                     .raw_blk_req
                     .get_or_insert_with(|| BytesMut::with_capacity(4 * 1024));
@@ -113,6 +128,11 @@ pub fn response_to(
                 let bs: &mut &[u8] = &mut rb1.get_slice_as_read_buf();
                 let ndec = blk.decode_from(bs)?;
                 rb1.advance(ndec);
+                if !cctx.is_compressed {
+                    rb.advance(ndec);
+                    consume_read_buf(rb0, rb, ptr0, len0)?;
+                }
+
                 if blk.has_decoded() {
                     log::debug!("_ got block[{:p}]", &blk);
                     let write = WRITE.get().unwrap();
@@ -140,6 +160,11 @@ pub fn response_to(
             let bs: &mut &[u8] = &mut rb1.get_slice_as_read_buf();
             let ndec = blk.decode_from(bs)?;
             rb1.advance(ndec);
+
+            if !cctx.is_compressed {
+                rb.advance(ndec);
+                consume_read_buf(rb0, rb, ptr0, len0)?;
+            }
             if blk.has_decoded() {
                 log::debug!("got block[{:p}]", &blk);
                 let write = WRITE.get().unwrap();
@@ -152,9 +177,7 @@ pub fn response_to(
         _ => {
             let intcode = rb.read_varint()? as u8;
             let code = ClientCodes::from(intcode);
-            log::debug!("code: {:?}", code);
             // log::debug!("[{}]msg content: {:02x?}", cctx.query_id, &rb[..]);
-            log::debug!("ConnCtx: {:p}", cctx);
             match code {
                 ClientCodes::Hello => {
                     let _ = response_hello(rb, wb, cctx)?;
@@ -299,7 +322,7 @@ fn response_query(
     //FIXME now just allow empty setting?
     // log::debug!("rb[..3]: {:?}", &rb[..3]);
     //FIXME silly workaround for jdbc
-    if rb.len()>2 && &rb[..3] != [2u8, 1, 38] {
+    if rb.len() > 2 && &rb[..3] != [2u8, 1, 38] {
         let setting_str = rb.read_str()?;
         if setting_str.len() != 0 {
             if setting_str != "format_csv_delimiter" {
@@ -469,17 +492,10 @@ pub(crate) fn process_data_blk(
         // }
         Ok(raw_size)
     } else {
-        //move data to rb0
-        //FIXME check
-        let len_cp = rb.len();
-        rb1.ensure_enough_bytes_to_write(len_cp);
-        // let dst_bs = rb0.get_slice_mut_at_write_cursor(len_cp);
-        // dst_bs.copy_from_slice(rb);
-        // unsafe {
-        //     rb0.advance_mut(len_cp)
-        // };
-        rb1.copy_from_slice(rb);
-        Ok(len_cp)
+        let raw_size = rb.len() - EMPTY_CLIENT_BLK_BYTES_LEN;
+        rb1.resize(raw_size, 0); // make sure the buffer is enough
+        rb1.copy_from_slice(&rb[..raw_size]);
+        Ok(raw_size)
     }
 }
 

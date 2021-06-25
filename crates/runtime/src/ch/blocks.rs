@@ -118,7 +118,6 @@ bucket_num:
     }
 */
 
-
 const GLOBAL_DICTIONARY: u64 = 0x0100;
 const ADDITIONAL_KEY: u64 = 0x0200;
 
@@ -146,15 +145,17 @@ impl Default for Block {
     }
 }
 
-const EMPTY_CLIENT_BLK_BYTES: [u8; 12] = [
-    0x02, 0x00, 0x01, 0x00, 0x02, 0xff, 0xff, 0xff, 0xff, 0x00, 0x00, 0x00,
-];
+const EMPTY_CLIENT_BLK_BYTES: [u8; 12] =
+    [0x02, 0x00, 0x01, 0x00, 0x02, 0xff, 0xff, 0xff, 0xff, 0x00, 0x00, 0x00];
+pub(crate) const EMPTY_CLIENT_BLK_BYTES_LEN: usize = 12;
 const COMPRESSED_EMPTY_CLIENT_BLK_BYTES: [u8; 38] = [
     0x02, 0x00, 0xa7, 0x83, 0xac, 0x6c, 0xd5, 0x5c, 0x7a, 0x7c, 0xb5, 0xac,
     0x46, 0xbd, 0xdb, 0x86, 0xe2, 0x14, 0x82, 0x14, 0x00, 0x00, 0x00, 0x0a,
     0x00, 0x00, 0x00, 0xa0, 0x01, 0x00, 0x02, 0xff, 0xff, 0xff, 0xff, 0x00,
     0x00, 0x00,
 ];
+pub(crate) const COMPRESSED_EMPTY_CLIENT_BLK_BYTES_LEN: usize = 38;
+
 impl Block {
     #[inline(always)]
     pub fn reset(&mut self) {
@@ -203,11 +204,7 @@ impl Block {
     ///FIXME strictly this method is not correct, but just nice now
     #[inline(always)]
     pub fn is_empty_block(bs: &[u8]) -> bool {
-        if bs.len() == 12 {
-            bs == EMPTY_CLIENT_BLK_BYTES
-        } else {
-            false
-        }
+        if bs.len() == 12 { bs == EMPTY_CLIENT_BLK_BYTES } else { false }
     }
 
     ///body is code-stripped blk
@@ -395,7 +392,7 @@ fn arrow_type_to_btype(typ: &DataType) -> BaseRtResult<BqlType> {
         DataType::Float64 => Ok(BqlType::Float(64)),
         DataType::Timestamp32(_) => Ok(BqlType::DateTime),
         DataType::Date16 => Ok(BqlType::Date),
-        DataType::Decimal(p,s)=>  Ok(BqlType::Decimal(*p as u8, *s as u8)),
+        DataType::Decimal(p, s) => Ok(BqlType::Decimal(*p as u8, *s as u8)),
         DataType::LargeUtf8 => Ok(BqlType::String),
         DataType::FixedSizeBinary(len) => Ok(BqlType::FixedString(*len as u8)),
         _ => Err(BaseRtError::UnsupportedConversionToBqlType),
@@ -724,7 +721,6 @@ mod unit_tests {
             ]
         );
 
-
         //compressed empty blk
         let compressed_empty_blk_bs = vec![
             0x01, 0x00, 0xa7, 0x83, 0xac, 0x6c, 0xd5, 0x5c, 0x7a, 0x7c, 0xb5,
@@ -738,7 +734,6 @@ mod unit_tests {
         empty_blk.encode_to(&mut bs, Some(&mut _bs))?;
         // println!("encoded block: {:02x?}", &bs[..]);
         assert_eq!(&bs[..], &compressed_empty_blk_bs);
-
 
         Ok(())
     }
@@ -771,7 +766,6 @@ mod unit_tests {
         // println!("{:?}", &bs[..]);
         assert_eq!(&bs[..], &expected_bs);
 
-
         let mut blk: Block = Default::default();
         let headers = vec![
             new_block_header(b"trip_id".to_vec(), BqlType::UInt(32), false),
@@ -796,7 +790,6 @@ mod unit_tests {
         ];
         // println!("{:?}", &bs[..]);
         assert_eq!(&bs[..], &expected_bs);
-
 
         Ok(())
     }
@@ -873,11 +866,7 @@ mod unit_tests {
         //decompress
         let nread = process_data_blk(&mut &bs[..], &mut _bs, true)?;
         assert!(nread > 0);
-        println!(
-            "process_data_blk: nread - {}, _bs.len: {}",
-            nread,
-            _bs.len()
-        );
+        println!("process_data_blk: nread - {}, _bs.len: {}", nread, _bs.len());
 
         let mut blk2 = Block::default();
         blk2.decode_from(&mut &_bs[..])?;
@@ -927,11 +916,7 @@ mod unit_tests {
         //decompress
         let nread = process_data_blk(&mut &bs[..], &mut _bs, true)?;
         assert!(nread > 0);
-        println!(
-            "process_data_blk: nread - {}, _bs.len: {}",
-            nread,
-            _bs.len()
-        );
+        println!("process_data_blk: nread - {}, _bs.len: {}", nread, _bs.len());
 
         let mut blk2 = Block::default();
         assert_eq!(blk2.has_decoded(), false);
@@ -949,9 +934,6 @@ mod unit_tests {
                 assert_eq!(ndec, 0);
             }
         }
-
-
-
 
         println!("block2: {:?}", blk2);
 
