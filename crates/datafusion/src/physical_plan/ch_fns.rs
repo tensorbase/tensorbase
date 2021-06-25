@@ -1,3 +1,5 @@
+//! implement CH compatible builtin functions
+
 use std::sync::Arc;
 
 use arrow::{
