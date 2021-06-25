@@ -586,7 +586,7 @@ async fn tests_integ_date_cast() -> errors::Result<()> {
 }
 
 #[tokio::test]
-async fn tests_integ_to_year() -> errors::Result<()> {
+async fn tests_integ_to_year_month_day() -> errors::Result<()> {
     let pool = get_pool();
     let mut conn = pool.connection().await?;
 
@@ -597,12 +597,21 @@ async fn tests_integ_to_year() -> errors::Result<()> {
     conn.execute(format!("CREATE TABLE test_tab_date(a Date, b DateTime)"))
         .await?;
 
-    let data_a = vec![Utc.ymd(2010, 1, 1), Utc.ymd(2012, 3, 4)];
+    let data_a = vec![
+        Utc.ymd(2010, 1, 1),
+        Utc.ymd(2011, 2, 28),
+        Utc.ymd(2012, 2, 29),
+        Utc.ymd(2012, 3, 4),
+    ];
     let data_b = vec![
         Utc.ymd(2010, 1, 1).and_hms(1, 1, 1),
+        Utc.ymd(2011, 2, 28).and_hms(2, 5, 6),
+        Utc.ymd(2012, 2, 29).and_hms(23, 59, 59),
         Utc.ymd(2012, 3, 4).and_hms(5, 6, 7),
     ];
-    let checks = vec![2010, 2012];
+    let years = vec![2010, 2011, 2012, 2012];
+    let months = vec![1, 2, 2, 3];
+    let day_of_months = vec![1, 28, 29, 4];
     let block =
         { Block::new("test_tab_date").add("a", data_a).add("b", data_b) };
 
@@ -611,7 +620,11 @@ async fn tests_integ_to_year() -> errors::Result<()> {
 
     drop(insert);
     {
-        let sql = "select toYear(a), toYear(b) from test_tab_date";
+        let sql = "select \
+            toYear(a), toYear(b), \
+            toMonth(a), toMonth(b), \
+            toDayOfMonth(a), toDayOfMonth(b) \
+        from test_tab_date";
         let mut query_result = conn.query(sql).await?;
 
         while let Some(block) = query_result.next().await? {
@@ -619,10 +632,18 @@ async fn tests_integ_to_year() -> errors::Result<()> {
 
             for row in block.iter_rows() {
                 println!("{:?}", row);
-                let ra: u16 = row.value(0)?.unwrap();
-                let rb: u16 = row.value(1)?.unwrap();
-                assert_eq!(ra, checks[i]);
-                assert_eq!(rb, checks[i]);
+                let year_a: u16 = row.value(0)?.unwrap();
+                let year_b: u16 = row.value(1)?.unwrap();
+                let month_a: u8 = row.value(2)?.unwrap();
+                let month_b: u8 = row.value(3)?.unwrap();
+                let day_of_month_a: u8 = row.value(4)?.unwrap();
+                let day_of_month_b: u8 = row.value(5)?.unwrap();
+                assert_eq!(year_a, years[i]);
+                assert_eq!(year_b, years[i]);
+                assert_eq!(month_a, months[i]);
+                assert_eq!(month_b, months[i]);
+                assert_eq!(day_of_month_a, day_of_months[i]);
+                assert_eq!(day_of_month_b, day_of_months[i]);
                 i += 1;
             }
         }
