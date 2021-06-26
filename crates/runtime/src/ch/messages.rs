@@ -480,7 +480,8 @@ pub(crate) fn process_data_blk(
         Ok(raw_size)
     } else {
         let raw_size = rb.len() - EMPTY_CLIENT_BLK_BYTES.len();
-        rb1.resize(raw_size, 0); // make sure the buffer is enough
+        rb1.ensure_enough_bytes_to_write(raw_size); // make sure the buffer is enough
+        unsafe { rb1.set_len(raw_size) };
         rb1.copy_from_slice(&rb[..raw_size]);
         Ok(raw_size)
     }
