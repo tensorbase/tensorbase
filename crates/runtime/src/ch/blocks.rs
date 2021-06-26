@@ -145,18 +145,31 @@ impl Default for Block {
     }
 }
 
-const EMPTY_CLIENT_BLK_BYTES: [u8; 12] =
+pub(crate) const EMPTY_CLIENT_BLK_BYTES: [u8; 12] =
     [0x02, 0x00, 0x01, 0x00, 0x02, 0xff, 0xff, 0xff, 0xff, 0x00, 0x00, 0x00];
-pub(crate) const EMPTY_CLIENT_BLK_BYTES_LEN: usize = 12;
-const COMPRESSED_EMPTY_CLIENT_BLK_BYTES: [u8; 38] = [
+
+pub(crate) const COMPRESSED_EMPTY_CLIENT_BLK_BYTES: [u8; 38] = [
     0x02, 0x00, 0xa7, 0x83, 0xac, 0x6c, 0xd5, 0x5c, 0x7a, 0x7c, 0xb5, 0xac,
     0x46, 0xbd, 0xdb, 0x86, 0xe2, 0x14, 0x82, 0x14, 0x00, 0x00, 0x00, 0x0a,
     0x00, 0x00, 0x00, 0xa0, 0x01, 0x00, 0x02, 0xff, 0xff, 0xff, 0xff, 0x00,
     0x00, 0x00,
 ];
-pub(crate) const COMPRESSED_EMPTY_CLIENT_BLK_BYTES_LEN: usize = 38;
 
 impl Block {
+    #[inline]
+    pub fn check_empty_blk_bytes_len(
+        rb: &mut &[u8],
+        is_compressed: bool,
+    ) -> BaseRtResult<()> {
+        if is_compressed {
+            rb.ensure_enough_bytes_to_read(
+                COMPRESSED_EMPTY_CLIENT_BLK_BYTES.len(),
+            )
+        } else {
+            rb.ensure_enough_bytes_to_read(EMPTY_CLIENT_BLK_BYTES.len())
+        }
+    }
+
     #[inline(always)]
     pub fn reset(&mut self) {
         self.name = vec![];

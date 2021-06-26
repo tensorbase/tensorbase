@@ -4,9 +4,7 @@ use std::str;
 
 use crate::mgmt::{BaseCommandKind, BMS, WRITE};
 
-use crate::ch::blocks::{
-    Block, COMPRESSED_EMPTY_CLIENT_BLK_BYTES_LEN, EMPTY_CLIENT_BLK_BYTES_LEN,
-};
+use crate::ch::blocks::{Block, EMPTY_CLIENT_BLK_BYTES};
 use crate::ch::codecs::{BytesExt, CHMsgReadAware, CHMsgWriteAware};
 use crate::ch::protocol::{
     ClientCodes, ClientInfo, ConnCtx, Interface, QueryKind, ServerCodes,
@@ -22,17 +20,6 @@ const DBMS_VERSION_MINOR: u64 = 5;
 const REVISION: u64 = 54405; //54441?
 const DBMS_VERSION_PATCH: u64 = 0;
 
-#[inline]
-fn check_empty_blk_bytes_len(
-    rb: &mut &[u8],
-    is_compressed: bool,
-) -> BaseRtResult<()> {
-    if is_compressed {
-        rb.ensure_enough_bytes_to_read(COMPRESSED_EMPTY_CLIENT_BLK_BYTES_LEN)
-    } else {
-        rb.ensure_enough_bytes_to_read(EMPTY_CLIENT_BLK_BYTES_LEN)
-    }
-}
 /// main entrance for CH related logics
 //FIXME BaseRtError: return directly with rb clearing
 //      IncompletedWireFormat: retry
@@ -50,7 +37,7 @@ pub fn response_to(
     //FIXME assume rb0 has at least 1 byte to read?
     match cctx.stage {
         StageKind::DataEODP => {
-            check_empty_blk_bytes_len(rb, cctx.is_compressed)?;
+            Block::check_empty_blk_bytes_len(rb, cctx.is_compressed)?;
             if is_eodp(rb, cctx.is_compressed) {
                 // rb0.advance(rb.len());
                 //EoS
@@ -66,7 +53,7 @@ pub fn response_to(
             }
         }
         StageKind::DataEODPInsertQuery => {
-            check_empty_blk_bytes_len(rb, cctx.is_compressed)?;
+            Block::check_empty_blk_bytes_len(rb, cctx.is_compressed)?;
             if is_eodp(rb, cctx.is_compressed) {
                 rb.advance(rb.len());
                 cctx.stage = StageKind::DataPacket;
@@ -77,7 +64,7 @@ pub fn response_to(
             }
         }
         StageKind::DataPacket => {
-            check_empty_blk_bytes_len(rb, cctx.is_compressed)?;
+            Block::check_empty_blk_bytes_len(rb, cctx.is_compressed)?;
             if is_eodp(rb, cctx.is_compressed) {
                 // rb0.advance(rb.len()); //consume for rb
                 log::debug!("all data packet received");
@@ -492,7 +479,7 @@ pub(crate) fn process_data_blk(
         // }
         Ok(raw_size)
     } else {
-        let raw_size = rb.len() - EMPTY_CLIENT_BLK_BYTES_LEN;
+        let raw_size = rb.len() - EMPTY_CLIENT_BLK_BYTES.len();
         rb1.resize(raw_size, 0); // make sure the buffer is enough
         rb1.copy_from_slice(&rb[..raw_size]);
         Ok(raw_size)
