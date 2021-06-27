@@ -113,7 +113,7 @@ async fn tests_integ_string_functions() -> errors::Result<()> {
 
     drop(insert);
     {
-        let sql = format!("select {}  from {} where ends_with({}, 'abet') = true", field_name, table_name, field_name);
+        let sql = format!("select {}  from {} where endswith({}, 'abet') = true", field_name, table_name, field_name);
         let mut query_result = conn.query(sql).await?;
 
         let mut is_empty = true;

@@ -304,7 +304,7 @@ impl FromStr for BuiltinScalarFunction {
             "sha512" => BuiltinScalarFunction::SHA512,
             "split_part" => BuiltinScalarFunction::SplitPart,
             "starts_with" => BuiltinScalarFunction::StartsWith,
-            "ends_with" => BuiltinScalarFunction::EndsWith,
+            "endswith" => BuiltinScalarFunction::EndsWith,
             "strpos" => BuiltinScalarFunction::Strpos,
             "substr" => BuiltinScalarFunction::Substr,
             "to_hex" => BuiltinScalarFunction::ToHex,
@@ -881,13 +881,13 @@ pub fn create_physical_expr(
         },
         BuiltinScalarFunction::EndsWith => |args| match args[0].data_type() {
             DataType::Utf8 => {
-                make_scalar_function(string_expressions::ends_with::<i32>)(args)
+                make_scalar_function(ch_fns::ends_with::<i32>)(args)
             }
             DataType::LargeUtf8 => {
-                make_scalar_function(string_expressions::ends_with::<i64>)(args)
+                make_scalar_function(ch_fns::ends_with::<i64>)(args)
             }
             other => Err(DataFusionError::Internal(format!(
-                "Unsupported data type {:?} for function ends_with",
+                "Unsupported data type {:?} for function endswith",
                 other,
             ))),
         },

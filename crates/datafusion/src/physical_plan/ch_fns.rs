@@ -1,14 +1,31 @@
 use std::sync::Arc;
+use std::any::type_name;
 
+use crate::error::{DataFusionError, Result};
 use arrow::{
-    array::{Array, Date16Array, Timestamp32Array, UInt16Array, UInt16Builder},
+    array::{
+        Array, Date16Array, Timestamp32Array, UInt16Array, UInt16Builder, 
+        BooleanArray, GenericStringArray, ArrayRef, StringOffsetSizeTrait
+    },
     datatypes::DataType,
 };
 use base::datetimes::{days_to_year, unixtime_to_year};
 
-use crate::error::DataFusionError;
-
 use super::ColumnarValue;
+
+macro_rules! downcast_string_arg {
+    ($ARG:expr, $NAME:expr, $T:ident) => {{
+        $ARG.as_any()
+            .downcast_ref::<GenericStringArray<T>>()
+            .ok_or_else(|| {
+                DataFusionError::Internal(format!(
+                    "could not cast {} to {}",
+                    $NAME,
+                    type_name::<GenericStringArray<T>>()
+                ))
+            })?
+    }};
+}
 
 /// Extracts the years from Date16 array
 pub fn date16_to_year(
@@ -94,6 +111,33 @@ pub fn expr_to_year(
         other => Err(DataFusionError::Internal(format!(
             "Unsupported data type {:?} for function toYear",
             other,
+        ))),
+    }
+}
+
+/// Returns true if string ends with suffix.
+/// endswith('alphabet', 'abet') = 't'
+pub fn ends_with<T: StringOffsetSizeTrait>(args: &[ArrayRef]) -> Result<ArrayRef> {
+    match args.len() {
+        2 => {
+            if args[0].is_null(0) || args[1].is_null(1) {
+                return Ok(Arc::new(BooleanArray::from(vec![None])) as ArrayRef);
+            }
+
+            let string_array = downcast_string_arg!(args[0], "string", T);
+            let suffix_array = downcast_string_arg!(args[1], "suffix", T);
+
+            let suffix = suffix_array.value(0);
+            let result = string_array
+                .iter()
+                .map(|string| string.map(|string: &str| string.ends_with(suffix)))
+                .collect::<BooleanArray>();
+            Ok(Arc::new(result) as ArrayRef)
+        }
+
+        other => Err(DataFusionError::Internal(format!(
+            "rtrim was called with {} arguments. It requires 2.",
+            other
         ))),
     }
 }

@@ -2940,6 +2940,11 @@ async fn test_interval_expressions() -> Result<()> {
 
 #[tokio::test]
 async fn test_string_expressions() -> Result<()> {
+    test_expression!("endswith('alphabet', 'abet')", "true");
+    test_expression!("endswith('alphabet', 'blph')", "false");
+    test_expression!("endswith(NULL, 'blph')", "NULL");
+    test_expression!("endswith('alphabet', NULL)", "NULL");
+
     test_expression!("ascii('')", "0");
     test_expression!("ascii('x')", "120");
     test_expression!("ascii(NULL)", "NULL");
@@ -3002,11 +3007,6 @@ async fn test_string_expressions() -> Result<()> {
     test_expression!("starts_with('alphabet', 'blph')", "false");
     test_expression!("starts_with(NULL, 'blph')", "NULL");
     test_expression!("starts_with('alphabet', NULL)", "NULL");
-
-    test_expression!("ends_with('alphabet', 'abet')", "true");
-    test_expression!("ends_with('alphabet', 'blph')", "false");
-    test_expression!("ends_with(NULL, 'blph')", "NULL");
-    test_expression!("ends_with('alphabet', NULL)", "NULL");
 
     test_expression!("to_hex(2147483647)", "7fffffff");
     test_expression!("to_hex(9223372036854775807)", "7fffffffffffffff");
