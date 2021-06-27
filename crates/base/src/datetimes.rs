@@ -1,6 +1,5 @@
 use chrono::{Datelike, NaiveDate};
 use num_integer::Integer;
-use num_traits::ToPrimitive;
 
 use crate::errs::{BaseError, BaseResult};
 
@@ -9,6 +8,13 @@ pub struct YMD {
     pub y: u16,
     pub m: u8,
     pub d: u8,
+}
+
+#[derive(Debug, Default)]
+pub struct HMS {
+    pub h: u8,
+    pub m: u8,
+    pub s: u8,
 }
 
 pub struct YMDHMS(pub i16, pub u8, pub u8, pub u8, pub u8, pub u8);
@@ -26,9 +32,29 @@ pub fn div_mod_floor<T: Integer>(x: T, y: T) -> (T, T) {
 }
 
 #[inline(always)]
-pub fn unixtime_to_ymd(unixtime: i32) -> YMD {
+pub fn unixtime_to_days(unixtime: i32) -> i64 {
     let (days, _) = div_mod_floor(unixtime as i64, 86_400);
-    days_to_ymd(days as i32)
+    days
+}
+
+#[inline(always)]
+pub fn unixtime_to_ymd(unixtime: i32) -> YMD {
+    days_to_ymd(unixtime_to_days(unixtime) as i32)
+}
+
+#[inline(always)]
+pub fn unixtime_to_hms(unixtime: i32) -> HMS {
+    let (_, seconds) = div_mod_floor(unixtime, 86_400);
+    let (hours, seconds) = div_mod_floor(seconds, 3_600);
+    let (minutes, seconds) = div_mod_floor(seconds, 60);
+    let (h, m, s) = (hours as u8, minutes as u8, seconds as u8);
+    HMS { h,  m,  s }
+}
+
+#[inline(always)]
+pub fn unixtime_to_second(unixtime: i32) -> u8 {
+    let (_, seconds) = div_mod_floor(unixtime, 60);
+    seconds as u8
 }
 
 #[inline(always)]
@@ -38,16 +64,30 @@ pub fn unixtime_to_year(unixtime: i32) -> u16 {
 }
 
 #[inline(always)]
-pub fn days_to_ymd(days: i32) -> YMD {
-    days.to_i32()
-        .and_then(|days| days.checked_add(719_163))
+pub fn unixtime_to_ordinal(unixtime: i32) -> u16 {
+    days_to_ordinal(unixtime_to_days(unixtime) as i32)
+}
+
+#[inline(always)]
+pub fn unixtime_to_weekday(unixtime: i32) -> u8 {
+    days_to_weekday(unixtime_to_days(unixtime) as i32)
+}
+
+#[inline(always)]
+fn days_to_date_opt(days: i32) -> Option<NaiveDate> {
+    days.checked_add(719_163)
         .and_then(NaiveDate::from_num_days_from_ce_opt)
+}
+
+#[inline(always)]
+pub fn days_to_ymd(days: i32) -> YMD {
+    days_to_date_opt(days)
         .map(|date| YMD {
             y: date.year() as u16,
             m: date.month() as u8,
             d: date.day() as u8,
         })
-        .unwrap_or(YMD::default())
+        .unwrap_or_default()
 }
 
 #[inline(always)]
@@ -59,6 +99,19 @@ const fn leaps(years: i32) -> i32 {
 pub const fn days_to_year(days0: i32) -> u16 {
     let days = days0 + 719162;
     (1 + (days - leaps(days / 365)) / 365) as u16
+}
+
+#[inline(always)]
+pub fn days_to_ordinal(days0: i32) -> u16 {
+    days_to_date_opt(days0)
+        .map(|date| date.ordinal() as u16)
+        .unwrap_or_default()
+}
+
+#[inline(always)]
+pub fn days_to_weekday(days0: i32) -> u8 {
+    // day 0 (1970-01-01) is Thursday
+    ((days0 + 3) % 7 + 1) as u8
 }
 
 #[inline]
@@ -162,12 +215,75 @@ mod unit_tests {
     }
 
     #[test]
+    fn test_days_to_ordinal() {
+        for days in 0..4096 * 20 {
+            let year = days_to_year(days);
+            let ordinal = days_to_ordinal(days);
+            let date = NaiveDate::from_yo(year as i32, ordinal as u32);
+            assert_eq!(year, date.year() as u16);
+            assert_eq!(ordinal, date.ordinal() as u16);
+        }
+    }
+
+    #[test]
+    fn test_days_to_weekday() {
+        for days in 0..4096 * 20 {
+            let weekday = days_to_weekday(days);
+            let ymd = days_to_ymd(days);
+            let date = NaiveDate::from_ymd(
+                ymd.y as i32,
+                ymd.m as u32,
+                ymd.d as u32
+            );
+            assert_eq!(weekday, date.weekday().number_from_monday() as u8);
+        }
+    }
+
+    #[test]
     fn test_unixtime_to_year() {
         for epoch in (1..1000_000_000).step_by(1000) {
             let ymd = unixtime_to_ymd(epoch);
             let y = unixtime_to_year(epoch);
             assert_eq!(y, ymd.y);
         }
-        // println!("y: {}", days_to_year(4096*10));
+    }
+
+    #[test]
+    fn test_unixtime_to_ordinal() {
+        for epoch in (1..1000_000_000).step_by(1000) {
+            let year = unixtime_to_year(epoch);
+            let ordinal = unixtime_to_ordinal(epoch);
+            let date = NaiveDate::from_yo(year as i32, ordinal as u32);
+            assert_eq!(year, date.year() as u16);
+            assert_eq!(ordinal, date.ordinal() as u16);
+        }
+    }
+
+    #[test]
+    fn test_unixtime_to_weekday() {
+        for epoch in (1..1000_000_000).step_by(1000) {
+            let weekday = unixtime_to_weekday(epoch);
+            let ymd = unixtime_to_ymd(epoch);
+            let date = NaiveDate::from_ymd(
+                ymd.y as i32,
+                ymd.m as u32,
+                ymd.d as u32
+            );
+            assert_eq!(weekday, date.weekday().number_from_monday() as u8);
+        }
+    }
+
+    #[test]
+    fn test_unixtime_to_hms() {
+        for epoch in 0..86_400 * 10 {
+            let ymd = unixtime_to_ymd(epoch as i32);
+            let hms = unixtime_to_hms(epoch as i32);
+            let seconds = unixtime_to_second(epoch as i32);
+            let converted_epoch = ymdhms_to_unixtime(
+                YMDHMS(ymd.y as i16, ymd.m, ymd.d, hms.h, hms.m, hms.s)
+            );
+            assert_eq!(epoch, converted_epoch);
+            assert_eq!(hms.s, seconds);
+        }
     }
 }

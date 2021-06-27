@@ -586,7 +586,7 @@ async fn tests_integ_date_cast() -> errors::Result<()> {
 }
 
 #[tokio::test]
-async fn tests_integ_to_year_month_day() -> errors::Result<()> {
+async fn tests_integ_date_time_functions() -> errors::Result<()> {
     let pool = get_pool();
     let mut conn = pool.connection().await?;
 
@@ -602,16 +602,26 @@ async fn tests_integ_to_year_month_day() -> errors::Result<()> {
         Utc.ymd(2011, 2, 28),
         Utc.ymd(2012, 2, 29),
         Utc.ymd(2012, 3, 4),
+        Utc.ymd(2021, 8, 31),
+        Utc.ymd(2021, 6, 27),
     ];
     let data_b = vec![
         Utc.ymd(2010, 1, 1).and_hms(1, 1, 1),
         Utc.ymd(2011, 2, 28).and_hms(2, 5, 6),
         Utc.ymd(2012, 2, 29).and_hms(23, 59, 59),
         Utc.ymd(2012, 3, 4).and_hms(5, 6, 7),
+        Utc.ymd(2021, 8, 31).and_hms(14, 32, 3),
+        Utc.ymd(2021, 6, 27).and_hms(17, 44, 32),
     ];
-    let years = vec![2010, 2011, 2012, 2012];
-    let months = vec![1, 2, 2, 3];
-    let day_of_months = vec![1, 28, 29, 4];
+    let years = vec![2010, 2011, 2012, 2012, 2021, 2021];
+    let months = vec![1, 2, 2, 3, 8, 6];
+    let quarters = vec![1, 1, 1, 1, 3, 2];
+    let day_of_years = vec![1, 59, 60, 64, 243, 178];
+    let day_of_months = vec![1, 28, 29, 4, 31, 27];
+    let day_of_weeks = vec![5, 1, 3, 7, 2, 7];
+    let hours = vec![1, 2, 23, 5, 14, 17];
+    let minutes = vec![1, 5, 59, 6, 32, 44];
+    let seconds = vec![1, 6, 59, 7, 3, 32];
     let block =
         { Block::new("test_tab_date").add("a", data_a).add("b", data_b) };
 
@@ -623,28 +633,48 @@ async fn tests_integ_to_year_month_day() -> errors::Result<()> {
         let sql = "select \
             toYear(a), toYear(b), \
             toMonth(a), toMonth(b), \
-            toDayOfMonth(a), toDayOfMonth(b) \
+            toDayOfYear(a), toDayOfYear(b), \
+            toDayOfMonth(a), toDayOfMonth(b), \
+            toDayOfWeek(a), toDayOfWeek(b), \
+            toQuarter(a), toQuarter(b), \
+            toHour(b), toMinute(b), toSecond(b) \
         from test_tab_date";
         let mut query_result = conn.query(sql).await?;
 
         while let Some(block) = query_result.next().await? {
-            let mut i = 0;
-
-            for row in block.iter_rows() {
+            for (i, row) in block.iter_rows().enumerate() {
                 println!("{:?}", row);
-                let year_a: u16 = row.value(0)?.unwrap();
-                let year_b: u16 = row.value(1)?.unwrap();
-                let month_a: u8 = row.value(2)?.unwrap();
-                let month_b: u8 = row.value(3)?.unwrap();
-                let day_of_month_a: u8 = row.value(4)?.unwrap();
-                let day_of_month_b: u8 = row.value(5)?.unwrap();
+                let mut iter = 0..;
+                let year_a: u16 = row.value(iter.next().unwrap())?.unwrap();
+                let year_b: u16 = row.value(iter.next().unwrap())?.unwrap();
+                let month_a: u8 = row.value(iter.next().unwrap())?.unwrap();
+                let month_b: u8 = row.value(iter.next().unwrap())?.unwrap();
+                let day_of_year_a: u16 = row.value(iter.next().unwrap())?.unwrap();
+                let day_of_year_b: u16 = row.value(iter.next().unwrap())?.unwrap();
+                let day_of_month_a: u8 = row.value(iter.next().unwrap())?.unwrap();
+                let day_of_month_b: u8 = row.value(iter.next().unwrap())?.unwrap();
+                let day_of_week_a: u8 = row.value(iter.next().unwrap())?.unwrap();
+                let day_of_week_b: u8 = row.value(iter.next().unwrap())?.unwrap();
+                let quarter_a: u8 = row.value(iter.next().unwrap())?.unwrap();
+                let quarter_b: u8 = row.value(iter.next().unwrap())?.unwrap();
+                let hour_b: u8 = row.value(iter.next().unwrap())?.unwrap();
+                let minute_b: u8 = row.value(iter.next().unwrap())?.unwrap();
+                let second_b: u8 = row.value(iter.next().unwrap())?.unwrap();
                 assert_eq!(year_a, years[i]);
                 assert_eq!(year_b, years[i]);
                 assert_eq!(month_a, months[i]);
                 assert_eq!(month_b, months[i]);
+                assert_eq!(day_of_year_a, day_of_years[i]);
+                assert_eq!(day_of_year_b, day_of_years[i]);
                 assert_eq!(day_of_month_a, day_of_months[i]);
                 assert_eq!(day_of_month_b, day_of_months[i]);
-                i += 1;
+                assert_eq!(day_of_week_a, day_of_weeks[i]);
+                assert_eq!(day_of_week_b, day_of_weeks[i]);
+                assert_eq!(quarter_a, quarters[i]);
+                assert_eq!(quarter_b, quarters[i]);
+                assert_eq!(hour_b, hours[i]);
+                assert_eq!(minute_b, minutes[i]);
+                assert_eq!(second_b, seconds[i]);
             }
         }
     }
