@@ -620,4 +620,4 @@ pub mod union;
 pub mod window_functions;
 pub mod windows;
 
-pub mod ch_fns;
+pub mod clickhouse;

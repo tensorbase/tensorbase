@@ -33,7 +33,7 @@ use crate::{
 };
 use crate::{
     physical_plan::udf::ScalarUDF,
-    physical_plan::{aggregates, functions, window_functions},
+    physical_plan::{aggregates, functions, window_functions, clickhouse},
     sql::parser::{CreateExternalTable, FileType, Statement as DFStatement},
 };
 use arrow::datatypes::*;
@@ -1113,8 +1113,20 @@ impl<'a, S: ContextProvider> SqlToRel<'a, S> {
                     }
                 };
 
+                let name_case_sensitive = function.name.to_string();
+
                 // first, scalar built-in
                 if let Ok(fun) = functions::BuiltinScalarFunction::from_str(&name) {
+                    let args = self.function_args_to_expr(function)?;
+
+                    return Ok(Expr::ScalarFunction { fun, args });
+                };
+
+                // then, clickhouse scalar built-in
+                if let Ok(fun) =
+                    clickhouse::BuiltinScalarFunction::from_str(&name_case_sensitive)
+                {
+                    let fun = fun.into();
                     let args = self.function_args_to_expr(function)?;
 
                     return Ok(Expr::ScalarFunction { fun, args });

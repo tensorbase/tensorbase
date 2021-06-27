@@ -33,7 +33,7 @@ use super::{
     type_coercion::{coerce, data_types},
     ColumnarValue, PhysicalExpr,
 };
-use crate::{execution::context::ExecutionContextState, physical_plan::ch_fns};
+use crate::{execution::context::ExecutionContextState, physical_plan::clickhouse};
 use crate::physical_plan::array_expressions;
 use crate::physical_plan::datetime_expressions;
 use crate::physical_plan::expressions::{nullif_func, SUPPORTED_NULLIF_TYPES};
@@ -94,15 +94,8 @@ pub type ReturnTypeFunction =
 /// Enum of all built-in scalar functions
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum BuiltinScalarFunction {
-    //TB for CH builtins
-    /// to_date
-    ToDate,
-    /// toYear
-    ToYear,
-    /// toMonth
-    ToMonth,
-    /// toDayOfMonth,
-    ToDayOfMonth,
+    /// TensorBase for ClickHouse builtins
+    ClickHouseBuiltin(clickhouse::BuiltinScalarFunction),
 
     // math functions
     /// abs
@@ -215,6 +208,8 @@ pub enum BuiltinScalarFunction {
     ToHex,
     /// to_timestamp
     ToTimestamp,
+    /// to_date
+    ToDate,
     ///now
     Now,
     /// translate
@@ -231,17 +226,23 @@ impl BuiltinScalarFunction {
     /// an allowlist of functions to take zero arguments, so that they will get special treatment
     /// while executing.
     fn supports_zero_argument(&self) -> bool {
-        matches!(
-            self,
-            BuiltinScalarFunction::Random | BuiltinScalarFunction::Now
-        )
+        match self {
+            BuiltinScalarFunction::ClickHouseBuiltin(fun) => {
+                fun.supports_zero_argument()
+            },
+            BuiltinScalarFunction::Random | BuiltinScalarFunction::Now => true,
+            _ => false,
+        }
     }
 }
 
 impl fmt::Display for BuiltinScalarFunction {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         // lowercase of the debug.
-        write!(f, "{}", format!("{:?}", self).to_lowercase())
+        match self {
+            Self::ClickHouseBuiltin(fun) => write!(f, "{}", fun),
+            _ => write!(f, "{}", format!("{:?}", self).to_lowercase())
+        }
     }
 }
 
@@ -249,12 +250,6 @@ impl FromStr for BuiltinScalarFunction {
     type Err = DataFusionError;
     fn from_str(name: &str) -> Result<BuiltinScalarFunction> {
         Ok(match name {
-            // date and time functions
-            "toyear" | "toyyyy" => BuiltinScalarFunction::ToYear,
-            "tomonth" => BuiltinScalarFunction::ToMonth,
-            "todayofmonth" => BuiltinScalarFunction::ToDayOfMonth,
-            "to_date" => BuiltinScalarFunction::ToDate,
-
             // math functions
             "abs" => BuiltinScalarFunction::Abs,
             "acos" => BuiltinScalarFunction::Acos,
@@ -314,6 +309,7 @@ impl FromStr for BuiltinScalarFunction {
             "substr" => BuiltinScalarFunction::Substr,
             "to_hex" => BuiltinScalarFunction::ToHex,
             "to_timestamp" => BuiltinScalarFunction::ToTimestamp,
+            "to_date" => BuiltinScalarFunction::ToDate,
             "now" => BuiltinScalarFunction::Now,
             "translate" => BuiltinScalarFunction::Translate,
             "trim" => BuiltinScalarFunction::Trim,
@@ -328,6 +324,13 @@ impl FromStr for BuiltinScalarFunction {
         })
     }
 }
+
+impl From<clickhouse::BuiltinScalarFunction> for BuiltinScalarFunction {
+    fn from(fun: clickhouse::BuiltinScalarFunction) -> BuiltinScalarFunction {
+        BuiltinScalarFunction::ClickHouseBuiltin(fun)
+    }
+}
+
 
 macro_rules! make_utf8_to_return_type {
     ($FUNC:ident, $largeUtf8Type:expr, $utf8Type:expr) => {
@@ -365,14 +368,9 @@ pub fn return_type(
     // the return type of the built in function.
     // Some built-in functions' return type depends on the incoming type.
     match fun {
-        BuiltinScalarFunction::ToDate => {
-            Ok(DataType::Date16)
+        BuiltinScalarFunction::ClickHouseBuiltin(fun) => {
+            fun.return_type(arg_types)
         }
-        BuiltinScalarFunction::ToYear => {
-            Ok(DataType::UInt16)
-        }
-        BuiltinScalarFunction::ToMonth => Ok(DataType::UInt8),
-        BuiltinScalarFunction::ToDayOfMonth => Ok(DataType::UInt8),
         BuiltinScalarFunction::Array => Ok(DataType::FixedSizeList(
             Box::new(Field::new("item", arg_types[0].clone(), true)),
             arg_types.len() as i32,
@@ -435,6 +433,9 @@ pub fn return_type(
         }),
         BuiltinScalarFunction::ToTimestamp => {
             Ok(DataType::Timestamp(TimeUnit::Nanosecond, None))
+        }
+        BuiltinScalarFunction::ToDate => {
+            Ok(DataType::Date16)
         }
         BuiltinScalarFunction::Now => Ok(DataType::Timestamp(TimeUnit::Nanosecond, None)),
         BuiltinScalarFunction::Translate => utf8_to_str_type(&arg_types[0], "translate"),
@@ -545,11 +546,7 @@ pub fn create_physical_expr(
     ctx_state: &ExecutionContextState,
 ) -> Result<Arc<dyn PhysicalExpr>> {
     let fun_expr: ScalarFunctionImplementation = Arc::new(match fun {
-        // TB
-        BuiltinScalarFunction::ToYear => ch_fns::expr_to_year,
-        BuiltinScalarFunction::ToMonth => ch_fns::expr_to_month,
-        BuiltinScalarFunction::ToDayOfMonth => ch_fns::expr_to_day_of_month,
-
+        BuiltinScalarFunction::ClickHouseBuiltin(fun) => fun.func_impl(args),
         // math functions
         BuiltinScalarFunction::Abs => math_expressions::abs,
         BuiltinScalarFunction::Acos => math_expressions::acos,
@@ -993,17 +990,7 @@ fn signature(fun: &BuiltinScalarFunction) -> Signature {
 
     // for now, the list is small, as we do not have many built-in functions.
     match fun {
-        //TB
-        BuiltinScalarFunction::ToYear => {
-            Signature::Uniform(1, vec![DataType::Date16, DataType::Timestamp32(None)])
-        }
-        BuiltinScalarFunction::ToMonth => {
-            Signature::Uniform(1, vec![DataType::Date16, DataType::Timestamp32(None)])
-        }
-        BuiltinScalarFunction::ToDayOfMonth => {
-            Signature::Uniform(1, vec![DataType::Date16, DataType::Timestamp32(None)])
-        }
-        //DF
+        BuiltinScalarFunction::ClickHouseBuiltin(fun) => fun.signature(),
         BuiltinScalarFunction::Array => {
             Signature::Variadic(array_expressions::SUPPORTED_ARRAY_TYPES.to_vec())
         }
