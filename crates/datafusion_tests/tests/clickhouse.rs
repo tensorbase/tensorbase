@@ -2,7 +2,7 @@
 mod tests {
     use arrow::array::Array;
     use arrow::{array::PrimitiveArray, datatypes::Date16Type};
-    use datafusion::physical_plan::ch_fns::*;
+    use datafusion::physical_plan::clickhouse::*;
 
     #[test]
     fn test_to_year() {
