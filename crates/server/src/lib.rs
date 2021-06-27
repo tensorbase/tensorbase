@@ -41,15 +41,13 @@ impl Future for BaseSrvConn {
             // log::info!("to read...srvconn: {:p}, rb: {:p}, cctx: {:p}", this, &this.read_buf, &this.conn_ctx);
             if this.read_buf.len() > MAX_MSG_SIZE_BYTES {
                 //FIXME do not retur P::R(Err)
-                &mut this.read_buf.clear(); //drain all unread
-                &mut this
-                    .write_buf
+                this.read_buf.clear(); //drain all unread
+                this.write_buf
                     .write_as_exception(BaseRtError::TooBigMessageSize);
-                &mut this.write_buf.write_end_of_stream();
+                this.write_buf.write_end_of_stream();
                 return Poll::Ready(Err(BaseRtError::TooBigMessageSize));
             }
-            this.read_buf
-                .ensure_enough_bytes_to_write(this.read_buf.len());
+            this.read_buf.ensure_enough_bytes_to_write(this.read_buf.len());
             let read =
                 Pin::new(&mut this.io).poll_read_buf(cx, &mut this.read_buf);
             match read {
@@ -82,13 +80,9 @@ impl Future for BaseSrvConn {
                                         //TODO  to add a exception count in ctx
                                         let cctx = &mut this.conn_ctx;
                                         cctx.stage = StageKind::Default;
-                                        &mut this.read_buf.clear(); //drain all unread
-                                        &mut this
-                                            .write_buf
-                                            .write_as_exception(e);
-                                        &mut this
-                                            .write_buf
-                                            .write_end_of_stream(); //??? this eos will cause the official client to discon
+                                        this.read_buf.clear(); //drain all unread
+                                        this.write_buf.write_as_exception(e);
+                                        this.write_buf.write_end_of_stream(); //??? this eos will cause the official client to discon
                                     }
                                 }
                                 // return Poll::Ready(Err(e));
