@@ -125,7 +125,7 @@ async fn tests_integ_string_functions() -> errors::Result<()> {
                 is_empty = false;
                 let res: &str = row.value(0)?.unwrap();
                 assert_eq!(res.to_string(), data_s[i]);
-                i += i;
+                i += 1;
             }
         }
 
