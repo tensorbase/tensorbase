@@ -18,7 +18,7 @@ This document outlines some conventions about development workflow, commit messa
     - [Your First Contribution](#your-first-contribution)
     - [Contribution Workflow](#contribution-workflow)
     - [Code review](#code-review)
-        - [Style reference](#style-reference)
+    - [Code Style](#code-style)
 
 <!-- /TOC -->
 
