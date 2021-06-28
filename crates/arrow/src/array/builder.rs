@@ -2265,11 +2265,11 @@ mod tests {
         assert_eq!(a.len(), 7);
         let array = a.finish();
         assert_eq!(array.value(0), 1);
-        assert_eq!(array.is_null(1), true);
+        assert!(array.is_null(1));
         assert_eq!(array.value(2), -2);
         assert_eq!(array.value(3), 1);
         assert_eq!(array.value(4), 2);
-        assert_eq!(array.is_null(5), true);
+        assert!(array.is_null(5));
         assert_eq!(array.value(6), 4);
 
         Ok(())
@@ -3051,28 +3051,8 @@ mod tests {
             .add_buffer(Buffer::from_slice_ref(&[1, 2, 0, 4]))
             .build();
 
-        assert_eq!(&expected_string_data, arr.column(0).data());
-
-        // TODO: implement equality for ArrayData
-        assert_eq!(expected_int_data.len(), arr.column(1).data().len());
-        assert_eq!(
-            expected_int_data.null_count(),
-            arr.column(1).data().null_count()
-        );
-        assert_eq!(
-            expected_int_data.null_bitmap(),
-            arr.column(1).data().null_bitmap()
-        );
-        let expected_value_buf = expected_int_data.buffers()[0].clone();
-        let actual_value_buf = arr.column(1).data().buffers()[0].clone();
-        for i in 0..expected_int_data.len() {
-            if !expected_int_data.is_null(i) {
-                assert_eq!(
-                    expected_value_buf.as_slice()[i * 4..(i + 1) * 4],
-                    actual_value_buf.as_slice()[i * 4..(i + 1) * 4]
-                );
-            }
-        }
+        assert_eq!(expected_string_data, *arr.column(0).data());
+        assert_eq!(expected_int_data, *arr.column(1).data());
     }
 
     #[test]
@@ -3202,9 +3182,9 @@ mod tests {
         let ava: &UInt32Array = av.as_any().downcast_ref::<UInt32Array>().unwrap();
         let avs: &[u32] = ava.values();
 
-        assert_eq!(array.is_null(0), false);
-        assert_eq!(array.is_null(1), true);
-        assert_eq!(array.is_null(2), false);
+        assert!(!array.is_null(0));
+        assert!(array.is_null(1));
+        assert!(!array.is_null(2));
 
         assert_eq!(avs, &[12345678, 22345678]);
     }
@@ -3259,7 +3239,7 @@ mod tests {
         let av = array.values();
         let ava: &StringArray = av.as_any().downcast_ref::<StringArray>().unwrap();
 
-        assert_eq!(ava.is_valid(0), false);
+        assert!(!ava.is_valid(0));
         assert_eq!(ava.value(1), "def");
         assert_eq!(ava.value(2), "abc");
         assert_eq!(ava.value(3), "ghi");
@@ -3280,13 +3260,13 @@ mod tests {
         builder.append("abc").unwrap();
         let array = builder.finish();
 
-        assert_eq!(array.is_null(1), true);
-        assert_eq!(array.is_valid(1), false);
+        assert!(array.is_null(1));
+        assert!(!array.is_valid(1));
 
         let keys = array.keys();
 
         assert_eq!(keys.value(0), 1);
-        assert_eq!(keys.is_null(1), true);
+        assert!(keys.is_null(1));
         // zero initialization is currently guaranteed by Buffer allocation and resizing
         assert_eq!(keys.value(1), 0);
         assert_eq!(keys.value(2), 2);

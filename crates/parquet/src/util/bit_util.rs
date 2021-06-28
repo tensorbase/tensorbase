@@ -223,6 +223,20 @@ impl BitWriter {
         }
     }
 
+    /// Extend buffer size
+    #[inline]
+    pub fn extend(&mut self, increment: usize) {
+        self.max_bytes += increment;
+        let extra = vec![0; increment];
+        self.buffer.extend(extra);
+    }
+
+    /// Report buffer size
+    #[inline]
+    pub fn capacity(&mut self) -> usize {
+        self.max_bytes
+    }
+
     /// Consumes and returns the current buffer.
     #[inline]
     pub fn consume(mut self) -> Vec<u8> {
@@ -788,28 +802,28 @@ mod tests {
     #[test]
     fn test_get_bit() {
         // 00001101
-        assert_eq!(true, get_bit(&[0b00001101], 0));
-        assert_eq!(false, get_bit(&[0b00001101], 1));
-        assert_eq!(true, get_bit(&[0b00001101], 2));
-        assert_eq!(true, get_bit(&[0b00001101], 3));
+        assert!(get_bit(&[0b00001101], 0));
+        assert!(!get_bit(&[0b00001101], 1));
+        assert!(get_bit(&[0b00001101], 2));
+        assert!(get_bit(&[0b00001101], 3));
 
         // 01001001 01010010
-        assert_eq!(true, get_bit(&[0b01001001, 0b01010010], 0));
-        assert_eq!(false, get_bit(&[0b01001001, 0b01010010], 1));
-        assert_eq!(false, get_bit(&[0b01001001, 0b01010010], 2));
-        assert_eq!(true, get_bit(&[0b01001001, 0b01010010], 3));
-        assert_eq!(false, get_bit(&[0b01001001, 0b01010010], 4));
-        assert_eq!(false, get_bit(&[0b01001001, 0b01010010], 5));
-        assert_eq!(true, get_bit(&[0b01001001, 0b01010010], 6));
-        assert_eq!(false, get_bit(&[0b01001001, 0b01010010], 7));
-        assert_eq!(false, get_bit(&[0b01001001, 0b01010010], 8));
-        assert_eq!(true, get_bit(&[0b01001001, 0b01010010], 9));
-        assert_eq!(false, get_bit(&[0b01001001, 0b01010010], 10));
-        assert_eq!(false, get_bit(&[0b01001001, 0b01010010], 11));
-        assert_eq!(true, get_bit(&[0b01001001, 0b01010010], 12));
-        assert_eq!(false, get_bit(&[0b01001001, 0b01010010], 13));
-        assert_eq!(true, get_bit(&[0b01001001, 0b01010010], 14));
-        assert_eq!(false, get_bit(&[0b01001001, 0b01010010], 15));
+        assert!(get_bit(&[0b01001001, 0b01010010], 0));
+        assert!(!get_bit(&[0b01001001, 0b01010010], 1));
+        assert!(!get_bit(&[0b01001001, 0b01010010], 2));
+        assert!(get_bit(&[0b01001001, 0b01010010], 3));
+        assert!(!get_bit(&[0b01001001, 0b01010010], 4));
+        assert!(!get_bit(&[0b01001001, 0b01010010], 5));
+        assert!(get_bit(&[0b01001001, 0b01010010], 6));
+        assert!(!get_bit(&[0b01001001, 0b01010010], 7));
+        assert!(!get_bit(&[0b01001001, 0b01010010], 8));
+        assert!(get_bit(&[0b01001001, 0b01010010], 9));
+        assert!(!get_bit(&[0b01001001, 0b01010010], 10));
+        assert!(!get_bit(&[0b01001001, 0b01010010], 11));
+        assert!(get_bit(&[0b01001001, 0b01010010], 12));
+        assert!(!get_bit(&[0b01001001, 0b01010010], 13));
+        assert!(get_bit(&[0b01001001, 0b01010010], 14));
+        assert!(!get_bit(&[0b01001001, 0b01010010], 15));
     }
 
     #[test]
@@ -912,8 +926,8 @@ mod tests {
                 .get_value::<bool>(1)
                 .expect("get_value() should return OK");
             match i {
-                0 | 1 | 4 | 5 => assert_eq!(val, false),
-                _ => assert_eq!(val, true),
+                0 | 1 | 4 | 5 => assert!(!val),
+                _ => assert!(val),
             }
         }
     }
