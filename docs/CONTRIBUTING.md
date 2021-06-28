@@ -48,10 +48,11 @@ To contribute to the TensorBase code base, please follow the workflow as defined
 1. Create a topic branch from where you want to base your work. This is usually main.
 2. Make commits of logical units and add test case if the change fixes a bug or adds new functionality.
 3. Run tests and make sure all the tests are passed.
-4. Make sure your commit messages are in the proper format (TBD).
-5. Push your changes to a topic branch in your fork of the repository.
-6. Submit a pull request.
-7. If you want core committers to help you easier, select ["Allow edits from maintainers" in the UI of your pull request](https://docs.github.com/en/github/collaborating-with-issues-and-pull-requests/allowing-changes-to-a-pull-request-branch-created-from-a-fork).
+4. Run ```cargo fmt``` before commit to enforce an unified code style.
+5. Make sure your commit messages are in the proper format (TBD).
+6. Push your changes to a topic branch in your fork of the repository.
+7. Submit a pull request.
+8. If you want core committers to help you easier, select ["Allow edits from maintainers" in the UI of your pull request](https://docs.github.com/en/github/collaborating-with-issues-and-pull-requests/allowing-changes-to-a-pull-request-branch-created-from-a-fork).
 
 Thanks for your contributions!
 
@@ -61,6 +62,6 @@ If your pull request (PR) is opened, it will be assigned to reviewers. Those rev
 
 To address review comments, you should commit the changes to the same branch of the PR on your fork.
 
-### Style reference
+### Code Style
 
-Keeping a consistent style for code, code comments, commit messages, and pull requests is very important for a project like TensorBase. Now TensorBase uses the tool [*rustfmt*](/rustfmt.toml) to gate the coding style. If you are using IDE like vscode, the style is guanrateened automatically.
+Keeping a consistent style for sources is very important for an open source project like TensorBase. TensorBase now requires all contributors should run ```cargo fmt``` before commit.
