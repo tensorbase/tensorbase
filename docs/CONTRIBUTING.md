@@ -62,6 +62,6 @@ If your pull request (PR) is opened, it will be assigned to reviewers. Those rev
 
 To address review comments, you should commit the changes to the same branch of the PR on your fork.
 
-### Code Style
+## Code Style
 
 Keeping a consistent style for sources is very important for an open source project like TensorBase. TensorBase now requires all contributors should run ```cargo fmt``` before commit.
