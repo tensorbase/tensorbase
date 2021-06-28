@@ -95,7 +95,6 @@ fn expand_str_raw(src: &str) -> TokenStream {
     }
 }
 
-
 #[proc_macro]
 pub fn bs(ts: proc_macro::TokenStream) -> proc_macro::TokenStream {
     expand_cstr(ts.into()).into()
@@ -169,7 +168,6 @@ fn expand_cstr_raw(src: &str) -> TokenStream {
     }
 }
 
-
 #[proc_macro_attribute]
 pub fn async_test(
     params: proc_macro::TokenStream,
@@ -180,9 +178,7 @@ pub fn async_test(
         "#[async_test] attribute has no parameter"
     );
     let ts: TokenStream = ts.into();
-    let mut afn: syn::ItemFn = syn::parse2(ts).expect(
-        "function expected",
-    );
+    let mut afn: syn::ItemFn = syn::parse2(ts).expect("function expected");
 
     assert!(
         afn.clone().sig.asyncness.take().is_some(),
@@ -190,9 +186,10 @@ pub fn async_test(
     );
     let afn_name = format!("{}", afn.sig.ident);
     let id_afn_name: TokenStream = afn_name.parse().unwrap();
-    let id_patched_afn_name: TokenStream = (afn_name.to_string() + "_async_").parse().unwrap();
+    let id_patched_afn_name: TokenStream =
+        (afn_name.to_string() + "_async_").parse().unwrap();
     afn.sig.ident = syn::parse2(id_patched_afn_name.clone()).unwrap();
-        
+
     let rt = quote! {
       #[test]
       fn #id_afn_name() {

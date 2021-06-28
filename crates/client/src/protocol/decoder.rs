@@ -1,9 +1,9 @@
 use crate::errors::{ConversionError, DriverError, Result};
 use core::marker::PhantomData;
-use std::{fmt::Debug, future::Future};
+use futures::ready;
 use std::pin::Pin;
 use std::task::{Context, Poll};
-use futures::ready;
+use std::{fmt::Debug, future::Future};
 use tokio::io::{AsyncBufRead, AsyncRead, AsyncReadExt};
 
 /// Read string data encoded as VarInt(length) + bytearray
@@ -49,7 +49,10 @@ impl<'a, T: FromBytes, R: AsyncRead> ReadVString<'a, T, R> {
         }
     }
 
-    fn poll_get(&mut self, cx: &mut Context<'_>) -> Poll<Result<T>> where T: Debug {
+    fn poll_get(&mut self, cx: &mut Context<'_>) -> Poll<Result<T>>
+    where
+        T: Debug,
+    {
         loop {
             // log::info!("self.length_: {}", self.length_);
             if self.length_ == self.data.len() {
@@ -57,16 +60,17 @@ impl<'a, T: FromBytes, R: AsyncRead> ReadVString<'a, T, R> {
                 // log::info!("{:?}", rt);
                 return rt;
             } else {
-                self.length_ += ready!(self
-                    .inner
-                    .as_mut()
-                    .poll_read(cx, &mut self.data[self.length_..])?);
+                self.length_ += ready!(
+                    self.inner
+                        .as_mut()
+                        .poll_read(cx, &mut self.data[self.length_..])?
+                );
             }
         }
     }
 }
 
-impl<'a, T: FromBytes+ std::fmt::Debug, R: AsyncRead> Future for ReadVString<'a, T, R> {
+impl<'a, T: FromBytes + std::fmt::Debug, R: AsyncRead> Future for ReadVString<'a, T, R> {
     type Output = Result<T>;
 
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
@@ -136,7 +140,10 @@ impl<R: AsyncRead> ValueReader<R> {
         ReadVInt::new(&mut self.inner)
     }
     //TODO:  Optimize reading note that reader is buffered data
-    pub(super) fn read_string<T: FromBytes>(&mut self, len: u64) -> ReadVString<'_, T, R> {
+    pub(super) fn read_string<T: FromBytes>(
+        &mut self,
+        len: u64,
+    ) -> ReadVString<'_, T, R> {
         ReadVString::new(&mut self.inner, len as usize)
     }
 

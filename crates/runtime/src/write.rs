@@ -9,8 +9,8 @@ use libc::{c_void, close};
 use meta::{
     store::{
         parts::{
-            ensure_table_path_existed, gen_ompath_from_part_path,
-            get_part_path, open_file_as_fd, PartStore,
+            ensure_table_path_existed, gen_ompath_from_part_path, get_part_path,
+            open_file_as_fd, PartStore,
         },
         sys::MetaStore,
     },
@@ -23,11 +23,7 @@ use crate::{
     mgmt::BMS,
 };
 
-pub fn write_block(
-    blk: &mut Block,
-    tab_ins: &str,
-    tid_ins: Id,
-) -> BaseRtResult<()> {
+pub fn write_block(blk: &mut Block, tab_ins: &str, tid_ins: Id) -> BaseRtResult<()> {
     debug_assert!(tab_ins.len() > 0);
     debug_assert!(tid_ins > 0);
 
@@ -39,18 +35,16 @@ pub fn write_block(
     let ptks = ms
         .get_table_info_partition_cols(tid_ins)?
         .ok_or(BaseRtError::SchemaInfoShouldExistButNot)?;
-    let parts: HashMap<u64, Vec<(u32, u32)>, BuildBaseHasher> =
-        if ptks.len() == 0 {
-            //no ptk cols
-            let mut parts =
-                HashMap::<u64, Vec<(u32, u32)>, BuildBaseHasher>::with_hasher(
-                    BuildBaseHasher,
-                ); //assumed blk dix < 4G
-            parts.insert(0, vec![(0, (blk.nrows - 1) as u32)]);
-            parts
-        } else {
-            gen_parts_by_ptk_names(ptks, blk, tab_ins, tid_ins)?
-        };
+    let parts: HashMap<u64, Vec<(u32, u32)>, BuildBaseHasher> = if ptks.len() == 0 {
+        //no ptk cols
+        let mut parts = HashMap::<u64, Vec<(u32, u32)>, BuildBaseHasher>::with_hasher(
+            BuildBaseHasher,
+        ); //assumed blk dix < 4G
+        parts.insert(0, vec![(0, (blk.nrows - 1) as u32)]);
+        parts
+    } else {
+        gen_parts_by_ptk_names(ptks, blk, tab_ins, tid_ins)?
+    };
 
     //write parts
     if parts.len() >= 1000 {
@@ -105,38 +99,18 @@ fn gen_parts_by_ptk_names(
     }
     let parts = match ctyp_ptk {
         meta::types::BqlType::UInt(bits) => match bits {
-            8 => gen_part_idxs(
-                ptk_expr_fn_ptr as *const u8,
-                ctyp_ptk,
-                cdata_ptk,
-                nr,
-            )?,
+            8 => gen_part_idxs(ptk_expr_fn_ptr as *const u8, ctyp_ptk, cdata_ptk, nr)?,
             16 => {
                 let cdata_ptk = shape_slice::<u16>(cdata_ptk);
-                gen_part_idxs(
-                    ptk_expr_fn_ptr as *const u8,
-                    ctyp_ptk,
-                    cdata_ptk,
-                    nr,
-                )?
+                gen_part_idxs(ptk_expr_fn_ptr as *const u8, ctyp_ptk, cdata_ptk, nr)?
             }
             32 => {
                 let cdata_ptk = shape_slice::<u32>(cdata_ptk);
-                gen_part_idxs(
-                    ptk_expr_fn_ptr as *const u8,
-                    ctyp_ptk,
-                    cdata_ptk,
-                    nr,
-                )?
+                gen_part_idxs(ptk_expr_fn_ptr as *const u8, ctyp_ptk, cdata_ptk, nr)?
             }
             64 => {
                 let cdata_ptk = shape_slice::<u64>(cdata_ptk);
-                gen_part_idxs(
-                    ptk_expr_fn_ptr as *const u8,
-                    ctyp_ptk,
-                    cdata_ptk,
-                    nr,
-                )?
+                gen_part_idxs(ptk_expr_fn_ptr as *const u8, ctyp_ptk, cdata_ptk, nr)?
             }
             _ => {
                 return Err(BaseRtError::UnsupportedPartitionKeyType);
@@ -144,21 +118,11 @@ fn gen_parts_by_ptk_names(
         },
         meta::types::BqlType::DateTime => {
             let cdata_ptk = shape_slice::<u32>(cdata_ptk);
-            gen_part_idxs(
-                ptk_expr_fn_ptr as *const u8,
-                ctyp_ptk,
-                cdata_ptk,
-                nr,
-            )?
+            gen_part_idxs(ptk_expr_fn_ptr as *const u8, ctyp_ptk, cdata_ptk, nr)?
         }
         meta::types::BqlType::Date => {
             let cdata_ptk = shape_slice::<u16>(cdata_ptk);
-            gen_part_idxs(
-                ptk_expr_fn_ptr as *const u8,
-                ctyp_ptk,
-                cdata_ptk,
-                nr,
-            )?
+            gen_part_idxs(ptk_expr_fn_ptr as *const u8, ctyp_ptk, cdata_ptk, nr)?
         }
         // meta::types::BqlType::Int(_) => {}
         // meta::types::BqlType::Decimal(_, _) => {}
@@ -208,12 +172,9 @@ fn gen_part_idxs<T: 'static + Sized + Copy>(
     nr: usize,
 ) -> BaseRtResult<HashMap<u64, Vec<(u32, u32)>, BuildBaseHasher>> {
     let mut parts =
-        HashMap::<u64, Vec<(u32, u32)>, BuildBaseHasher>::with_hasher(
-            BuildBaseHasher,
-        ); //assumed blk dix < 4G
+        HashMap::<u64, Vec<(u32, u32)>, BuildBaseHasher>::with_hasher(BuildBaseHasher); //assumed blk dix < 4G
     // let siz_typ_ptk = mem::size_of::<T>();
-    let ptk_expr_fn =
-        unsafe { mem::transmute::<_, fn(T) -> u64>(ptk_expr_fn_ptr) };
+    let ptk_expr_fn = unsafe { mem::transmute::<_, fn(T) -> u64>(ptk_expr_fn_ptr) };
     let is_datetime_typ = matches!(ctyp_ptk, BqlType::DateTime);
     let tz_ofs = BMS.timezone_sys_offset as i64;
     for j in 0..nr {
@@ -350,8 +311,7 @@ fn write_part(
         let pt_len_in_bytes = pt_len * ctyp_siz;
         let offset_in_bytes = prid * ctyp_siz;
         //FIXME gather into bb
-        let bb =
-            gather_into_buf(&idxs, pt_len_in_bytes, cdata.as_ptr(), ctyp_siz);
+        let bb = gather_into_buf(&idxs, pt_len_in_bytes, cdata.as_ptr(), ctyp_siz);
         dump_buf(
             fd,
             offset_in_bytes,
@@ -366,19 +326,9 @@ fn write_part(
     Ok(())
 }
 
-fn dump_buf(
-    fd: u32,
-    offset_in_bytes: usize,
-    pt_len_in_bytes: usize,
-    buf: *const c_void,
-) {
+fn dump_buf(fd: u32, offset_in_bytes: usize, pt_len_in_bytes: usize, buf: *const c_void) {
     unsafe {
-        libc::fallocate(
-            fd as i32,
-            0,
-            offset_in_bytes as i64,
-            pt_len_in_bytes as i64,
-        );
+        libc::fallocate(fd as i32, 0, offset_in_bytes as i64, pt_len_in_bytes as i64);
         libc::pwrite(fd as i32, buf, pt_len_in_bytes, offset_in_bytes as i64);
         close(fd as i32);
     }
@@ -418,23 +368,14 @@ fn write_part_locked(
                 let siz_in_bytes = ps
                     .get_copa_siz_in_bytes_int_ptk(cid, ptk)?
                     .unwrap_or_default();
-                let (bb, om) = gather_into_blob_buf(
-                    &idxs,
-                    cdata.as_ptr(),
-                    omdata,
-                    siz_in_bytes,
-                );
+                let (bb, om) =
+                    gather_into_blob_buf(&idxs, cdata.as_ptr(), omdata, siz_in_bytes);
 
                 let fpath = get_part_path(tid, cid, ptk, dp)?;
                 let fd = open_file_as_fd(&fpath)?;
                 let ompath = gen_ompath_from_part_path(&fpath)?;
                 let fd_om = open_file_as_fd(&ompath)?;
-                dump_buf(
-                    fd,
-                    siz_in_bytes,
-                    bb.len(),
-                    bb.as_ptr() as *const c_void,
-                );
+                dump_buf(fd, siz_in_bytes, bb.len(), bb.as_ptr() as *const c_void);
                 dump_buf(
                     fd_om,
                     prid * mem::size_of::<u64>(),
@@ -449,12 +390,8 @@ fn write_part_locked(
                 let ctyp_siz = ctyp.size_in_usize()?;
                 let pt_len_in_bytes = pt_len * ctyp_siz;
                 let offset_in_bytes = prid * ctyp_siz;
-                let bb = gather_into_buf(
-                    &idxs,
-                    pt_len_in_bytes,
-                    cdata.as_ptr(),
-                    ctyp_siz,
-                );
+                let bb =
+                    gather_into_buf(&idxs, pt_len_in_bytes, cdata.as_ptr(), ctyp_siz);
 
                 let fpath = get_part_path(tid, cid, ptk, dp)?;
                 let fd = open_file_as_fd(&fpath)?;
@@ -465,11 +402,7 @@ fn write_part_locked(
                     bb.as_ptr() as *const c_void,
                 );
 
-                ps.insert_copa_int_ptk(
-                    cid,
-                    ptk,
-                    offset_in_bytes + pt_len_in_bytes,
-                )?;
+                ps.insert_copa_int_ptk(cid, ptk, offset_in_bytes + pt_len_in_bytes)?;
             }
         }
     }
@@ -486,9 +419,7 @@ mod unit_tests {
         mem::{shape_slice, shape_vec_u8},
         with_timer_print,
     };
-    use baselog::{
-        Config, ConfigBuilder, LevelFilter, TermLogger, TerminalMode,
-    };
+    use baselog::{Config, ConfigBuilder, LevelFilter, TermLogger, TerminalMode};
     use lightjit::builtins::to_fn1;
     use meta::{
         confs::Conf,
@@ -671,8 +602,7 @@ mod unit_tests {
         // let rng = rand::thread_rng();
         let col_len = 1024 * 1024usize;
         let cdata1: Vec<u32> = (0..col_len as u32).collect();
-        let cdata2: Vec<u32> =
-            cdata1.iter().map(|e| 2 * (*e) + 1354291200).collect();
+        let cdata2: Vec<u32> = cdata1.iter().map(|e| 2 * (*e) + 1354291200).collect();
 
         let mut blk = Block::default();
         let col1: Column = Column {

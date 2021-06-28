@@ -3,7 +3,6 @@ use meta::types::Id;
 
 use super::blocks::Block;
 
-
 pub const LZ4_COMPRESSION_METHOD: u8 = 0x82;
 
 // === request ===
@@ -143,16 +142,16 @@ impl From<u8> for ClientCodes {
 pub enum ServerCodes {
     Hello = 0,                // Name, version, revision.
     Data = 1,                 // Data block with or without compression.
-    Exception = 2, // An exception occurred while processing a request.
-    Progress = 3,  // Progress of query execution: rows read, bytes read.
-    Pong = 4,      // Reply to Ping.
-    EndOfStream = 5, // All packets were sent.
-    ProfileInfo = 6, // A package with profiling information.
-    Totals = 7,    // Data block with total values, with or without compression.
-    Extremes = 8,  // Data block with minimums and maximums, similarly.
+    Exception = 2,            // An exception occurred while processing a request.
+    Progress = 3,             // Progress of query execution: rows read, bytes read.
+    Pong = 4,                 // Reply to Ping.
+    EndOfStream = 5,          // All packets were sent.
+    ProfileInfo = 6,          // A package with profiling information.
+    Totals = 7,   // Data block with total values, with or without compression.
+    Extremes = 8, // Data block with minimums and maximums, similarly.
     TablesStatusResponse = 9, // Response to the TableStatus request.
-    Log = 10,      // System log of request execution.
-    TableColumns = 11,        // Columns' description for default values calculation
+    Log = 10,     // System log of request execution.
+    TableColumns = 11, // Columns' description for default values calculation
 }
 
 //FIXME remove unsafe with match pat
@@ -249,7 +248,8 @@ impl ConnCtx {
 
     #[inline]
     pub fn get_raw_blk_req(&mut self) -> &mut BytesMut {
-        self.raw_blk_req.get_or_insert_with(||BytesMut::with_capacity(4 * 1024))
+        self.raw_blk_req
+            .get_or_insert_with(|| BytesMut::with_capacity(4 * 1024))
         // if let Some(ref mut bs) = self.raw_blk_req {
         //     bs
         // } else {

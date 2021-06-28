@@ -81,7 +81,11 @@ pub struct Options {
 }
 
 // FIXME: replace with macro
-fn parse_param<'a, F, T, E>(param: Cow<'a, str>, value: Cow<'a, str>, parse: F) -> Result<T>
+fn parse_param<'a, F, T, E>(
+    param: Cow<'a, str>,
+    value: Cow<'a, str>,
+    parse: F,
+) -> Result<T>
 where
     F: Fn(&str) -> std::result::Result<T, E>,
 {
@@ -167,7 +171,7 @@ impl Options {
             _ => {
                 return Err(UrlError::UnsupportedScheme {
                     scheme: url.scheme().to_string(),
-                })
+                });
             }
         };
 
@@ -202,17 +206,27 @@ impl Options {
             match key.as_ref() {
                 "pool_min" => options.pool_min = parse_param(key, value, u16::from_str)?,
                 "pool_max" => options.pool_max = parse_param(key, value, u16::from_str)?,
-                "keepalive" => options.keepalive = parse_param(key, value, parse_opt_duration)?,
+                "keepalive" => {
+                    options.keepalive = parse_param(key, value, parse_opt_duration)?
+                }
                 "ping_before_query" => {
                     options.ping_before_query = parse_param(key, value, bool::from_str)?
                 }
-                "send_retries" => options.send_retries = parse_param(key, value, u8::from_str)?,
-                "retry_timeout" => options.retry_timeout = parse_param(key, value, parse_duration)?,
-                "ping_timeout" => options.ping_timeout = parse_param(key, value, parse_duration)?,
+                "send_retries" => {
+                    options.send_retries = parse_param(key, value, u8::from_str)?
+                }
+                "retry_timeout" => {
+                    options.retry_timeout = parse_param(key, value, parse_duration)?
+                }
+                "ping_timeout" => {
+                    options.ping_timeout = parse_param(key, value, parse_duration)?
+                }
                 "connection_timeout" => {
                     options.connection_timeout = parse_param(key, value, parse_duration)?
                 }
-                "query_timeout" => options.query_timeout = parse_param(key, value, parse_duration)?,
+                "query_timeout" => {
+                    options.query_timeout = parse_param(key, value, parse_duration)?
+                }
                 "query_block_timeout" => {
                     options.query_block_timeout = parse_param(key, value, parse_duration)?
                 }
@@ -222,11 +236,15 @@ impl Options {
                 "execute_timeout" => {
                     options.execute_timeout = parse_param(key, value, parse_duration)?
                 }
-                "compression" => options.compression = parse_param(key, value, parse_compression)?,
+                "compression" => {
+                    options.compression = parse_param(key, value, parse_compression)?
+                }
                 #[cfg(feature = "tls")]
                 "secure" => options.secure = parse_param(key, value, bool::from_str)?,
                 #[cfg(feature = "tls")]
-                "skip_verify" => options.skip_verify = parse_param(key, value, bool::from_str)?,
+                "skip_verify" => {
+                    options.skip_verify = parse_param(key, value, bool::from_str)?
+                }
                 "readonly" => options.readonly = parse_param(key, value, parse_u8)?,
                 "host" => options.addr.push(value.into_owned()),
                 _ => return Err(UrlError::UnknownParameter { param: key.into() }),
@@ -357,8 +375,9 @@ mod test {
 
     #[test]
     fn test_configuration() -> Result<()> {
-        let url =
-            Url::parse("tcp://localhost/db1?query_block_timeout=300&ping_timeout=110ms&query_timeout=25s&compression=lz4")?;
+        let url = Url::parse(
+            "tcp://localhost/db1?query_block_timeout=300&ping_timeout=110ms&query_timeout=25s&compression=lz4",
+        )?;
         let config = Options::new(url)?;
 
         assert_eq!(config.addr[0], String::from("localhost:9000"));
@@ -388,12 +407,14 @@ mod test {
 
         assert_eq!(url.host_str(), Some("host1,host2"));
 
-        let url =
-            Url::parse("tcp://host1:9001/db2?ping_timeout=ms&query_timeout=25s&compression=lz4")?;
+        let url = Url::parse(
+            "tcp://host1:9001/db2?ping_timeout=ms&query_timeout=25s&compression=lz4",
+        )?;
         assert!(Options::new(url).is_err());
 
-        let url =
-            Url::parse("tcp://host1:9001/db2?ping_timeout=1ms&query_timeout=25s&compression=zlib")?;
+        let url = Url::parse(
+            "tcp://host1:9001/db2?ping_timeout=1ms&query_timeout=25s&compression=zlib",
+        )?;
         assert!(Options::new(url).is_err());
 
         let url = Url::parse(

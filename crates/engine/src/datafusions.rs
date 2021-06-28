@@ -2,19 +2,17 @@ use std::{lazy::SyncLazy, sync::Arc};
 
 use arrow::{
     array::{
-        ArrayData, ArrayRef, Date16Array, DecimalArray, Float32Array,
-        Float64Array, GenericStringArray, Int8Array, Int16Array, Int32Array,
-        Int64Array, Timestamp32Array, UInt8Array, UInt16Array, UInt32Array,
-        UInt64Array, FixedSizeBinaryArray,
+        ArrayData, ArrayRef, Date16Array, DecimalArray, FixedSizeBinaryArray,
+        Float32Array, Float64Array, GenericStringArray, Int8Array, Int16Array,
+        Int32Array, Int64Array, Timestamp32Array, UInt8Array, UInt16Array, UInt32Array,
+        UInt64Array,
     },
     buffer::Buffer,
     datatypes::{DataType, Field, Schema},
     ffi::FFI_ArrowArray,
     record_batch::RecordBatch,
 };
-use datafusion::{
-    datasource::MemTable, error::Result, prelude::ExecutionContext,
-};
+use datafusion::{datasource::MemTable, error::Result, prelude::ExecutionContext};
 use lang::parse::TablesContext;
 use meta::{
     store::{
@@ -130,13 +128,7 @@ pub(crate) fn run(
         let schema = Arc::new(Schema::new(fields));
         let copasss = &mut qs.copasss;
         let mut copass = Vec::new();
-        ps.fill_copainfos_int_by_ptk_range(
-            &mut copass,
-            tid,
-            &cis,
-            0,
-            u64::MAX,
-        )?;
+        ps.fill_copainfos_int_by_ptk_range(&mut copass, tid, &cis, 0, u64::MAX)?;
         if copass.len() == 0 {
             return Err(EngineError::UnexpectedDataLoadingError);
         }
@@ -230,7 +222,6 @@ fn setup_tables(
                 }
                 DataType::FixedSizeBinary(_) => {
                     cols.push(Arc::new(FixedSizeBinaryArray::from(data)));
-
                 }
                 // DataType::Null => {}
                 // DataType::Boolean => {}
@@ -264,10 +255,7 @@ fn setup_tables(
     Ok(())
 }
 
-fn gen_arrow_arraydata(
-    cpi: &CoPaInfo,
-    typ: &DataType,
-) -> EngineResult<ArrayData> {
+fn gen_arrow_arraydata(cpi: &CoPaInfo, typ: &DataType) -> EngineResult<ArrayData> {
     let dummy = Arc::new(FFI_ArrowArray::empty());
     let buf = unsafe {
         let ptr = std::ptr::NonNull::new(cpi.addr as *mut u8)
@@ -279,11 +267,7 @@ fn gen_arrow_arraydata(
         let buf_om = unsafe {
             let ptr = std::ptr::NonNull::new(cpi.addr_om as *mut u8)
                 .ok_or(EngineError::UnwrapOptionError)?;
-            Buffer::from_unowned(
-                ptr,
-                CoPaInfo::len_in_bytes_om(cpi.size),
-                dummy_om,
-            )
+            Buffer::from_unowned(ptr, CoPaInfo::len_in_bytes_om(cpi.size), dummy_om)
         };
         ArrayData::builder(typ.clone())
             .len(cpi.size)

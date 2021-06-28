@@ -143,7 +143,8 @@ impl PoolBuilder {
 
         #[allow(unused_variables)]
         if cfg!(feature = "recycle") {
-            let (tx, rx) = sync::mpsc::unbounded_channel::<Option<Box<InnerConnection>>>();
+            let (tx, rx) =
+                sync::mpsc::unbounded_channel::<Option<Box<InnerConnection>>>();
         }
 
         let hosts = options.take_addr();

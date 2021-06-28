@@ -182,7 +182,10 @@ impl<R: AsyncBufRead + Unpin + Send> LZ4ReadAdapter<R> {
             inner: reader,
         }
     }
-    pub(crate) fn new_with_param(reader: R, compression: CompressionMethod) -> LZ4ReadAdapter<R> {
+    pub(crate) fn new_with_param(
+        reader: R,
+        compression: CompressionMethod,
+    ) -> LZ4ReadAdapter<R> {
         if compression == CompressionMethod::LZ4 {
             LZ4ReadAdapter::new(reader)
         } else {
@@ -231,8 +234,10 @@ impl<R: AsyncBufRead + Unpin + Send> LZ4ReadAdapter<R> {
                 CompressionState::Compressed => {
                     let raw_size = self.raw_size;
                     // Read from underlying reader. Bypass buffering
-                    let n =
-                        ready!(Pin::new(&mut self.inner).poll_read(cx, &mut self.data[self.p..])?);
+                    let n = ready!(
+                        Pin::new(&mut self.inner)
+                            .poll_read(cx, &mut self.data[self.p..])?
+                    );
                     self.p += n;
                     // Got to the end. Decompress and return raw buffer
                     if self.p >= self.data.len() {
@@ -349,7 +354,10 @@ impl<R: AsyncBufRead + Unpin + Send> AsyncRead for LZ4ReadAdapter<R> {
 }
 
 impl<R: AsyncBufRead + Unpin + Send> AsyncBufRead for LZ4ReadAdapter<R> {
-    fn poll_fill_buf(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<&[u8], io::Error>> {
+    fn poll_fill_buf(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+    ) -> Poll<Result<&[u8], io::Error>> {
         let me = self.get_mut();
         if me.state.is_bypass() {
             return Pin::new(&mut me.inner).poll_fill_buf(cx);

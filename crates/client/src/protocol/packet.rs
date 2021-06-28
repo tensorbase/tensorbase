@@ -63,7 +63,12 @@ impl ServerWriter for Execute {
     fn write(&self, cx: &ServerInfo, writer: &mut dyn Write) -> io::Result<()> {
         CLIENT_QUERY.encode(writer)?;
         //BaseFix follow to the official client
-        let query_id = self.query.id.unwrap_or_default().to_hyphenated().to_string();
+        let query_id = self
+            .query
+            .id
+            .unwrap_or_default()
+            .to_hyphenated()
+            .to_string();
         query_id.encode(writer)?;
         // Query string (SELECT, INSERT or DDL )
         self.query.write(cx, writer)?;

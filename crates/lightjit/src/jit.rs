@@ -1,4 +1,7 @@
-use crate::{builtins::{date_toYYYY, date_toYYYYMM, rem, toYYYY, toYYYYMM, toYYYYMMDD}, frontend::*};
+use crate::{
+    builtins::{date_toYYYY, date_toYYYYMM, rem, toYYYY, toYYYYMM, toYYYYMMDD},
+    frontend::*,
+};
 use cranelift::prelude::*;
 use cranelift_jit::{JITBuilder, JITModule};
 use cranelift_module::{DataContext, FuncOrDataId, Linkage, Module};
@@ -29,8 +32,7 @@ unsafe impl Sync for JIT {}
 
 impl Default for JIT {
     fn default() -> Self {
-        let mut builder =
-            JITBuilder::new(cranelift_module::default_libcall_names());
+        let mut builder = JITBuilder::new(cranelift_module::default_libcall_names());
         builder.symbol("toYYYY", toYYYY as *const u8);
         builder.symbol("date_toYYYY", date_toYYYY as *const u8);
         builder.symbol("toYear", toYYYY as *const u8);
@@ -77,11 +79,7 @@ impl JIT {
         // defined. For this toy demo for now, we'll just finalize the
         // function below.
         self.module
-            .define_function(
-                id,
-                &mut self.ctx,
-                &mut codegen::binemit::NullTrapSink {},
-            )
+            .define_function(id, &mut self.ctx, &mut codegen::binemit::NullTrapSink {})
             .map_err(|e| e.to_string())?;
 
         // Now that compilation is finished, we can clear out the context state.
@@ -249,12 +247,8 @@ impl<'a> FunctionTranslator<'a> {
             }
 
             Expr::Eq(lhs, rhs) => self.translate_icmp(IntCC::Equal, *lhs, *rhs),
-            Expr::Ne(lhs, rhs) => {
-                self.translate_icmp(IntCC::NotEqual, *lhs, *rhs)
-            }
-            Expr::Lt(lhs, rhs) => {
-                self.translate_icmp(IntCC::SignedLessThan, *lhs, *rhs)
-            }
+            Expr::Ne(lhs, rhs) => self.translate_icmp(IntCC::NotEqual, *lhs, *rhs),
+            Expr::Lt(lhs, rhs) => self.translate_icmp(IntCC::SignedLessThan, *lhs, *rhs),
             Expr::Le(lhs, rhs) => {
                 self.translate_icmp(IntCC::SignedLessThanOrEqual, *lhs, *rhs)
             }
@@ -268,8 +262,7 @@ impl<'a> FunctionTranslator<'a> {
             Expr::GlobalDataAddr(name) => self.translate_global_data_addr(name),
             Expr::Identifier(name) => {
                 // `use_var` is used to read the value of a variable.
-                let variable =
-                    self.variables.get(&name).expect("variable not defined");
+                let variable = self.variables.get(&name).expect("variable not defined");
                 self.builder.use_var(*variable)
             }
             Expr::Assign(name, expr) => self.translate_assign(name, *expr),
@@ -356,11 +349,7 @@ impl<'a> FunctionTranslator<'a> {
         phi
     }
 
-    fn translate_while_loop(
-        &mut self,
-        condition: Expr,
-        loop_body: Vec<Expr>,
-    ) -> Value {
+    fn translate_while_loop(&mut self, condition: Expr, loop_body: Vec<Expr>) -> Value {
         let header_block = self.builder.create_block();
         let body_block = self.builder.create_block();
         let exit_block = self.builder.create_block();
@@ -448,8 +437,7 @@ fn declare_variables(
         // TODO: cranelift_frontend should really have an API to make it easy to set
         // up param variables.
         let val = builder.block_params(entry_block)[i];
-        let var =
-            declare_variable(int, builder, &mut variables, &mut index, name);
+        let var = declare_variable(int, builder, &mut variables, &mut index, name);
         builder.def_var(var, val);
     }
     let zero = builder.ins().iconst(int, 0);
@@ -457,13 +445,7 @@ fn declare_variables(
         declare_variable(int, builder, &mut variables, &mut index, the_return);
     builder.def_var(return_variable, zero);
     for expr in stmts {
-        declare_variables_in_stmt(
-            int,
-            builder,
-            &mut variables,
-            &mut index,
-            expr,
-        );
+        declare_variables_in_stmt(int, builder, &mut variables, &mut index, expr);
     }
 
     variables
@@ -484,21 +466,15 @@ fn declare_variables_in_stmt(
         }
         Expr::IfElse(ref _condition, ref then_body, ref else_body) => {
             for stmt in then_body {
-                declare_variables_in_stmt(
-                    int, builder, variables, index, stmt,
-                );
+                declare_variables_in_stmt(int, builder, variables, index, stmt);
             }
             for stmt in else_body {
-                declare_variables_in_stmt(
-                    int, builder, variables, index, stmt,
-                );
+                declare_variables_in_stmt(int, builder, variables, index, stmt);
             }
         }
         Expr::WhileLoop(ref _condition, ref loop_body) => {
             for stmt in loop_body {
-                declare_variables_in_stmt(
-                    int, builder, variables, index, stmt,
-                );
+                declare_variables_in_stmt(int, builder, variables, index, stmt);
             }
         }
         _ => {}

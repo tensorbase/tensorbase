@@ -103,7 +103,7 @@ async fn run_ker_test_arrow(
     let conf = ExecutionConfig::new();
     let mut ctx = ExecutionContext::with_config(conf);
 
-   
+
 
     // let start = Instant::now();
 

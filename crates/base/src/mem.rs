@@ -61,7 +61,6 @@ pub fn shape_vec<T>(v: Vec<u8>) -> Vec<T> {
     }
 }
 
-
 /// WARN it is your responsibility to ensure this transmuting is safe
 #[inline]
 pub fn shape_vec_u8<T>(v: Vec<T>) -> Vec<u8> {
@@ -74,7 +73,6 @@ pub fn shape_vec_u8<T>(v: Vec<T>) -> Vec<u8> {
         )
     }
 }
-
 
 pub mod aligned {
     use std::alloc::Layout;
@@ -98,11 +96,7 @@ pub mod aligned {
         std::alloc::dealloc(p, Layout::from_size_align_unchecked(size, 64));
     }
 
-    pub unsafe fn realloc(
-        ptr: *mut u8,
-        old_size: usize,
-        new_size: usize,
-    ) -> *mut u8 {
+    pub unsafe fn realloc(ptr: *mut u8, old_size: usize, new_size: usize) -> *mut u8 {
         let new_ptr = std::alloc::realloc(
             ptr,
             Layout::from_size_align_unchecked(old_size, 64),

@@ -9,11 +9,7 @@ use test_utils::prepare_empty_tmp_dir;
 fn prepare_bms<'a>() -> BaseRtResult<BaseMgmtSys<'a>> {
     #[allow(unused_must_use)]
     {
-        TermLogger::init(
-            LevelFilter::Info,
-            Config::default(),
-            TerminalMode::Mixed,
-        );
+        TermLogger::init(LevelFilter::Info, Config::default(), TerminalMode::Mixed);
     }
 
     let dir_test = prepare_empty_tmp_dir(Some("/tmp/system_test"));
@@ -61,8 +57,7 @@ fn test_run_commands() -> BaseRtResult<()> {
     );
     assert!(matches!(res, Ok(_))); //println!("{:?}", res);
 
-    let res =
-        bms.run_commands(format!("create database {}", dbname), &mut cctx);
+    let res = bms.run_commands(format!("create database {}", dbname), &mut cctx);
     assert!(matches!(
         res,
         Err(BaseRtError::WrappingMetaError(
@@ -88,7 +83,8 @@ fn test_run_commands() -> BaseRtResult<()> {
         `a` LowCardinality(String),
         `b` Nullable(UInt64)
     )
-    ENGINE = BaseStorage"#.to_string(),
+    ENGINE = BaseStorage"#
+            .to_string(),
         &mut cctx,
     )?;
 
@@ -98,7 +94,10 @@ fn test_run_commands() -> BaseRtResult<()> {
     let res = bms.run_commands("use xxx_123".to_string(), &mut cctx)?;
     assert_eq!("xxx_123", cctx.current_db);
 
-    let res = bms.run_commands("insert into default.payment11 values".to_string(), &mut cctx)?;
+    let res = bms.run_commands(
+        "insert into default.payment11 values".to_string(),
+        &mut cctx,
+    )?;
     assert!(matches!(res, BaseCommandKind::InsertFormatInline(_, _, _)));
 
     // let res = bms.run_commands("insert into default.payment11 values ('a', 1), ('b', 2)".to_string(), &mut cctx)?;

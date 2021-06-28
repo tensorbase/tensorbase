@@ -1,8 +1,8 @@
 #[cfg(feature = "int128")]
 pub use crate::protocol::value::ValueDecimal128;
 pub use crate::protocol::value::{
-    ValueDate, ValueDateTime, ValueDateTime64, ValueDecimal32, ValueDecimal64, ValueIp4, ValueIp6,
-    ValueUuid,
+    ValueDate, ValueDateTime, ValueDateTime64, ValueDecimal32, ValueDecimal64, ValueIp4,
+    ValueIp6, ValueUuid,
 };
 use chrono_tz::Tz;
 #[cfg(feature = "int128")]
@@ -208,9 +208,15 @@ impl fmt::Display for SqlType {
             SqlType::Float64 => "Float64",
             SqlType::Date => "Date",
             SqlType::DateTime => "DateTime",
-            SqlType::FixedString(p) => return f.write_fmt(format_args!("FixedString({})", p)),
-            SqlType::DateTime64(p, _) => return f.write_fmt(format_args!("DateTime64({})", p)),
-            SqlType::Decimal(p, s) => return f.write_fmt(format_args!("Decimal({},{})", p, s)),
+            SqlType::FixedString(p) => {
+                return f.write_fmt(format_args!("FixedString({})", p));
+            }
+            SqlType::DateTime64(p, _) => {
+                return f.write_fmt(format_args!("DateTime64({})", p));
+            }
+            SqlType::Decimal(p, s) => {
+                return f.write_fmt(format_args!("Decimal({},{})", p, s));
+            }
             SqlType::Enum8 => "Enum8",
             SqlType::Enum16 => "Enum16",
             _ => unimplemented!(""),

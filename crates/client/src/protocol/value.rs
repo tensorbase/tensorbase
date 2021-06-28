@@ -4,7 +4,9 @@ use super::encoder::Encoder;
 use crate::errors::{ConversionError, Result};
 #[cfg(feature = "int128")]
 use crate::types::Decimal128;
-use crate::types::{Decimal, Decimal32, Decimal64, DecimalBits, Field, FieldMeta, SqlType, SCALE};
+use crate::types::{
+    Decimal, Decimal32, Decimal64, DecimalBits, Field, FieldMeta, SqlType, SCALE,
+};
 use byteorder::{LittleEndian, WriteBytesExt};
 use chrono::{Date, DateTime, NaiveDate, NaiveDateTime, Utc};
 use std::io;
@@ -163,7 +165,11 @@ fn encode_string<T: AsRef<[u8]>>(data: &[T], writer: &mut dyn Write) -> Result<(
 }
 /// Encode fixed length string array. Column `FixedString` in `Native Format`
 /// |String byte array|...next item
-fn encode_fixedstring<T: AsRef<[u8]>>(data: &[T], size: u32, writer: &mut dyn Write) -> Result<()> {
+fn encode_fixedstring<T: AsRef<[u8]>>(
+    data: &[T],
+    size: u32,
+    writer: &mut dyn Write,
+) -> Result<()> {
     for s in data {
         let s = s.as_ref();
         //empty or default string workaround
@@ -236,7 +242,10 @@ where
     }
 
     fn is_compatible(&self, field: &Field) -> bool {
-        matches!(field.sql_type, SqlType::String | SqlType::FixedString(_) | SqlType::Enum8 | SqlType::Enum16)
+        matches!(
+            field.sql_type,
+            SqlType::String | SqlType::FixedString(_) | SqlType::Enum8 | SqlType::Enum16
+        )
     }
 }
 /// IPv4 output column
@@ -373,7 +382,8 @@ impl<'a, T: Sized + Send + Sync> AsOutColumn for BinaryCompatibleOutColumn<T> {
         self.data.len()
     }
     fn encode(&self, _field: &Field, writer: &mut dyn Write) -> Result<()> {
-        encode_data_bc(unsafe { as_bytes_bufer(self.data.as_ref()) }, writer).map_err(Into::into)
+        encode_data_bc(unsafe { as_bytes_bufer(self.data.as_ref()) }, writer)
+            .map_err(Into::into)
     }
     fn is_compatible(&self, field: &Field) -> bool {
         self.sql_type == field.sql_type

@@ -53,7 +53,9 @@ impl<'a> EnumParser<'a> {
         } else if type_str.starts_with("Enum16(") {
             (SqlType::Enum16, &type_str[7..])
         } else {
-            return Err(errors::ConversionError::UnknownColumnType(type_str.to_owned()).into());
+            return Err(
+                errors::ConversionError::UnknownColumnType(type_str.to_owned()).into(),
+            );
         };
 
         let mut state = EnumParser::Start;
@@ -156,7 +158,9 @@ impl DecimalParser {
         } else if type_str.starts_with("Decimal(") {
             (DecimalParser::S(0), &type_str[8..])
         } else {
-            return Err(errors::ConversionError::UnknownColumnType(type_str.to_owned()).into());
+            return Err(
+                errors::ConversionError::UnknownColumnType(type_str.to_owned()).into(),
+            );
         };
 
         for c in rest.chars() {
@@ -197,7 +201,9 @@ impl DateTimeParser {
         } else if type_str.starts_with("DateTime64(") {
             &type_str[11..]
         } else {
-            return Err(errors::ConversionError::UnknownColumnType(type_str.to_owned()).into());
+            return Err(
+                errors::ConversionError::UnknownColumnType(type_str.to_owned()).into(),
+            );
         };
         let mut state = DateTimeParser::S(0);
         for (i, c) in rest.char_indices() {
@@ -234,9 +240,10 @@ impl DateTimeParser {
                 DateTimeParser::Fin(s, tz) => {
                     if c == ')' {
                         if s > 9 {
-                            return Err(
-                                DriverError::UnsupportedType(SqlType::DateTime64(s, tz)).into()
-                            );
+                            return Err(DriverError::UnsupportedType(
+                                SqlType::DateTime64(s, tz),
+                            )
+                            .into());
                         }
                         return field!(SqlType::DateTime64(s, tz));
                     }
@@ -349,8 +356,8 @@ mod test {
     #[test]
     fn test_parse_basic() {
         let types = [
-            "UInt8", "Int8", "UInt16", "Int16", "UInt32", "Int32", "UInt64", "Int64", "Float32",
-            "Float64", "UUID", "IPv4", "IPv6", "String",
+            "UInt8", "Int8", "UInt16", "Int16", "UInt32", "Int32", "UInt64", "Int64",
+            "Float32", "Float64", "UUID", "IPv4", "IPv6", "String",
         ];
 
         for t in types.iter() {

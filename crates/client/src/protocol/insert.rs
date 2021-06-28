@@ -2,7 +2,9 @@ use futures::TryFutureExt;
 use std::marker::Unpin;
 use tokio::io::{AsyncRead, AsyncWrite};
 
-use super::block::{Block, BlockColumnHeader, EmptyBlock, OutputBlockWrapper, ServerBlock};
+use super::block::{
+    Block, BlockColumnHeader, EmptyBlock, OutputBlockWrapper, ServerBlock,
+};
 use super::command::ResponseStream;
 use crate::errors::{ConversionError, DriverError, Result};
 
@@ -25,7 +27,10 @@ impl<'a, R: AsyncRead + AsyncWrite + Unpin + Send> Drop for InsertSink<'a, R> {
 }
 
 impl<'a, R: AsyncRead + AsyncWrite + Unpin + Send> InsertSink<'a, R> {
-    pub(crate) fn new(tcpstream: ResponseStream<'a, R>, block: ServerBlock) -> InsertSink<'a, R> {
+    pub(crate) fn new(
+        tcpstream: ResponseStream<'a, R>,
+        block: ServerBlock,
+    ) -> InsertSink<'a, R> {
         let buf = Vec::with_capacity(DEFAULT_INSERT_BUFFER_SIZE);
 
         let mut columns = block.into_headers();

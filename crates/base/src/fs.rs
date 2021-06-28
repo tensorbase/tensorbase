@@ -7,5 +7,3 @@ pub fn validate_path(path: &str) -> Option<PathBuf> {
         None
     }
 }
-
-

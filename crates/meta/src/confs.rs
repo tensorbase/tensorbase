@@ -13,7 +13,7 @@ See the License for the specific language governing permissions and
 limitations under the License.*/
 
 //NAIVE just PoC?
-use base::{fs::validate_path};
+use base::fs::validate_path;
 use serde::{Deserialize, Serialize};
 use std::{env, fs};
 
@@ -74,7 +74,9 @@ pub struct Storage {
 
 impl Default for Storage {
     fn default() -> Self {
-        Storage { data_dirs_clickhouse: String::new() }
+        Storage {
+            data_dirs_clickhouse: String::new(),
+        }
     }
 }
 
@@ -97,14 +99,12 @@ impl Conf {
         // } else {
         //     None
         // }
-        conf_opt
-            .map(|p| toml::from_str(&fs::read_to_string(p).unwrap()).unwrap())
+        conf_opt.map(|p| toml::from_str(&fs::read_to_string(p).unwrap()).unwrap())
     }
     pub fn save(conf: &Conf, save_path: Option<&str>) -> MetaResult<()> {
         let conf_path = match save_path {
             None => {
-                let path = env::current_exe()
-                    .map_err(|_| MetaError::ConfLoadingError)?;
+                let path = env::current_exe().map_err(|_| MetaError::ConfLoadingError)?;
                 let path = path.parent().unwrap().join("conf");
                 fs::create_dir_all(&path).unwrap();
                 path.join("base.conf")
@@ -112,8 +112,8 @@ impl Conf {
             Some(path) => validate_path(path).expect("can not find conf file"),
         };
 
-        let toml = toml::to_string_pretty(&conf)
-            .map_err(|_| MetaError::ConfLoadingError)?;
+        let toml =
+            toml::to_string_pretty(&conf).map_err(|_| MetaError::ConfLoadingError)?;
         fs::write(conf_path, toml).map_err(|_| MetaError::ConfLoadingError)?;
 
         Ok(())
@@ -122,7 +122,6 @@ impl Conf {
 
 #[cfg(test)]
 mod unit_tests {
-
     use crate::errs::MetaResult;
 
     use super::Conf;

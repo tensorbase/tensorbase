@@ -38,8 +38,8 @@ fn integ_test_parse_tpcds_full() -> (usize, Duration, u32) {
             // println!("----- for {:?}:", p.file_name());
             let s = read_to_string(p).unwrap();
             let timer = Instant::now();
-            let cmd_node = BqlParser::parse(cmd, s.as_ref())
-                .unwrap_or_else(|e| panic!("{}", e));
+            let cmd_node =
+                BqlParser::parse(cmd, s.as_ref()).unwrap_or_else(|e| panic!("{}", e));
             total_dur += timer.elapsed();
             total_len += cmd_node.as_str().len();
             ct += 1;

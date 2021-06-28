@@ -1,14 +1,9 @@
 use engine::types::QueryState;
 use lang::parse::{Pair, Rule};
-use meta::{
-    store::{parts::PartStore, sys::MetaStore},
-};
+use meta::store::{parts::PartStore, sys::MetaStore};
 use std::{convert::TryFrom, time::Instant};
 
-use crate::{
-    ch::blocks::Block,
-    errs::BaseRtResult,
-};
+use crate::{ch::blocks::Block, errs::BaseRtResult};
 
 pub fn query(
     ms: &MetaStore,

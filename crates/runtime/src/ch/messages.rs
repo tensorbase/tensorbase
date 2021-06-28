@@ -353,20 +353,14 @@ fn response_query(
             Ok(())
         }
         Ok(
-            BaseCommandKind::Create
-            | BaseCommandKind::Drop
-            | BaseCommandKind::Optimize,
+            BaseCommandKind::Create | BaseCommandKind::Drop | BaseCommandKind::Optimize,
         ) => Ok(()),
         Ok(BaseCommandKind::InsertFormatInlineValues(mut blk, qtn, tid)) => {
             let write = WRITE.get().unwrap();
             write(&mut blk, qtn.as_str(), tid)?;
             Ok(())
         }
-        Ok(BaseCommandKind::InsertFormatSelectValue(
-            blks,
-            qtn,
-            tid,
-        )) => {
+        Ok(BaseCommandKind::InsertFormatSelectValue(blks, qtn, tid)) => {
             let write = WRITE.get().unwrap();
 
             log::debug!("subquery blks {:?}", blks);
@@ -393,11 +387,7 @@ fn response_query(
             //NOTE for insert, server side need to send header for
             // Send block to the client - table structure.
             //sendData(state.io.out->getHeader());
-            log::debug!(
-                "[{}]header for insert into: {:?}",
-                cctx.query_id,
-                header
-            );
+            log::debug!("[{}]header for insert into: {:?}", cctx.query_id, header);
             if compression == 1 {
                 let _bs = cctx.get_raw_blk_resp();
                 header.encode_to(wb, Some(_bs))?;
@@ -482,7 +472,9 @@ pub(crate) fn process_data_blk(
         lz4::decompress(&rb[..comp_size], dst_bs)
             .map_err(|_| BaseRtError::BlockDecompressionError)?;
 
-        unsafe { rb1.advance_mut(raw_size) };
+        unsafe {
+            rb1.advance_mut(raw_size)
+        };
         // log::debug!(
         //     "== heading 16B of rb0[len={}] after decompression: {:02x?}",
         //     rb0.len(),
@@ -504,7 +496,9 @@ pub(crate) fn process_data_blk(
     } else {
         let raw_size = rb.len() - EMPTY_CLIENT_BLK_BYTES.len();
         rb1.ensure_enough_bytes_to_write(raw_size); // make sure the buffer is enough
-        unsafe { rb1.set_len(raw_size) };
+        unsafe {
+            rb1.set_len(raw_size)
+        };
         rb1.copy_from_slice(&rb[..raw_size]);
         Ok(raw_size)
     }

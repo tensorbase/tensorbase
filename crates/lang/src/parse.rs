@@ -26,13 +26,12 @@ pub fn pretty_parse_tree(pairs: Pairs<Rule>) -> String {
     return lines.to_string();
 }
 
-fn format_pair(
-    pair: Pair<Rule>,
-    indent_level: usize,
-    is_newline: bool,
-) -> String {
-    let indent =
-        if is_newline { "  ".repeat(indent_level) } else { "".to_string() };
+fn format_pair(pair: Pair<Rule>, indent_level: usize, is_newline: bool) -> String {
+    let indent = if is_newline {
+        "  ".repeat(indent_level)
+    } else {
+        "".to_string()
+    };
 
     let children: Vec<_> = pair.clone().into_inner().collect();
     let len = children.len();
@@ -41,7 +40,11 @@ fn format_pair(
         .map(|pair| {
             format_pair(
                 pair,
-                if len > 1 { indent_level + 1 } else { indent_level },
+                if len > 1 {
+                    indent_level + 1
+                } else {
+                    indent_level
+                },
                 len > 1,
             )
         })
@@ -77,7 +80,10 @@ pub struct DbInfo {
 }
 
 pub fn parse_create_database(pair: Pair<Rule>) -> LangResult<DbInfo> {
-    let mut rt = DbInfo { dbname: String::new(), fallible: true };
+    let mut rt = DbInfo {
+        dbname: String::new(),
+        fallible: true,
+    };
     for p in pair.into_inner() {
         match p.as_rule() {
             Rule::if_not_exists => rt.fallible = false,
@@ -91,9 +97,7 @@ pub fn parse_create_database(pair: Pair<Rule>) -> LangResult<DbInfo> {
     Ok(rt)
 }
 
-pub fn parse_optimize_table(
-    pair: Pair<Rule>,
-) -> LangResult<(Option<String>, String)> {
+pub fn parse_optimize_table(pair: Pair<Rule>) -> LangResult<(Option<String>, String)> {
     let mut dbname = None;
     let mut tabname = String::new();
     for p in pair.into_inner() {
@@ -120,7 +124,10 @@ pub fn parse_optimize_table(
 }
 
 pub fn parse_drop_database(pair: Pair<Rule>) -> LangResult<DbInfo> {
-    let mut rt = DbInfo { dbname: String::new(), fallible: true };
+    let mut rt = DbInfo {
+        dbname: String::new(),
+        fallible: true,
+    };
     for p in pair.into_inner() {
         match p.as_rule() {
             Rule::if_exists => rt.fallible = false,
@@ -134,9 +141,7 @@ pub fn parse_drop_database(pair: Pair<Rule>) -> LangResult<DbInfo> {
     Ok(rt)
 }
 
-pub fn parse_drop_table(
-    pair: Pair<Rule>,
-) -> LangResult<(Option<String>, String, bool)> {
+pub fn parse_drop_table(pair: Pair<Rule>) -> LangResult<(Option<String>, String, bool)> {
     // println!("{}", pretty_parse_tree(pair.clone().into_inner()));
     let mut dbname = None;
     let mut tabname = String::new();
@@ -164,10 +169,11 @@ pub fn parse_drop_table(
     Ok((dbname, tabname, fallible))
 }
 
-pub fn parse_show_create_table(
-    pair: Pair<Rule>,
-) -> LangResult<(Option<String>, String)> {
-    let p = pair.into_inner().next().ok_or(LangError::DatabaseParsingError)?;
+pub fn parse_show_create_table(pair: Pair<Rule>) -> LangResult<(Option<String>, String)> {
+    let p = pair
+        .into_inner()
+        .next()
+        .ok_or(LangError::DatabaseParsingError)?;
     match p.as_rule() {
         Rule::qualified_table_name => {
             let qtn = p.as_str().trim();
@@ -182,10 +188,11 @@ pub fn parse_show_create_table(
     }
 }
 
-pub fn parse_desc_table(
-    pair: Pair<Rule>,
-) -> LangResult<(Option<String>, String)> {
-    let p = pair.into_inner().next().ok_or(LangError::DatabaseParsingError)?;
+pub fn parse_desc_table(pair: Pair<Rule>) -> LangResult<(Option<String>, String)> {
+    let p = pair
+        .into_inner()
+        .next()
+        .ok_or(LangError::DatabaseParsingError)?;
     match p.as_rule() {
         Rule::qualified_table_name => {
             let qtn = p.as_str().trim();
@@ -235,8 +242,7 @@ impl InsertIntoContext {
                 self.format = InsertFormat::CSV;
             }
             Rule::select => {
-                self.format =
-                    InsertFormat::Select(pair.as_str().trim().to_owned());
+                self.format = InsertFormat::Select(pair.as_str().trim().to_owned());
             }
             _ => {}
         }
@@ -261,10 +267,9 @@ impl InsertIntoContext {
                 //     .columns
                 //     .last_mut()
                 //     .ok_or(LangError::CreateTableParsingError)?;
-                self.tab.columns.push((
-                    pair.as_str().trim().to_string(),
-                    ColumnInfo::default(),
-                ));
+                self.tab
+                    .columns
+                    .push((pair.as_str().trim().to_string(), ColumnInfo::default()));
             }
             Rule::literal => {
                 if let Some(ref mut tab) = self.values {
@@ -337,15 +342,10 @@ impl CreateTabContext {
                     .ok_or(LangError::CreateTableParsingError)?;
                 let inner_typ_opt = pair.into_inner().next();
                 match inner_typ_opt {
-                    Some(p)
-                        if p.as_rule() == Rule::low_cardinality_string_type =>
-                    {
+                    Some(p) if p.as_rule() == Rule::low_cardinality_string_type => {
                         col.1.data_type = BqlType::LowCardinalityString;
                     }
-                    Some(p)
-                        if p.as_rule()
-                            == Rule::low_cardinality_tinytext_type =>
-                    {
+                    Some(p) if p.as_rule() == Rule::low_cardinality_tinytext_type => {
                         col.1.data_type = BqlType::LowCardinalityTinyText;
                     }
                     Some(p) if p.as_rule() == Rule::nullable_type => {
@@ -425,7 +425,10 @@ pub fn parse_insert_into(pair: Pair<Rule>) -> LangResult<InsertIntoContext> {
 }
 
 pub fn parse_create_table(pair: Pair<Rule>) -> LangResult<(Table, bool)> {
-    let mut ctx = CreateTabContext { tab: Default::default(), fallible: true };
+    let mut ctx = CreateTabContext {
+        tab: Default::default(),
+        fallible: true,
+    };
     ctx.parse(pair)?;
     // println!("{:?}", ctx.tables);
     //FIXME need to validate all tabs for malicious ddls
@@ -483,11 +486,10 @@ pub fn parse_system_numbers_table(tab: &str) -> LangResult<(i64, i64)> {
     let mut ps: Pairs<Rule> = BqlParser::parse(Rule::qualified_table_name, tab)
         .map_err(|e| LangError::ASTError(e.to_string()))?;
     // println!("{}", pretty_parse_tree(ps.clone()));
-    let p = seek_to(&mut ps, Rule::qualified_table_name)
-        .ok_or(LangError::FailToUnwrap)?;
+    let p =
+        seek_to(&mut ps, Rule::qualified_table_name).ok_or(LangError::FailToUnwrap)?;
     let table_name = seek_to(&mut p.into_inner(), Rule::table_name);
-    let inner = table_name
-        .ok_or(LangError::UnsupportedSystemNumbersNamingFormatError)?;
+    let inner = table_name.ok_or(LangError::UnsupportedSystemNumbersNamingFormatError)?;
     let numbers = seek_to(&mut inner.into_inner(), Rule::table_name_numbers)
         .ok_or(LangError::UnsupportedSystemNumbersNamingFormatError)?;
     let mut nums = numbers.into_inner();
@@ -504,9 +506,7 @@ pub fn parse_system_numbers_table(tab: &str) -> LangResult<(i64, i64)> {
             if s <= e {
                 return Ok((s, e));
             } else {
-                return Err(
-                    LangError::UnsupportedSystemNumbersNamingFormatError,
-                );
+                return Err(LangError::UnsupportedSystemNumbersNamingFormatError);
             }
         } else {
             let estr = a.as_str();
@@ -516,9 +516,7 @@ pub fn parse_system_numbers_table(tab: &str) -> LangResult<(i64, i64)> {
             if e >= 0 {
                 return Ok((0, e));
             } else {
-                return Err(
-                    LangError::UnsupportedSystemNumbersNamingFormatError,
-                );
+                return Err(LangError::UnsupportedSystemNumbersNamingFormatError);
             }
         }
     }
@@ -532,9 +530,7 @@ pub fn parse_command(cmds: &str) -> LangResult<Pairs<Rule>> {
     Ok(ps)
 }
 
-pub fn seek_to_sub_cmd<'a>(
-    pairs: &mut Pairs<'a, Rule>,
-) -> LangResult<Pair<'a, Rule>> {
+pub fn seek_to_sub_cmd<'a>(pairs: &mut Pairs<'a, Rule>) -> LangResult<Pair<'a, Rule>> {
     let p = seek_to(pairs, Rule::cmd).ok_or(LangError::FailToUnwrap)?;
     p.into_inner().next().ok_or(LangError::FailToUnwrap)
 }
@@ -567,8 +563,8 @@ mod unit_tests {
     // #[macro_export]
 
     use super::{
-        parse_create_database, parse_create_table, pretty_parse_tree, seek_to,
-        BqlParser, Rule,
+        parse_create_database, parse_create_table, pretty_parse_tree, seek_to, BqlParser,
+        Rule,
     };
     use meta::types::BqlType;
     use pest::Parser;
@@ -578,8 +574,10 @@ mod unit_tests {
         let ddl = "create database if not exists xxx";
         let ps = BqlParser::parse(Rule::create_database, ddl)
             .map_err(|e| LangError::CreateTableParsingError)?;
-        let cd =
-            ps.into_iter().next().ok_or(LangError::DatabaseParsingError)?;
+        let cd = ps
+            .into_iter()
+            .next()
+            .ok_or(LangError::DatabaseParsingError)?;
         // println!("{:?}", cd);
         // println!("{}", pretty_parse_tree(ps.clone()));
         let di = parse_create_database(cd)?;
@@ -590,8 +588,10 @@ mod unit_tests {
         let ddl = "create database a_b_c_01";
         let ps = BqlParser::parse(Rule::create_database, ddl)
             .map_err(|e| LangError::CreateTableParsingError)?;
-        let cd =
-            ps.into_iter().next().ok_or(LangError::DatabaseParsingError)?;
+        let cd = ps
+            .into_iter()
+            .next()
+            .ok_or(LangError::DatabaseParsingError)?;
         // println!("{:?}", cd);
         // println!("{}", pretty_parse_tree(ps.clone()));
         let di = parse_create_database(cd)?;
@@ -666,8 +666,10 @@ mod unit_tests {
             .map_err(|e| LangError::CreateTableParsingError)?;
         println!("{}", pretty_parse_tree(ps.clone()));
 
-        let ct =
-            ps.into_iter().next().ok_or(LangError::CreateTableParsingError)?;
+        let ct = ps
+            .into_iter()
+            .next()
+            .ok_or(LangError::CreateTableParsingError)?;
         // println!("{:?}", ct.clone().as_rule());
         let t = parse_create_table(ct)?;
         println!("{:?}", t);
@@ -693,8 +695,10 @@ mod unit_tests {
             .map_err(|e| LangError::CreateTableParsingError)?;
         println!("{}", pretty_parse_tree(ps.clone()));
 
-        let ct =
-            ps.into_iter().next().ok_or(LangError::CreateTableParsingError)?;
+        let ct = ps
+            .into_iter()
+            .next()
+            .ok_or(LangError::CreateTableParsingError)?;
         println!("{:?}", ct.clone().as_rule());
         let t = parse_create_table(ct)?;
         println!("{:?}", t);
@@ -721,8 +725,8 @@ SELECT * FROM domain
 WHERE domain_ID IN (SELECT domain_ID FROM domain_setting)
 LIMIT 100;
 "#;
-        let mut queries = BqlParser::parse(Rule::query, sql)
-            .unwrap_or_else(|e| panic!("{}", e));
+        let mut queries =
+            BqlParser::parse(Rule::query, sql).unwrap_or_else(|e| panic!("{}", e));
         let limit = seek_to(&mut queries, Rule::limit);
         println!("{:?}", queries);
     }
@@ -733,8 +737,8 @@ LIMIT 100;
 
         macro_rules! assert_parse {
             ($s:expr, $c:ident) => {
-                let _pairs = BqlParser::parse(Rule::$c, $s)
-                    .unwrap_or_else(|e| panic!("{}", e));
+                let _pairs =
+                    BqlParser::parse(Rule::$c, $s).unwrap_or_else(|e| panic!("{}", e));
                 //println!("{:?} =>", $s);
                 // for pair in pairs.flatten() {
                 //     let _span = pair.clone().as_span();
@@ -848,14 +852,14 @@ LIMIT 100;
             println!("{}", pretty_parse_tree(pairs));
 
             let c = "use some_database_123";
-            let pairs = BqlParser::parse(Rule::use_db, c)
-                .unwrap_or_else(|e| panic!("{}", e));
+            let pairs =
+                BqlParser::parse(Rule::use_db, c).unwrap_or_else(|e| panic!("{}", e));
             println!("{}", pretty_parse_tree(pairs));
 
             let c = "SELECT sum(a) FROM lineorder WHERE toYear(b) > 1990";
             // let c = "select a from tab WHERE toYear(b) > 1990";
-            let pairs = BqlParser::parse(Rule::query, c)
-                .unwrap_or_else(|e| panic!("{}", e));
+            let pairs =
+                BqlParser::parse(Rule::query, c).unwrap_or_else(|e| panic!("{}", e));
             println!("{}", pretty_parse_tree(pairs));
         }
 
@@ -892,8 +896,8 @@ LIMIT 100;
         fn test_comment_parse() {
             let c = r"-- abci
 CREATE TABLE test (col Int32)";
-            let pairs = BqlParser::parse(Rule::cmd_list, c)
-                .unwrap_or_else(|e| panic!("{}", e));
+            let pairs =
+                BqlParser::parse(Rule::cmd_list, c).unwrap_or_else(|e| panic!("{}", e));
             println!("pairs: {}", pretty_parse_tree(pairs));
         }
 
@@ -904,10 +908,7 @@ CREATE TABLE test (col Int32)";
                 case_expr
             );
             assert_parse!("case when 1 then 2 else 3 end", case_expr);
-            assert_parse!(
-                "case mean when 0 then null else stdev/mean end",
-                case_expr
-            );
+            assert_parse!("case mean when 0 then null else stdev/mean end", case_expr);
         }
 
         #[test]
@@ -1130,9 +1131,10 @@ CREATE TABLE test (col Int32)";
 
             assert_parse!("SELECT * FROM test WHERE 1", select);
 
-            let c = "SELECT t1.c1 as t1c1 FROM test WHERE 1 GROUP BY id HAVING count(*) > 1";
-            let pairs = BqlParser::parse(Rule::select, c)
-                .unwrap_or_else(|e| panic!("{}", e));
+            let c =
+                "SELECT t1.c1 as t1c1 FROM test WHERE 1 GROUP BY id HAVING count(*) > 1";
+            let pairs =
+                BqlParser::parse(Rule::select, c).unwrap_or_else(|e| panic!("{}", e));
             println!("{}", pretty_parse_tree(pairs));
 
             let c = "select ss_item_sk
@@ -1155,9 +1157,10 @@ CREATE TABLE test (col Int32)";
 
             assert_parse!("SELECT * FROM test WHERE 1;", select);
 
-            let c = "SELECT t1.c1 as t1c1 FROM test WHERE 1 GROUP BY id HAVING count(*) > 1;";
-            let pairs = BqlParser::parse(Rule::select, c)
-                .unwrap_or_else(|e| panic!("{}", e));
+            let c =
+                "SELECT t1.c1 as t1c1 FROM test WHERE 1 GROUP BY id HAVING count(*) > 1;";
+            let pairs =
+                BqlParser::parse(Rule::select, c).unwrap_or_else(|e| panic!("{}", e));
             println!("{}", pretty_parse_tree(pairs));
 
             let c = "select ss_item_sk
@@ -1185,14 +1188,11 @@ CREATE TABLE test (col Int32)";
        ,stdev,mean, case mean when 0 then null else stdev/mean end cov",
                 query
             );
-            assert_parse!(
-                "with bar as (select 1 from foo) select 2 from bar",
-                query
-            );
+            assert_parse!("with bar as (select 1 from foo) select 2 from bar", query);
 
             let c = "SELECT sum(a) FROM lineorder WHERE toYear(b) > 1990";
-            let pairs = BqlParser::parse(Rule::query, c)
-                .unwrap_or_else(|e| panic!("{}", e));
+            let pairs =
+                BqlParser::parse(Rule::query, c).unwrap_or_else(|e| panic!("{}", e));
             println!("{}", pretty_parse_tree(pairs));
         }
 
@@ -1207,14 +1207,11 @@ CREATE TABLE test (col Int32)";
        ,stdev,mean, case mean when 0 then null else stdev/mean end cov;",
                 query
             );
-            assert_parse!(
-                "with bar as (select 1 from foo) select 2 from bar;",
-                query
-            );
+            assert_parse!("with bar as (select 1 from foo) select 2 from bar;", query);
 
             let c = "SELECT sum(a) FROM lineorder WHERE toYear(b) > 1990;";
-            let pairs = BqlParser::parse(Rule::query, c)
-                .unwrap_or_else(|e| panic!("{}", e));
+            let pairs =
+                BqlParser::parse(Rule::query, c).unwrap_or_else(|e| panic!("{}", e));
             println!("{}", pretty_parse_tree(pairs));
         }
 
@@ -1245,8 +1242,8 @@ CREATE TABLE test (col Int32)";
          and d_moy = 1
          and d_year = 1998
  )";
-            let pairs = BqlParser::parse(Rule::with, c)
-                .unwrap_or_else(|e| panic!("{}", e));
+            let pairs =
+                BqlParser::parse(Rule::with, c).unwrap_or_else(|e| panic!("{}", e));
             println!("{}", pretty_parse_tree(pairs));
 
             let c = "with wscs as
@@ -1259,13 +1256,13 @@ CREATE TABLE test (col Int32)";
         (select cs_sold_date_sk sold_date_sk
               ,cs_ext_sales_price sales_price
         from catalog_sales))";
-            let pairs = BqlParser::parse(Rule::with, c)
-                .unwrap_or_else(|e| panic!("{}", e));
+            let pairs =
+                BqlParser::parse(Rule::with, c).unwrap_or_else(|e| panic!("{}", e));
             println!("{}", pretty_parse_tree(pairs));
 
             let c = "inv as (select case mean when 0 then null else stdev/mean end cov from foo)";
-            let pairs = BqlParser::parse(Rule::with_query, c)
-                .unwrap_or_else(|e| panic!("{}", e));
+            let pairs =
+                BqlParser::parse(Rule::with_query, c).unwrap_or_else(|e| panic!("{}", e));
             println!("{}", pretty_parse_tree(pairs));
         }
 
@@ -1311,26 +1308,20 @@ limit
 
 -- end query 1 in stream 0 using template query1.tpl
 ";
-            let pairs = BqlParser::parse(Rule::with, c)
-                .unwrap_or_else(|e| panic!("{}", e));
+            let pairs =
+                BqlParser::parse(Rule::with, c).unwrap_or_else(|e| panic!("{}", e));
             println!("{}", pretty_parse_tree(pairs));
         }
 
         #[test]
         fn test_create_table() {
             assert_parse!("CREATE TABLE test (col Int32)", create_table);
-            assert_parse!(
-                "CREATE TABLE main.test (col Decimal(7,2))",
-                create_table
-            );
+            assert_parse!("CREATE TABLE main.test (col Decimal(7,2))", create_table);
             assert_parse!(
                 "CREATE TABLE test (id Int256 PRIMARY KEY, name String NOT NULL)",
                 create_table
             );
-            assert_parse!(
-                "CREATE TABLE IF NOT EXISTS test (col String)",
-                create_table
-            );
+            assert_parse!("CREATE TABLE IF NOT EXISTS test (col String)", create_table);
 
             assert_parse!("CREATE TABLE test (id UInt256)", create_table);
             assert_parse!("CREATE TABLE test (id Int64)", create_table);
@@ -1346,8 +1337,7 @@ limit
                 .unwrap_or_else(|e| panic!("{}", e));
 
             //support table_attributes
-            let c =
-                "CREATE TABLE IF NOT EXISTS payment (a UInt16) Engine=Memory";
+            let c = "CREATE TABLE IF NOT EXISTS payment (a UInt16) Engine=Memory";
             // let pairs = BqlParser::parse(Rule::create_table, c)
             //     .unwrap_or_else(|e| panic!("{}", e));
             // println!("{}", pretty_parse_tree(pairs));
@@ -1416,8 +1406,8 @@ limit
             AND l_discount BETWEEN 0.05 AND 0.07
             AND l_quantity < 24            
 ";
-            let pairs = BqlParser::parse(Rule::cmd, c)
-                .unwrap_or_else(|e| panic!("{}", e));
+            let pairs =
+                BqlParser::parse(Rule::cmd, c).unwrap_or_else(|e| panic!("{}", e));
             println!("{}", pretty_parse_tree(pairs));
         }
 
@@ -1447,8 +1437,8 @@ limit
             o_orderdate
           LIMIT 10
 ";
-            let pairs = BqlParser::parse(Rule::cmd, c)
-                .unwrap_or_else(|e| panic!("{}", e));
+            let pairs =
+                BqlParser::parse(Rule::cmd, c).unwrap_or_else(|e| panic!("{}", e));
             println!("{}", pretty_parse_tree(pairs));
         }
 
@@ -1469,8 +1459,8 @@ limit
             o_shippriority DESC, c_name
           LIMIT 10
 ";
-            let pairs = BqlParser::parse(Rule::cmd, c)
-                .unwrap_or_else(|e| panic!("{}", e));
+            let pairs =
+                BqlParser::parse(Rule::cmd, c).unwrap_or_else(|e| panic!("{}", e));
             println!("{}", pretty_parse_tree(pairs));
             /*
             * bir

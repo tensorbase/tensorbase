@@ -1,19 +1,19 @@
 /*
- *   Copyright (c) 2020 TensorBase, and its contributors
- *   All rights reserved.
+*   Copyright (c) 2020 TensorBase, and its contributors
+*   All rights reserved.
 
- *   Licensed under the Apache License, Version 2.0 (the "License");
- *   you may not use this file except in compliance with the License.
- *   You may obtain a copy of the License at
+*   Licensed under the Apache License, Version 2.0 (the "License");
+*   you may not use this file except in compliance with the License.
+*   You may obtain a copy of the License at
 
- *   http://www.apache.org/licenses/LICENSE-2.0
+*   http://www.apache.org/licenses/LICENSE-2.0
 
- *   Unless required by applicable law or agreed to in writing, software
- *   distributed under the License is distributed on an "AS IS" BASIS,
- *   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- *   See the License for the specific language governing permissions and
- *   limitations under the License.
- */
+*   Unless required by applicable law or agreed to in writing, software
+*   distributed under the License is distributed on an "AS IS" BASIS,
+*   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+*   See the License for the specific language governing permissions and
+*   limitations under the License.
+*/
 
 #![feature(const_fn_union, untagged_unions, const_raw_ptr_deref)]
 
@@ -65,14 +65,13 @@ fn parse_tpch() {
 
 // #[test]
 fn integ_test_parse_tpcds_full() {
-    let paths =
-        read_dir(common::get_test_root() + "tpcds_full").unwrap();
+    let paths = read_dir(common::get_test_root() + "tpcds_full").unwrap();
     paths.for_each(|p: io::Result<DirEntry>| {
         let p = p.unwrap().path();
         println!("----- for {:?}:", p.file_name());
         let s = read_to_string(p).unwrap();
-        let cmd_node = BqlParser::parse(cmd, s.as_ref())
-            .unwrap_or_else(|e| panic!("{}", e));
+        let cmd_node =
+            BqlParser::parse(cmd, s.as_ref()).unwrap_or_else(|e| panic!("{}", e));
         // println!("  {}\n", cmd_node);
     })
 }

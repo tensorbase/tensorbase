@@ -3,14 +3,18 @@ use futures::{Future, TryFutureExt};
 use std::borrow::BorrowMut;
 use std::marker::Unpin;
 use std::time::Duration;
-use tokio::io::{AsyncBufRead, AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, BufReader};
+use tokio::io::{
+    AsyncBufRead, AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, BufReader,
+};
 use tokio::time;
 
 use super::block::{BlockColumn, BlockColumnHeader, BlockInfo, ServerBlock};
 use super::code::*;
 use super::column::{AsInColumn, EnumColumn, FixedColumn, StringColumn};
 use super::packet::{ProfileInfo, Response};
-use super::value::{ValueDate, ValueDateTime, ValueDateTime64, ValueIp4, ValueIp6, ValueUuid};
+use super::value::{
+    ValueDate, ValueDateTime, ValueDateTime64, ValueIp4, ValueIp6, ValueUuid,
+};
 use super::ServerInfo;
 use crate::compression::LZ4ReadAdapter;
 use crate::errors::{DriverError, Exception, Result, ServerError};
@@ -18,7 +22,9 @@ use crate::protocol::column::{BoxString, FixedArrayColumn, LowCardinalityColumn}
 use crate::protocol::decoder::ValueReader;
 #[cfg(feature = "int128")]
 use crate::types::ValueDecimal128;
-use crate::types::{parse_type_field, DecimalBits, Field, SqlType, ValueDecimal32, ValueDecimal64};
+use crate::types::{
+    parse_type_field, DecimalBits, Field, SqlType, ValueDecimal32, ValueDecimal64,
+};
 
 macro_rules! err {
     ($err: expr) => {
@@ -143,7 +149,7 @@ impl<'a, R: AsyncRead + Unpin + Send> ResponseStream<'a, R> {
                 // FIXME: it may be better to raise error 'Connection unexpectedly closed by server'
                 return Ok(None);
             }
-            
+
             log::info!("code[0]: {}", code[0]);
             match code[0] as u64 {
                 SERVER_PONG => {
@@ -174,7 +180,8 @@ impl<'a, R: AsyncRead + Unpin + Send> ResponseStream<'a, R> {
                     //     };
 
                     let resp =
-                        read_block(&mut self.reader, &self.columns, self.info.timezone).await?;
+                        read_block(&mut self.reader, &self.columns, self.info.timezone)
+                            .await?;
 
                     if let Some(block) = resp {
                         if self.skip_empty && block.rows == 0 {
@@ -320,18 +327,26 @@ where
     }
 }
 // One rank array limited
-async fn load_array_column<R>(reader: R, field: &Field, rows: u64) -> Result<Box<dyn AsInColumn>>
+async fn load_array_column<R>(
+    reader: R,
+    field: &Field,
+    rows: u64,
+) -> Result<Box<dyn AsInColumn>>
 where
     R: AsyncBufRead + Unpin,
 {
     match field.sql_type {
-        SqlType::UInt8 | SqlType::Int8 => FixedArrayColumn::<u8>::load_column(reader, rows).await,
+        SqlType::UInt8 | SqlType::Int8 => {
+            FixedArrayColumn::<u8>::load_column(reader, rows).await
+        }
         SqlType::UInt16 | SqlType::Int16 | SqlType::Date => {
             FixedArrayColumn::<u16>::load_column(reader, rows).await
         }
-        SqlType::UInt32 | SqlType::Int32 | SqlType::DateTime | SqlType::Float32 | SqlType::Ipv4 => {
-            FixedArrayColumn::<u32>::load_column(reader, rows).await
-        }
+        SqlType::UInt32
+        | SqlType::Int32
+        | SqlType::DateTime
+        | SqlType::Float32
+        | SqlType::Ipv4 => FixedArrayColumn::<u32>::load_column(reader, rows).await,
         SqlType::UInt64 | SqlType::Int64 | SqlType::DateTime64(..) | SqlType::Float64 => {
             FixedArrayColumn::<u64>::load_column(reader, rows).await
         }
@@ -341,12 +356,18 @@ where
         SqlType::Decimal(s, _) if i64::fit(s) => {
             FixedArrayColumn::<u32>::load_column(reader, rows).await
         }
-        SqlType::Ipv6 | SqlType::Uuid => FixedArrayColumn::<u128>::load_column(reader, rows).await,
+        SqlType::Ipv6 | SqlType::Uuid => {
+            FixedArrayColumn::<u128>::load_column(reader, rows).await
+        }
         _ => return err!(DriverError::UnsupportedType(field.sql_type)),
     }
 }
 
-async fn load_column<R>(mut reader: R, field: &Field, rows: u64) -> Result<Box<dyn AsInColumn>>
+async fn load_column<R>(
+    mut reader: R,
+    field: &Field,
+    rows: u64,
+) -> Result<Box<dyn AsInColumn>>
 where
     R: AsyncBufRead + Unpin,
 {
@@ -361,9 +382,11 @@ where
         SqlType::String => StringColumn::load_string_column(reader, rows)
             .await?
             .set_nulls(nulls),
-        SqlType::FixedString(width) => StringColumn::load_fixed_string_column(reader, rows, width)
-            .await?
-            .set_nulls(nulls),
+        SqlType::FixedString(width) => {
+            StringColumn::load_fixed_string_column(reader, rows, width)
+                .await?
+                .set_nulls(nulls)
+        }
         SqlType::UInt64 => FixedColumn::<u64>::load_column(reader, rows)
             .await?
             .set_nulls(nulls),
@@ -506,7 +529,8 @@ where
         } else if field.is_array() {
             load_array_column(reader.borrow_mut(), &field, block_info.rows).await?
         } else if field.is_lowcardinality() {
-            load_lowcardinality_string(reader.borrow_mut(), &field, block_info.rows).await?
+            load_lowcardinality_string(reader.borrow_mut(), &field, block_info.rows)
+                .await?
         } else {
             load_column(reader.borrow_mut(), &field, block_info.rows).await?
         };
@@ -693,7 +717,10 @@ mod test {
     }
 
     impl<'a> AsyncBufRead for AsyncChunk<'a> {
-        fn poll_fill_buf(self: Pin<&mut Self>, _: &mut Context<'_>) -> Poll<io::Result<&[u8]>> {
+        fn poll_fill_buf(
+            self: Pin<&mut Self>,
+            _: &mut Context<'_>,
+        ) -> Poll<io::Result<&[u8]>> {
             // Force AsyncBufRead to read by small chunks
             Poll::Ready(Ok(&[]))
         }
@@ -750,7 +777,6 @@ mod test {
         Ok(())
     }
 
-
     // #[tokio::test]
     // async fn test_read_block() -> Result<()> {
     //     let buf = vec![0, 1, 0, 1];
@@ -777,7 +803,6 @@ mod test {
     //     let columns = Vec::<BlockColumnHeader>::new();
     //     let resp =
     //         read_block(&mut rdr, columns.as_slice(), chrono_tz::UTC).await?;
-
 
     //     Ok(())
     // }

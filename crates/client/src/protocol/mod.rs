@@ -88,8 +88,8 @@ use std::io::{self, Write};
 #[cfg(feature = "int128")]
 use value::ValueDecimal128;
 use value::{
-    ValueDate, ValueDateTime, ValueDateTime64, ValueDecimal32, ValueDecimal64, ValueIp4, ValueIp6,
-    ValueUuid,
+    ValueDate, ValueDateTime, ValueDateTime64, ValueDecimal32, ValueDecimal64, ValueIp4,
+    ValueIp6, ValueUuid,
 };
 
 #[cfg(feature = "extra")]

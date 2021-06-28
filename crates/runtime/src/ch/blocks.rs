@@ -145,14 +145,14 @@ impl Default for Block {
     }
 }
 
-pub(crate) const EMPTY_CLIENT_BLK_BYTES: [u8; 12] =
-    [0x02, 0x00, 0x01, 0x00, 0x02, 0xff, 0xff, 0xff, 0xff, 0x00, 0x00, 0x00];
+pub(crate) const EMPTY_CLIENT_BLK_BYTES: [u8; 12] = [
+    0x02, 0x00, 0x01, 0x00, 0x02, 0xff, 0xff, 0xff, 0xff, 0x00, 0x00, 0x00,
+];
 
 pub(crate) const COMPRESSED_EMPTY_CLIENT_BLK_BYTES: [u8; 38] = [
-    0x02, 0x00, 0xa7, 0x83, 0xac, 0x6c, 0xd5, 0x5c, 0x7a, 0x7c, 0xb5, 0xac,
-    0x46, 0xbd, 0xdb, 0x86, 0xe2, 0x14, 0x82, 0x14, 0x00, 0x00, 0x00, 0x0a,
-    0x00, 0x00, 0x00, 0xa0, 0x01, 0x00, 0x02, 0xff, 0xff, 0xff, 0xff, 0x00,
-    0x00, 0x00,
+    0x02, 0x00, 0xa7, 0x83, 0xac, 0x6c, 0xd5, 0x5c, 0x7a, 0x7c, 0xb5, 0xac, 0x46, 0xbd,
+    0xdb, 0x86, 0xe2, 0x14, 0x82, 0x14, 0x00, 0x00, 0x00, 0x0a, 0x00, 0x00, 0x00, 0xa0,
+    0x01, 0x00, 0x02, 0xff, 0xff, 0xff, 0xff, 0x00, 0x00, 0x00,
 ];
 
 impl Block {
@@ -162,9 +162,7 @@ impl Block {
         is_compressed: bool,
     ) -> BaseRtResult<()> {
         if is_compressed {
-            rb.ensure_enough_bytes_to_read(
-                COMPRESSED_EMPTY_CLIENT_BLK_BYTES.len(),
-            )
+            rb.ensure_enough_bytes_to_read(COMPRESSED_EMPTY_CLIENT_BLK_BYTES.len())
         } else {
             rb.ensure_enough_bytes_to_read(EMPTY_CLIENT_BLK_BYTES.len())
         }
@@ -217,7 +215,11 @@ impl Block {
     ///FIXME strictly this method is not correct, but just nice now
     #[inline(always)]
     pub fn is_empty_block(bs: &[u8]) -> bool {
-        if bs.len() == 12 { bs == EMPTY_CLIENT_BLK_BYTES } else { false }
+        if bs.len() == 12 {
+            bs == EMPTY_CLIENT_BLK_BYTES
+        } else {
+            false
+        }
     }
 
     ///body is code-stripped blk
@@ -278,10 +280,8 @@ impl Block {
                 *p_clen = (9 + n) as u32;
                 let p_rlen = ptr_header.offset(21) as *mut u32;
                 *p_rlen = raw_len as u32;
-                let body = new_mut_slice_at(
-                    &mut *(ptr_header.offset(16) as *mut u8),
-                    9 + n,
-                );
+                let body =
+                    new_mut_slice_at(&mut *(ptr_header.offset(16) as *mut u8), 9 + n);
                 let cth = city_hash_128(body);
                 let cth0 = ptr_header.offset(0) as *mut u64;
                 *cth0 = cth.lo;
@@ -447,9 +447,7 @@ impl TryFrom<RecordBatch> for Block {
 
                 (
                     ofs as usize,
-                    Some(
-                        arr.value_offsets().iter().map(|o| *o as u32).collect(),
-                    ),
+                    Some(arr.value_offsets().iter().map(|o| *o as u32).collect()),
                 )
             } else {
                 (btype.size_in_usize()? * col.len(), None)
@@ -579,29 +577,22 @@ impl BytesDecoder<Column> for &[u8] {
                 //version number
                 let ver = self.get_u64_le();
                 if ver != 1 {
-                    return Err(
-                        BaseRtError::UnsupportedLowCardinalityDictVersion,
-                    );
+                    return Err(BaseRtError::UnsupportedLowCardinalityDictVersion);
                 }
                 //serialization type
                 let v = self.get_u64_le();
                 if (v & GLOBAL_DICTIONARY == GLOBAL_DICTIONARY)
                     || (v & ADDITIONAL_KEY == 0)
                 {
-                    return Err(
-                        BaseRtError::UnsupportedLowCardinalityDictVersion,
-                    );
+                    return Err(BaseRtError::UnsupportedLowCardinalityDictVersion);
                 }
-                let btype =
-                    match v as u8 & 0x0F {
-                        0 => BqlType::UInt(8),
-                        1 => BqlType::UInt(16),
-                        2 => BqlType::UInt(32),
-                        3 => BqlType::UInt(64),
-                        _ => return Err(
-                            BaseRtError::UnsupportedLowCardinalityDictVersion,
-                        ),
-                    };
+                let btype = match v as u8 & 0x0F {
+                    0 => BqlType::UInt(8),
+                    1 => BqlType::UInt(16),
+                    2 => BqlType::UInt(32),
+                    3 => BqlType::UInt(64),
+                    _ => return Err(BaseRtError::UnsupportedLowCardinalityDictVersion),
+                };
                 //number of strings in dict
                 let ndict = self.get_u64_le();
                 //consume whole dict,a.k.a. gen offset_map
@@ -662,11 +653,7 @@ impl std::fmt::Debug for Column {
 //        header.insert(ColumnWithTypeAndName{ type, column.name });
 //    }
 ///NOTE insert/select needs this kind info to send to client firstly
-pub fn new_block_header(
-    name: Vec<u8>,
-    typ: BqlType,
-    is_nullable: bool,
-) -> Column {
+pub fn new_block_header(name: Vec<u8>, typ: BqlType, is_nullable: bool) -> Column {
     Column {
         name,
         data: BaseChunk {
@@ -735,17 +722,15 @@ mod unit_tests {
         assert_eq!(
             &bs[..],
             &[
-                0x01, 0x00, 0x01, 0x00, 0x02, 0xff, 0xff, 0xff, 0xff, 0x00,
-                0x00, 0x00
+                0x01, 0x00, 0x01, 0x00, 0x02, 0xff, 0xff, 0xff, 0xff, 0x00, 0x00, 0x00
             ]
         );
 
         //compressed empty blk
         let compressed_empty_blk_bs = vec![
-            0x01, 0x00, 0xa7, 0x83, 0xac, 0x6c, 0xd5, 0x5c, 0x7a, 0x7c, 0xb5,
-            0xac, 0x46, 0xbd, 0xdb, 0x86, 0xe2, 0x14, 0x82, 0x14, 0x00, 0x00,
-            0x00, 0x0a, 0x00, 0x00, 0x00, 0xa0, 0x01, 0x00, 0x02, 0xff, 0xff,
-            0xff, 0xff, 0x00, 0x00, 0x00,
+            0x01, 0x00, 0xa7, 0x83, 0xac, 0x6c, 0xd5, 0x5c, 0x7a, 0x7c, 0xb5, 0xac, 0x46,
+            0xbd, 0xdb, 0x86, 0xe2, 0x14, 0x82, 0x14, 0x00, 0x00, 0x00, 0x0a, 0x00, 0x00,
+            0x00, 0xa0, 0x01, 0x00, 0x02, 0xff, 0xff, 0xff, 0xff, 0x00, 0x00, 0x00,
         ];
         bs.clear();
         // println!("compressed_empty_blk_bs.len: {}",compressed_empty_blk_bs.len());
@@ -761,11 +746,7 @@ mod unit_tests {
     fn test_blockinfo_encode() -> BaseRtResult<()> {
         let mut blk: Block = Default::default();
         let headers = vec![
-            new_block_header(
-                b"a".to_vec(),
-                BqlType::LowCardinalityString,
-                false,
-            ),
+            new_block_header(b"a".to_vec(), BqlType::LowCardinalityString, false),
             new_block_header(b"b".to_vec(), BqlType::UInt(64), true),
         ];
         blk.ncols = headers.len();
@@ -775,12 +756,11 @@ mod unit_tests {
         let mut bs = BytesMut::with_capacity(1);
         blk.encode_to(&mut bs, None)?;
         let expected_bs: Vec<u8> = vec![
-            0x01, 0x00, 0x01, 0x00, 0x02, 0xff, 0xff, 0xff, 0xff, 0x00, 0x02,
-            0x00, 0x01, 0x61, 0x16, 0x4c, 0x6f, 0x77, 0x43, 0x61, 0x72, 0x64,
-            0x69, 0x6e, 0x61, 0x6c, 0x69, 0x74, 0x79, 0x28, 0x53, 0x74, 0x72,
-            0x69, 0x6e, 0x67, 0x29, 0x01, 0x62, 0x10, 0x4e, 0x75, 0x6c, 0x6c,
-            0x61, 0x62, 0x6c, 0x65, 0x28, 0x55, 0x49, 0x6e, 0x74, 0x36, 0x34,
-            0x29,
+            0x01, 0x00, 0x01, 0x00, 0x02, 0xff, 0xff, 0xff, 0xff, 0x00, 0x02, 0x00, 0x01,
+            0x61, 0x16, 0x4c, 0x6f, 0x77, 0x43, 0x61, 0x72, 0x64, 0x69, 0x6e, 0x61, 0x6c,
+            0x69, 0x74, 0x79, 0x28, 0x53, 0x74, 0x72, 0x69, 0x6e, 0x67, 0x29, 0x01, 0x62,
+            0x10, 0x4e, 0x75, 0x6c, 0x6c, 0x61, 0x62, 0x6c, 0x65, 0x28, 0x55, 0x49, 0x6e,
+            0x74, 0x36, 0x34, 0x29,
         ];
         // println!("{:?}", &bs[..]);
         assert_eq!(&bs[..], &expected_bs);
@@ -788,11 +768,7 @@ mod unit_tests {
         let mut blk: Block = Default::default();
         let headers = vec![
             new_block_header(b"trip_id".to_vec(), BqlType::UInt(32), false),
-            new_block_header(
-                b"pickup_datetime".to_vec(),
-                BqlType::DateTime,
-                false,
-            ),
+            new_block_header(b"pickup_datetime".to_vec(), BqlType::DateTime, false),
         ];
         blk.ncols = headers.len();
         blk.nrows = 0; //for empty data case
@@ -801,11 +777,10 @@ mod unit_tests {
         let mut bs = BytesMut::with_capacity(1);
         blk.encode_to(&mut bs, None)?;
         let expected_bs: Vec<u8> = vec![
-            0x01, 0x00, 0x01, 0x00, 0x02, 0xff, 0xff, 0xff, 0xff, 0x00, 0x02,
-            0x00, 0x07, 0x74, 0x72, 0x69, 0x70, 0x5f, 0x69, 0x64, 0x06, 0x55,
-            0x49, 0x6e, 0x74, 0x33, 0x32, 0x0f, 0x70, 0x69, 0x63, 0x6b, 0x75,
-            0x70, 0x5f, 0x64, 0x61, 0x74, 0x65, 0x74, 0x69, 0x6d, 0x65, 0x08,
-            0x44, 0x61, 0x74, 0x65, 0x54, 0x69, 0x6d, 0x65,
+            0x01, 0x00, 0x01, 0x00, 0x02, 0xff, 0xff, 0xff, 0xff, 0x00, 0x02, 0x00, 0x07,
+            0x74, 0x72, 0x69, 0x70, 0x5f, 0x69, 0x64, 0x06, 0x55, 0x49, 0x6e, 0x74, 0x33,
+            0x32, 0x0f, 0x70, 0x69, 0x63, 0x6b, 0x75, 0x70, 0x5f, 0x64, 0x61, 0x74, 0x65,
+            0x74, 0x69, 0x6d, 0x65, 0x08, 0x44, 0x61, 0x74, 0x65, 0x54, 0x69, 0x6d, 0x65,
         ];
         // println!("{:?}", &bs[..]);
         assert_eq!(&bs[..], &expected_bs);
@@ -885,7 +860,11 @@ mod unit_tests {
         //decompress
         let nread = process_data_blk(&mut &bs[..], &mut _bs, true)?;
         assert!(nread > 0);
-        println!("process_data_blk: nread - {}, _bs.len: {}", nread, _bs.len());
+        println!(
+            "process_data_blk: nread - {}, _bs.len: {}",
+            nread,
+            _bs.len()
+        );
 
         let mut blk2 = Block::default();
         blk2.decode_from(&mut &_bs[..])?;
@@ -903,8 +882,7 @@ mod unit_tests {
     }
 
     #[test]
-    fn test_block_decode_with_compression_with_breaking_up() -> BaseRtResult<()>
-    {
+    fn test_block_decode_with_compression_with_breaking_up() -> BaseRtResult<()> {
         let mut bs = BytesMut::with_capacity(4);
         let mut _bs = BytesMut::with_capacity(4);
 
@@ -935,7 +913,11 @@ mod unit_tests {
         //decompress
         let nread = process_data_blk(&mut &bs[..], &mut _bs, true)?;
         assert!(nread > 0);
-        println!("process_data_blk: nread - {}, _bs.len: {}", nread, _bs.len());
+        println!(
+            "process_data_blk: nread - {}, _bs.len: {}",
+            nread,
+            _bs.len()
+        );
 
         let mut blk2 = Block::default();
         assert_eq!(blk2.has_decoded(), false);
