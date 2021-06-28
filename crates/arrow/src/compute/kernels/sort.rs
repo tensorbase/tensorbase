@@ -163,7 +163,7 @@ pub fn sort_to_indices(
 
     let (v, n) = partition_validity(values);
 
-    match values.data_type() {
+    Ok(match values.data_type() {
         DataType::Boolean => sort_boolean(values, v, n, &options, limit),
         DataType::Int8 => {
             sort_primitive::<Int8Type, _>(values, v, n, cmp, &options, limit)
@@ -281,10 +281,12 @@ pub fn sort_to_indices(
             DataType::Float64 => {
                 sort_list::<i32, Float64Type>(values, v, n, &options, limit)
             }
-            t => Err(ArrowError::ComputeError(format!(
-                "Sort not supported for list type {:?}",
-                t
-            ))),
+            t => {
+                return Err(ArrowError::ComputeError(format!(
+                    "Sort not supported for list type {:?}",
+                    t
+                )))
+            }
         },
         DataType::LargeList(field) => match field.data_type() {
             DataType::Int8 => sort_list::<i64, Int8Type>(values, v, n, &options, limit),
@@ -307,10 +309,12 @@ pub fn sort_to_indices(
             DataType::Float64 => {
                 sort_list::<i64, Float64Type>(values, v, n, &options, limit)
             }
-            t => Err(ArrowError::ComputeError(format!(
-                "Sort not supported for list type {:?}",
-                t
-            ))),
+            t => {
+                return Err(ArrowError::ComputeError(format!(
+                    "Sort not supported for list type {:?}",
+                    t
+                )))
+            }
         },
         DataType::FixedSizeList(field, _) => match field.data_type() {
             DataType::Int8 => sort_list::<i32, Int8Type>(values, v, n, &options, limit),
@@ -333,10 +337,12 @@ pub fn sort_to_indices(
             DataType::Float64 => {
                 sort_list::<i32, Float64Type>(values, v, n, &options, limit)
             }
-            t => Err(ArrowError::ComputeError(format!(
-                "Sort not supported for list type {:?}",
-                t
-            ))),
+            t => {
+                return Err(ArrowError::ComputeError(format!(
+                    "Sort not supported for list type {:?}",
+                    t
+                )))
+            }
         },
         DataType::Dictionary(key_type, value_type)
             if *value_type.as_ref() == DataType::Utf8 =>
@@ -366,17 +372,21 @@ pub fn sort_to_indices(
                 DataType::UInt64 => {
                     sort_string_dictionary::<UInt64Type>(values, v, n, &options, limit)
                 }
-                t => Err(ArrowError::ComputeError(format!(
-                    "Sort not supported for dictionary key type {:?}",
-                    t
-                ))),
+                t => {
+                    return Err(ArrowError::ComputeError(format!(
+                        "Sort not supported for dictionary key type {:?}",
+                        t
+                    )))
+                }
             }
         }
-        t => Err(ArrowError::ComputeError(format!(
-            "Sort not supported for data type {:?}",
-            t
-        ))),
-    }
+        t => {
+            return Err(ArrowError::ComputeError(format!(
+                "Sort not supported for data type {:?}",
+                t
+            )))
+        }
+    })
 }
 
 /// Options that define how sort kernels should behave
@@ -398,45 +408,61 @@ impl Default for SortOptions {
     }
 }
 
-/// Sort primitive values
-#[allow(clippy::unnecessary_wraps)]
+/// Sort boolean values
+///
+/// when a limit is present, the sort is pair-comparison based as k-select might be more efficient,
+/// when the limit is absent, binary partition is used to speed up (which is linear).
+///
+/// TODO maybe partition_validity call can be eliminated in this case and tri-color sort can be used
+/// instead. https://en.wikipedia.org/wiki/Dutch_national_flag_problem
 fn sort_boolean(
     values: &ArrayRef,
     value_indices: Vec<u32>,
     null_indices: Vec<u32>,
     options: &SortOptions,
     limit: Option<usize>,
-) -> Result<UInt32Array> {
+) -> UInt32Array {
     let values = values
         .as_any()
         .downcast_ref::<BooleanArray>()
         .expect("Unable to downcast to boolean array");
     let descending = options.descending;
 
-    // create tuples that are used for sorting
-    let mut valids = value_indices
-        .into_iter()
-        .map(|index| (index, values.value(index as usize)))
-        .collect::<Vec<(u32, bool)>>();
-
-    let mut nulls = null_indices;
-
-    let valids_len = valids.len();
-    let nulls_len = nulls.len();
+    let valids_len = value_indices.len();
+    let nulls_len = null_indices.len();
 
     let mut len = values.len();
-    if let Some(limit) = limit {
+    let valids = if let Some(limit) = limit {
         len = limit.min(len);
-    }
-    if !descending {
-        sort_by(&mut valids, len.saturating_sub(nulls_len), |a, b| {
-            cmp(a.1, b.1)
-        });
+        // create tuples that are used for sorting
+        let mut valids = value_indices
+            .into_iter()
+            .map(|index| (index, values.value(index as usize)))
+            .collect::<Vec<(u32, bool)>>();
+        if !descending {
+            sort_by(&mut valids, len.saturating_sub(nulls_len), |a, b| {
+                cmp(a.1, b.1)
+            });
+        } else {
+            sort_by(&mut valids, len.saturating_sub(nulls_len), |a, b| {
+                cmp(a.1, b.1).reverse()
+            });
+        }
+        valids
     } else {
-        sort_by(&mut valids, len.saturating_sub(nulls_len), |a, b| {
-            cmp(a.1, b.1).reverse()
-        });
-        // reverse to keep a stable ordering
+        // when limit is not present, we have a better way than sorting: we can just partition
+        // the vec into [false..., true...] or [true..., false...] when descending
+        // TODO when https://github.com/rust-lang/rust/issues/62543 is merged we can use partition_in_place
+        let (mut a, b): (Vec<(u32, bool)>, Vec<(u32, bool)>) = value_indices
+            .into_iter()
+            .map(|index| (index, values.value(index as usize)))
+            .partition(|(_, value)| *value == descending);
+        a.extend(b);
+        a
+    };
+
+    let mut nulls = null_indices;
+    if descending {
         nulls.reverse();
     }
 
@@ -472,11 +498,10 @@ fn sort_boolean(
         vec![],
     );
 
-    Ok(UInt32Array::from(result_data))
+    UInt32Array::from(result_data)
 }
 
 /// Sort primitive values
-#[allow(clippy::unnecessary_wraps)]
 fn sort_primitive<T, F>(
     values: &ArrayRef,
     value_indices: Vec<u32>,
@@ -484,7 +509,7 @@ fn sort_primitive<T, F>(
     cmp: F,
     options: &SortOptions,
     limit: Option<usize>,
-) -> Result<UInt32Array>
+) -> UInt32Array
 where
     T: ArrowPrimitiveType,
     T::Native: std::cmp::PartialOrd,
@@ -552,7 +577,7 @@ where
         vec![],
     );
 
-    Ok(UInt32Array::from(result_data))
+    UInt32Array::from(result_data)
 }
 
 // insert valid and nan values in the correct order depending on the descending flag
@@ -577,7 +602,7 @@ fn sort_string<Offset: StringOffsetSizeTrait>(
     null_indices: Vec<u32>,
     options: &SortOptions,
     limit: Option<usize>,
-) -> Result<UInt32Array> {
+) -> UInt32Array {
     let values = values
         .as_any()
         .downcast_ref::<GenericStringArray<Offset>>()
@@ -600,7 +625,7 @@ fn sort_string_dictionary<T: ArrowDictionaryKeyType>(
     null_indices: Vec<u32>,
     options: &SortOptions,
     limit: Option<usize>,
-) -> Result<UInt32Array> {
+) -> UInt32Array {
     let values: &DictionaryArray<T> = as_dictionary_array::<T>(values);
 
     let keys: &PrimitiveArray<T> = values.keys();
@@ -623,7 +648,6 @@ fn sort_string_dictionary<T: ArrowDictionaryKeyType>(
 
 /// shared implementation between dictionary encoded and plain string arrays
 #[inline]
-#[allow(clippy::unnecessary_wraps)]
 fn sort_string_helper<'a, A: Array, F>(
     values: &'a A,
     value_indices: Vec<u32>,
@@ -631,7 +655,7 @@ fn sort_string_helper<'a, A: Array, F>(
     options: &SortOptions,
     limit: Option<usize>,
     value_fn: F,
-) -> Result<UInt32Array>
+) -> UInt32Array
 where
     F: Fn(&'a A, u32) -> &str,
 {
@@ -664,23 +688,22 @@ where
     if options.nulls_first {
         nulls.append(&mut valid_indices);
         nulls.truncate(len);
-        return Ok(UInt32Array::from(nulls));
+        UInt32Array::from(nulls)
+    } else {
+        // no need to sort nulls as they are in the correct order already
+        valid_indices.append(&mut nulls);
+        valid_indices.truncate(len);
+        UInt32Array::from(valid_indices)
     }
-
-    // no need to sort nulls as they are in the correct order already
-    valid_indices.append(&mut nulls);
-    valid_indices.truncate(len);
-    Ok(UInt32Array::from(valid_indices))
 }
 
-#[allow(clippy::unnecessary_wraps)]
 fn sort_list<S, T>(
     values: &ArrayRef,
     value_indices: Vec<u32>,
     mut null_indices: Vec<u32>,
     options: &SortOptions,
     limit: Option<usize>,
-) -> Result<UInt32Array>
+) -> UInt32Array
 where
     S: OffsetSizeTrait,
     T: ArrowPrimitiveType,
@@ -730,12 +753,12 @@ where
     if options.nulls_first {
         null_indices.append(&mut valid_indices);
         null_indices.truncate(len);
-        return Ok(UInt32Array::from(null_indices));
+        UInt32Array::from(null_indices)
+    } else {
+        valid_indices.append(&mut null_indices);
+        valid_indices.truncate(len);
+        UInt32Array::from(valid_indices)
     }
-
-    valid_indices.append(&mut null_indices);
-    valid_indices.truncate(len);
-    Ok(UInt32Array::from(valid_indices))
 }
 
 /// Compare two `Array`s based on the ordering defined in [ord](crate::array::ord).
@@ -953,7 +976,6 @@ mod tests {
     use rand::rngs::StdRng;
     use rand::{Rng, RngCore, SeedableRng};
     use std::convert::TryFrom;
-    use std::iter::FromIterator;
     use std::sync::Arc;
 
     fn test_sort_to_indices_boolean_arrays(
@@ -1052,7 +1074,7 @@ mod tests {
         limit: Option<usize>,
         expected_data: Vec<Option<&str>>,
     ) {
-        let array = DictionaryArray::<T>::from_iter(data.into_iter());
+        let array = data.into_iter().collect::<DictionaryArray<T>>();
         let array_values = array.values().clone();
         let dict = array_values
             .as_any()

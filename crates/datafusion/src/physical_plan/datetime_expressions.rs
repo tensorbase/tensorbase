@@ -25,13 +25,15 @@ use crate::{
 };
 use arrow::{
     array::{Array, ArrayRef, GenericStringArray, PrimitiveArray, StringOffsetSizeTrait},
-    datatypes::{ArrowPrimitiveType, DataType, TimestampNanosecondType, Date16Type},
+    datatypes::{
+        ArrowPrimitiveType, DataType, TimestampMicrosecondType, TimestampMillisecondType,
+        TimestampNanosecondType, TimestampSecondType, Date16Type,
+    },
 };
 use arrow::{
     array::{
-        Date16Array, Date32Array, Date64Array, Timestamp32Array,
-        TimestampMicrosecondArray, TimestampMillisecondArray,
-        TimestampNanosecondArray, TimestampSecondArray,
+        Date32Array, Date64Array, TimestampMicrosecondArray, TimestampMillisecondArray,
+        TimestampNanosecondArray, TimestampSecondArray, Date16Array, Timestamp32Array,
     },
     compute::kernels::temporal,
     datatypes::TimeUnit,
@@ -301,6 +303,33 @@ pub fn to_timestamp(args: &[ColumnarValue]) -> Result<ColumnarValue> {
         args,
         string_to_timestamp_nanos,
         "to_timestamp",
+    )
+}
+
+/// to_timestamp_millis SQL function
+pub fn to_timestamp_millis(args: &[ColumnarValue]) -> Result<ColumnarValue> {
+    handle::<TimestampMillisecondType, _, TimestampMillisecondType>(
+        args,
+        |s| string_to_timestamp_nanos(s).map(|n| n / 1_000_000),
+        "to_timestamp_millis",
+    )
+}
+
+/// to_timestamp_micros SQL function
+pub fn to_timestamp_micros(args: &[ColumnarValue]) -> Result<ColumnarValue> {
+    handle::<TimestampMicrosecondType, _, TimestampMicrosecondType>(
+        args,
+        |s| string_to_timestamp_nanos(s).map(|n| n / 1_000),
+        "to_timestamp_micros",
+    )
+}
+
+/// to_timestamp_seconds SQL function
+pub fn to_timestamp_seconds(args: &[ColumnarValue]) -> Result<ColumnarValue> {
+    handle::<TimestampSecondType, _, TimestampSecondType>(
+        args,
+        |s| string_to_timestamp_nanos(s).map(|n| n / 1_000_000_000),
+        "to_timestamp_seconds",
     )
 }
 

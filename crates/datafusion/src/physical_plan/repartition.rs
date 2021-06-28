@@ -38,7 +38,7 @@ use futures::stream::Stream;
 use futures::StreamExt;
 use hashbrown::HashMap;
 use tokio::sync::{
-    mpsc::{UnboundedReceiver, UnboundedSender},
+    mpsc::{self, UnboundedReceiver, UnboundedSender},
     Mutex,
 };
 use tokio::task::JoinHandle;
@@ -60,12 +60,40 @@ pub struct RepartitionExec {
             HashMap<usize, (UnboundedSender<MaybeBatch>, UnboundedReceiver<MaybeBatch>)>,
         >,
     >,
+
+    /// Execution metrics
+    metrics: RepartitionMetrics,
+}
+
+#[derive(Debug, Clone)]
+struct RepartitionMetrics {
     /// Time in nanos to execute child operator and fetch batches
-    fetch_time_nanos: Arc<SQLMetric>,
+    fetch_nanos: Arc<SQLMetric>,
     /// Time in nanos to perform repartitioning
-    repart_time_nanos: Arc<SQLMetric>,
+    repart_nanos: Arc<SQLMetric>,
     /// Time in nanos for sending resulting batches to channels
-    send_time_nanos: Arc<SQLMetric>,
+    send_nanos: Arc<SQLMetric>,
+}
+
+impl RepartitionMetrics {
+    fn new() -> Self {
+        Self {
+            fetch_nanos: SQLMetric::time_nanos(),
+            repart_nanos: SQLMetric::time_nanos(),
+            send_nanos: SQLMetric::time_nanos(),
+        }
+    }
+    /// Convert into the external metrics form
+    fn to_hashmap(&self) -> HashMap<String, SQLMetric> {
+        let mut metrics = HashMap::new();
+        metrics.insert("fetchTime".to_owned(), self.fetch_nanos.as_ref().clone());
+        metrics.insert(
+            "repartitionTime".to_owned(),
+            self.repart_nanos.as_ref().clone(),
+        );
+        metrics.insert("sendTime".to_owned(), self.send_nanos.as_ref().clone());
+        metrics
+    }
 }
 
 impl RepartitionExec {
@@ -132,9 +160,8 @@ impl ExecutionPlan for RepartitionExec {
                 // being read yet. This may cause high memory usage if the next operator is
                 // reading output partitions in order rather than concurrently. One workaround
                 // for this would be to add spill-to-disk capabilities.
-                let (sender, receiver) = tokio::sync::mpsc::unbounded_channel::<
-                    Option<ArrowResult<RecordBatch>>,
-                >();
+                let (sender, receiver) =
+                    mpsc::unbounded_channel::<Option<ArrowResult<RecordBatch>>>();
                 channels.insert(partition, (sender, receiver));
             }
             // Use fixed random state
@@ -142,122 +169,24 @@ impl ExecutionPlan for RepartitionExec {
 
             // launch one async task per *input* partition
             for i in 0..num_input_partitions {
-                let random_state = random.clone();
-                let input = self.input.clone();
-                let fetch_time = self.fetch_time_nanos.clone();
-                let repart_time = self.repart_time_nanos.clone();
-                let send_time = self.send_time_nanos.clone();
                 let txs: HashMap<_, _> = channels
                     .iter()
                     .map(|(partition, (tx, _rx))| (*partition, tx.clone()))
                     .collect();
-                let partitioning = self.partitioning.clone();
-                let mut txs_captured = txs.clone();
-                let input_task: JoinHandle<Result<()>> = tokio::spawn(async move {
-                    // execute the child operator
-                    let now = Instant::now();
-                    let mut stream = input.execute(i).await?;
-                    fetch_time.add(now.elapsed().as_nanos() as usize);
 
-                    let mut counter = 0;
-                    let hashes_buf = &mut vec![];
-
-                    loop {
-                        // fetch the next batch
-                        let now = Instant::now();
-                        let result = stream.next().await;
-                        fetch_time.add(now.elapsed().as_nanos() as usize);
-
-                        if result.is_none() {
-                            break;
-                        }
-                        let result: ArrowResult<RecordBatch> = result.unwrap();
-
-                        match &partitioning {
-                            Partitioning::RoundRobinBatch(_) => {
-                                let now = Instant::now();
-                                let output_partition = counter % num_output_partitions;
-                                let tx = txs_captured.get_mut(&output_partition).unwrap();
-                                tx.send(Some(result)).map_err(|e| {
-                                    DataFusionError::Execution(e.to_string())
-                                })?;
-                                send_time.add(now.elapsed().as_nanos() as usize);
-                            }
-                            Partitioning::Hash(exprs, _) => {
-                                let now = Instant::now();
-                                let input_batch = result?;
-                                let arrays = exprs
-                                    .iter()
-                                    .map(|expr| {
-                                        Ok(expr
-                                            .evaluate(&input_batch)?
-                                            .into_array(input_batch.num_rows()))
-                                    })
-                                    .collect::<Result<Vec<_>>>()?;
-                                hashes_buf.clear();
-                                hashes_buf.resize(arrays[0].len(), 0);
-                                // Hash arrays and compute buckets based on number of partitions
-                                let hashes =
-                                    create_hashes(&arrays, &random_state, hashes_buf)?;
-                                let mut indices = vec![vec![]; num_output_partitions];
-                                for (index, hash) in hashes.iter().enumerate() {
-                                    indices
-                                        [(*hash % num_output_partitions as u64) as usize]
-                                        .push(index as u64)
-                                }
-                                repart_time.add(now.elapsed().as_nanos() as usize);
-                                for (num_output_partition, partition_indices) in
-                                    indices.into_iter().enumerate()
-                                {
-                                    let now = Instant::now();
-                                    let indices = partition_indices.into();
-                                    // Produce batches based on indices
-                                    let columns = input_batch
-                                        .columns()
-                                        .iter()
-                                        .map(|c| {
-                                            take(c.as_ref(), &indices, None).map_err(
-                                                |e| {
-                                                    DataFusionError::Execution(
-                                                        e.to_string(),
-                                                    )
-                                                },
-                                            )
-                                        })
-                                        .collect::<Result<Vec<Arc<dyn Array>>>>()?;
-                                    let output_batch = RecordBatch::try_new(
-                                        input_batch.schema(),
-                                        columns,
-                                    );
-                                    repart_time.add(now.elapsed().as_nanos() as usize);
-                                    let now = Instant::now();
-                                    let tx = txs_captured
-                                        .get_mut(&num_output_partition)
-                                        .unwrap();
-                                    tx.send(Some(output_batch)).map_err(|e| {
-                                        DataFusionError::Execution(e.to_string())
-                                    })?;
-                                    send_time.add(now.elapsed().as_nanos() as usize);
-                                }
-                            }
-                            other => {
-                                // this should be unreachable as long as the validation logic
-                                // in the constructor is kept up-to-date
-                                return Err(DataFusionError::NotImplemented(format!(
-                                    "Unsupported repartitioning scheme {:?}",
-                                    other
-                                )));
-                            }
-                        }
-                        counter += 1;
-                    }
-
-                    Ok(())
-                });
+                let input_task: JoinHandle<Result<()>> =
+                    tokio::spawn(Self::pull_from_input(
+                        random.clone(),
+                        self.input.clone(),
+                        i,
+                        txs.clone(),
+                        self.partitioning.clone(),
+                        self.metrics.clone(),
+                    ));
 
                 // In a separate task, wait for each input to be done
-                // (and pass along any errors)
-                tokio::spawn(async move { Self::wait_for_task(input_task, txs).await });
+                // (and pass along any errors, including panic!s)
+                tokio::spawn(Self::wait_for_task(input_task, txs));
             }
         }
 
@@ -272,14 +201,7 @@ impl ExecutionPlan for RepartitionExec {
     }
 
     fn metrics(&self) -> HashMap<String, SQLMetric> {
-        let mut metrics = HashMap::new();
-        metrics.insert("fetchTime".to_owned(), (*self.fetch_time_nanos).clone());
-        metrics.insert(
-            "repartitionTime".to_owned(),
-            (*self.repart_time_nanos).clone(),
-        );
-        metrics.insert("sendTime".to_owned(), (*self.send_time_nanos).clone());
-        metrics
+        self.metrics.to_hashmap()
     }
 
     fn fmt_as(
@@ -305,10 +227,124 @@ impl RepartitionExec {
             input,
             partitioning,
             channels: Arc::new(Mutex::new(HashMap::new())),
-            fetch_time_nanos: SQLMetric::time_nanos(),
-            repart_time_nanos: SQLMetric::time_nanos(),
-            send_time_nanos: SQLMetric::time_nanos(),
+            metrics: RepartitionMetrics::new(),
         })
+    }
+
+    /// Pulls data from the specified input plan, feeding it to the
+    /// output partitions based on the desired partitioning
+    ///
+    /// i is the input partition index
+    ///
+    /// txs hold the output sending channels for each output partition
+    async fn pull_from_input(
+        random_state: ahash::RandomState,
+        input: Arc<dyn ExecutionPlan>,
+        i: usize,
+        mut txs: HashMap<usize, UnboundedSender<Option<ArrowResult<RecordBatch>>>>,
+        partitioning: Partitioning,
+        metrics: RepartitionMetrics,
+    ) -> Result<()> {
+        let num_output_partitions = txs.len();
+
+        // execute the child operator
+        let now = Instant::now();
+        let mut stream = input.execute(i).await?;
+        metrics.fetch_nanos.add_elapsed(now);
+
+        let mut counter = 0;
+        let hashes_buf = &mut vec![];
+
+        // While there are still outputs to send to, keep
+        // pulling inputs
+        while !txs.is_empty() {
+            // fetch the next batch
+            let now = Instant::now();
+            let result = stream.next().await;
+            metrics.fetch_nanos.add_elapsed(now);
+
+            // Input is done
+            if result.is_none() {
+                break;
+            }
+            let result: ArrowResult<RecordBatch> = result.unwrap();
+
+            match &partitioning {
+                Partitioning::RoundRobinBatch(_) => {
+                    let now = Instant::now();
+                    let output_partition = counter % num_output_partitions;
+                    // if there is still a receiver, send to it
+                    if let Some(tx) = txs.get_mut(&output_partition) {
+                        if tx.send(Some(result)).is_err() {
+                            // If the other end has hung up, it was an early shutdown (e.g. LIMIT)
+                            txs.remove(&output_partition);
+                        }
+                    }
+                    metrics.send_nanos.add_elapsed(now);
+                }
+                Partitioning::Hash(exprs, _) => {
+                    let now = Instant::now();
+                    let input_batch = result?;
+                    let arrays = exprs
+                        .iter()
+                        .map(|expr| {
+                            Ok(expr
+                                .evaluate(&input_batch)?
+                                .into_array(input_batch.num_rows()))
+                        })
+                        .collect::<Result<Vec<_>>>()?;
+                    hashes_buf.clear();
+                    hashes_buf.resize(arrays[0].len(), 0);
+                    // Hash arrays and compute buckets based on number of partitions
+                    let hashes = create_hashes(&arrays, &random_state, hashes_buf)?;
+                    let mut indices = vec![vec![]; num_output_partitions];
+                    for (index, hash) in hashes.iter().enumerate() {
+                        indices[(*hash % num_output_partitions as u64) as usize]
+                            .push(index as u64)
+                    }
+                    metrics.repart_nanos.add_elapsed(now);
+                    for (num_output_partition, partition_indices) in
+                        indices.into_iter().enumerate()
+                    {
+                        let now = Instant::now();
+                        let indices = partition_indices.into();
+                        // Produce batches based on indices
+                        let columns = input_batch
+                            .columns()
+                            .iter()
+                            .map(|c| {
+                                take(c.as_ref(), &indices, None).map_err(|e| {
+                                    DataFusionError::Execution(e.to_string())
+                                })
+                            })
+                            .collect::<Result<Vec<Arc<dyn Array>>>>()?;
+                        let output_batch =
+                            RecordBatch::try_new(input_batch.schema(), columns);
+                        metrics.repart_nanos.add_elapsed(now);
+                        let now = Instant::now();
+                        // if there is still a receiver, send to it
+                        if let Some(tx) = txs.get_mut(&num_output_partition) {
+                            if tx.send(Some(output_batch)).is_err() {
+                                // If the other end has hung up, it was an early shutdown (e.g. LIMIT)
+                                txs.remove(&num_output_partition);
+                            }
+                        }
+                        metrics.send_nanos.add_elapsed(now);
+                    }
+                }
+                other => {
+                    // this should be unreachable as long as the validation logic
+                    // in the constructor is kept up-to-date
+                    return Err(DataFusionError::NotImplemented(format!(
+                        "Unsupported repartitioning scheme {:?}",
+                        other
+                    )));
+                }
+            }
+            counter += 1;
+        }
+
+        Ok(())
     }
 
     /// Waits for `input_task` which is consuming one of the inputs to
@@ -399,8 +435,8 @@ mod tests {
     use super::*;
     use crate::{
         assert_batches_sorted_eq,
-        physical_plan::memory::MemoryExec,
-        test::exec::{ErrorExec, MockExec},
+        physical_plan::{expressions::col, memory::MemoryExec},
+        test::exec::{BarrierExec, ErrorExec, MockExec},
     };
     use arrow::datatypes::{DataType, Field, Schema};
     use arrow::record_batch::RecordBatch;
@@ -477,12 +513,7 @@ mod tests {
         let output_partitions = repartition(
             &schema,
             partitions,
-            Partitioning::Hash(
-                vec![Arc::new(crate::physical_plan::expressions::Column::new(
-                    &"c0",
-                ))],
-                8,
-            ),
+            Partitioning::Hash(vec![col("c0", &schema)?], 8),
         )
         .await?;
 
@@ -697,5 +728,107 @@ mod tests {
             .unwrap();
 
         assert_batches_sorted_eq!(&expected, &batches);
+    }
+
+    #[tokio::test]
+    async fn repartition_with_dropping_output_stream() {
+        #[derive(Debug)]
+        struct Case<'a> {
+            partitioning: Partitioning,
+            expected: Vec<&'a str>,
+        }
+
+        let cases = vec![
+            Case {
+                partitioning: Partitioning::RoundRobinBatch(2),
+                expected: vec![
+                    "+------------------+",
+                    "| my_awesome_field |",
+                    "+------------------+",
+                    "| baz              |",
+                    "| frob             |",
+                    "| gaz              |",
+                    "| grob             |",
+                    "+------------------+",
+                ],
+            },
+            Case {
+                partitioning: Partitioning::Hash(
+                    vec![Arc::new(crate::physical_plan::expressions::Column::new(
+                        "my_awesome_field",
+                        0,
+                    ))],
+                    2,
+                ),
+                expected: vec![
+                    "+------------------+",
+                    "| my_awesome_field |",
+                    "+------------------+",
+                    "| frob             |",
+                    "+------------------+",
+                ],
+            },
+        ];
+
+        for case in cases {
+            println!("Running case {:?}", case.partitioning);
+
+            // The barrier exec waits to be pinged
+            // requires the input to wait at least once)
+            let input = Arc::new(make_barrier_exec());
+
+            // partition into two output streams
+            let exec =
+                RepartitionExec::try_new(input.clone(), case.partitioning).unwrap();
+
+            let output_stream0 = exec.execute(0).await.unwrap();
+            let output_stream1 = exec.execute(1).await.unwrap();
+
+            // now, purposely drop output stream 0
+            // *before* any outputs are produced
+            std::mem::drop(output_stream0);
+
+            // Now, start sending input
+            input.wait().await;
+
+            // output stream 1 should *not* error and have one of the input batches
+            let batches = crate::physical_plan::common::collect(output_stream1)
+                .await
+                .unwrap();
+
+            assert_batches_sorted_eq!(&case.expected, &batches);
+        }
+    }
+
+    /// Create a BarrierExec that returns two partitions of two batches each
+    fn make_barrier_exec() -> BarrierExec {
+        let batch1 = RecordBatch::try_from_iter(vec![(
+            "my_awesome_field",
+            Arc::new(StringArray::from(vec!["foo", "bar"])) as ArrayRef,
+        )])
+        .unwrap();
+
+        let batch2 = RecordBatch::try_from_iter(vec![(
+            "my_awesome_field",
+            Arc::new(StringArray::from(vec!["frob", "baz"])) as ArrayRef,
+        )])
+        .unwrap();
+
+        let batch3 = RecordBatch::try_from_iter(vec![(
+            "my_awesome_field",
+            Arc::new(StringArray::from(vec!["goo", "gar"])) as ArrayRef,
+        )])
+        .unwrap();
+
+        let batch4 = RecordBatch::try_from_iter(vec![(
+            "my_awesome_field",
+            Arc::new(StringArray::from(vec!["grob", "gaz"])) as ArrayRef,
+        )])
+        .unwrap();
+
+        // The barrier exec waits to be pinged
+        // requires the input to wait at least once)
+        let schema = batch1.schema();
+        BarrierExec::new(vec![vec![batch1, batch2], vec![batch3, batch4]], schema)
     }
 }

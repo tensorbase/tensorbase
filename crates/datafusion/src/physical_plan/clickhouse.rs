@@ -1,6 +1,6 @@
 //! Implement ClickHouse compatible builtin functions
 //!
-//! Tests are located at `crates/datafusion_tests`.
+//! Tests are located at `datafusion_tests`.
 
 use super::{
     ColumnarValue, PhysicalExpr,

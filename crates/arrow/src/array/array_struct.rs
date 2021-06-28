@@ -362,28 +362,8 @@ mod tests {
             .add_buffer(Buffer::from(&[1, 2, 0, 4].to_byte_slice()))
             .build();
 
-        assert_eq!(&expected_string_data, arr.column(0).data());
-
-        // TODO: implement equality for ArrayData
-        assert_eq!(expected_int_data.len(), arr.column(1).data().len());
-        assert_eq!(
-            expected_int_data.null_count(),
-            arr.column(1).data().null_count()
-        );
-        assert_eq!(
-            expected_int_data.null_bitmap(),
-            arr.column(1).data().null_bitmap()
-        );
-        let expected_value_buf = expected_int_data.buffers()[0].clone();
-        let actual_value_buf = arr.column(1).data().buffers()[0].clone();
-        for i in 0..expected_int_data.len() {
-            if !expected_int_data.is_null(i) {
-                assert_eq!(
-                    expected_value_buf.as_slice()[i * 4..(i + 1) * 4],
-                    actual_value_buf.as_slice()[i * 4..(i + 1) * 4]
-                );
-            }
-        }
+        assert_eq!(expected_string_data, *arr.column(0).data());
+        assert_eq!(expected_int_data, *arr.column(1).data());
     }
 
     #[test]
@@ -465,12 +445,12 @@ mod tests {
         assert_eq!(5, c0.len());
         assert_eq!(3, c0.null_count());
         assert!(c0.is_valid(0));
-        assert_eq!(false, c0.value(0));
+        assert!(!c0.value(0));
         assert!(c0.is_null(1));
         assert!(c0.is_null(2));
         assert!(c0.is_null(3));
         assert!(c0.is_valid(4));
-        assert_eq!(true, c0.value(4));
+        assert!(c0.value(4));
 
         let c1 = struct_array.column(1);
         let c1 = c1.as_any().downcast_ref::<Int32Array>().unwrap();
@@ -500,7 +480,7 @@ mod tests {
         assert!(sliced_c0.is_null(0));
         assert!(sliced_c0.is_null(1));
         assert!(sliced_c0.is_valid(2));
-        assert_eq!(true, sliced_c0.value(2));
+        assert!(sliced_c0.value(2));
 
         let sliced_c1 = sliced_array.column(1);
         let sliced_c1 = sliced_c1.as_any().downcast_ref::<Int32Array>().unwrap();

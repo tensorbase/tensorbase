@@ -591,7 +591,7 @@ where
 
                 let bitmask = T::mask_to_u64(&simd_result);
                 let bytes = bitmask.to_le_bytes();
-                &result_slice[0..lanes / 8].copy_from_slice(&bytes[0..lanes / 8]);
+                result_slice[0..lanes / 8].copy_from_slice(&bytes[0..lanes / 8]);
 
                 &mut result_slice[lanes / 8..]
             },
@@ -669,7 +669,7 @@ where
 
             let bitmask = T::mask_to_u64(&simd_result);
             let bytes = bitmask.to_le_bytes();
-            &result_slice[0..lanes / 8].copy_from_slice(&bytes[0..lanes / 8]);
+            result_slice[0..lanes / 8].copy_from_slice(&bytes[0..lanes / 8]);
 
             &mut result_slice[lanes / 8..]
         },
@@ -1043,11 +1043,11 @@ mod tests {
         let b_slice = b.slice(5, 5);
         let c = b_slice.as_any().downcast_ref().unwrap();
         let d = eq(&c, &a).unwrap();
-        assert_eq!(true, d.value(0));
-        assert_eq!(true, d.value(1));
-        assert_eq!(true, d.value(2));
-        assert_eq!(false, d.value(3));
-        assert_eq!(true, d.value(4));
+        assert!(d.value(0));
+        assert!(d.value(1));
+        assert!(d.value(2));
+        assert!(!d.value(3));
+        assert!(d.value(4));
     }
 
     #[test]
