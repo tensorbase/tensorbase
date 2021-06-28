@@ -182,7 +182,9 @@ pub fn parse_show_create_table(
     }
 }
 
-pub fn parse_desc_table(pair: Pair<Rule>) -> LangResult<(Option<String>, String)> {
+pub fn parse_desc_table(
+    pair: Pair<Rule>,
+) -> LangResult<(Option<String>, String)> {
     let p = pair.into_inner().next().ok_or(LangError::DatabaseParsingError)?;
     match p.as_rule() {
         Rule::qualified_table_name => {
@@ -198,10 +200,12 @@ pub fn parse_desc_table(pair: Pair<Rule>) -> LangResult<(Option<String>, String)
     }
 }
 
+#[derive(Debug, Clone)]
 pub enum InsertFormat {
     InlineValues,
     Inline,
     CSV,
+    Select(String),
 }
 
 pub struct InsertIntoContext {
@@ -230,11 +234,16 @@ impl InsertIntoContext {
             Rule::format_name => {
                 self.format = InsertFormat::CSV;
             }
+            Rule::select => {
+                self.format =
+                    InsertFormat::Select(pair.as_str().trim().to_owned());
+            }
             _ => {}
         }
         for p in pair.clone().into_inner() {
             self.parse(p)?;
         }
+
         //post
         match r {
             // database_name ~ ".")? ~ table_name
@@ -242,7 +251,9 @@ impl InsertIntoContext {
                 self.tab.dbname = pair.as_str().trim().to_owned();
             }
             Rule::table_name => {
-                self.tab.name = pair.as_str().trim().to_owned();
+                if !matches!(self.format, InsertFormat::Select(_)) {
+                    self.tab.name = pair.as_str().trim().to_owned();
+                }
             }
             Rule::column_name => {
                 // let col = self
@@ -1162,7 +1173,7 @@ CREATE TABLE test (col Int32)";
 
             assert_parse!(c, select);
         }
-        
+
         #[test]
         fn test_query() {
             assert_parse!("SELECT 1", cmd);

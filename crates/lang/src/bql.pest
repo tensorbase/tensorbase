@@ -80,8 +80,9 @@ insert_into = {
     ^"insert" ~ ^"into" ~ 
     qualified_table_name ~  
     column_list? ~ 
-    format_clause  
-}
+    format_clause? ~
+    select?
+ }
 column_list = { "(" ~ column_name ~ ( "," ~ column_name )* ~ ")" }
 format_clause = {
     ^"values" ~ rows* |

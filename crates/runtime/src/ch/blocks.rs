@@ -434,7 +434,7 @@ impl TryFrom<RecordBatch> for Block {
                 &col.data().buffers()[0]
             };
             // log::debug!("cd.get_array_memory_size(): {}", cd.get_array_memory_size());
-            let len_in_bytes = if matches!(btype, BqlType::String) {
+            let (len_in_bytes, offsets) = if matches!(btype, BqlType::String) {
                 let arr = col
                     .as_any()
                     .downcast_ref::<array::LargeStringArray>()
@@ -444,9 +444,15 @@ impl TryFrom<RecordBatch> for Block {
                     .last()
                     .copied()
                     .ok_or(BaseRtError::FailToUnwrapOpt)?;
-                ofs as usize
+
+                (
+                    ofs as usize,
+                    Some(
+                        arr.value_offsets().iter().map(|o| *o as u32).collect(),
+                    ),
+                )
             } else {
-                btype.size_in_usize()? * col.len()
+                (btype.size_in_usize()? * col.len(), None)
             };
             let data = unsafe {
                 std::slice::from_raw_parts(buf.as_ptr(), len_in_bytes).to_vec()
@@ -462,7 +468,7 @@ impl TryFrom<RecordBatch> for Block {
                     // data: Vec::<u8>::with_capacity(qclen_bytes),
                     data,
                     null_map: None,
-                    offset_map: None,
+                    offset_map: offsets,
                     // pub lc_dict_size: usize,
                     lc_dict_data: None,
                 },

@@ -81,6 +81,63 @@ async fn tests_integ_basic_test_insert() -> errors::Result<()> {
     Ok(())
 }
 
+#[tokio::test]
+async fn tests_integ_basic_test_insert_select() -> errors::Result<()> {
+    let pool = get_pool();
+    let mut conn = pool.connection().await?;
+    conn.execute("create database if not exists test_insert_select_db").await?;
+    conn.execute("use test_insert_select_db").await?;
+    conn.execute("drop table if exists test_t1").await?;
+    conn.execute("drop table if exists test_t2").await?;
+    conn.execute("create table test_t1(a UInt64, b UInt8)").await?;
+    conn.execute("create table test_t2(a UInt64, b UInt8)").await?;
+    conn.execute("insert into test_t1 values(1, 3), (2, 4), (3, 5)").await?;
+    conn.execute("insert into test_t2 select * from test_t1").await?;
+    let mut query_result = conn.query("select * from test_t2 order by a").await?;
+
+    while let Some(block) = query_result.next().await? {
+	let mut i = 1;
+        for row in block.iter_rows() {
+	    assert_eq!(row.value::<u64>(0)?.unwrap(), i);
+	    i += 1;
+        }
+    }
+
+    let mut conn = pool.connection().await?;
+    conn.execute("use test_insert_select_db").await?;
+    conn.execute("drop table if exists test_t3").await?;
+    conn.execute("drop table if exists test_t4").await?;
+    conn.execute("create table test_t3(a String)").await?;
+    conn.execute("create table test_t4(a String)").await?;
+    let block = { Block::new("test_t3").add("a", vec!["aelvbs a1 233 🀄️",  "b^&#*-['&**%%%", "c;;;;\n\t"]) };
+    let mut insert = conn.insert(&block).await?;
+    insert.commit().await?;
+
+    let mut conn = pool.connection().await?;
+    conn.execute("use test_insert_select_db").await?;
+    conn.execute("insert into test_t4 select * from test_t3").await?;
+    conn.execute("insert into test_t4(a) select a from test_t3 order by a limit 1").await?;
+    let mut query_result = conn.query("select count(*) from test_t4").await?;
+
+    while let Some(block) = query_result.next().await? {
+        for row in block.iter_rows() {
+	    assert_eq!(row.value::<u64>(0)?.unwrap(), 4);
+        }
+    }
+
+    let mut conn = pool.connection().await?;
+    conn.execute("use test_insert_select_db").await?;
+    let mut query_result = conn.query("select * from test_t4 order by a limit 1").await?;
+
+    while let Some(block) = query_result.next().await? {
+        for row in block.iter_rows() {
+	    assert_eq!(row.value::<&str>(0)?.unwrap(), "c;;;;\n\t");
+        }
+    }
+
+    Ok(())
+}
+
 fn assert_results(row: Row, count_res: i64) -> errors::Result<()> {
     let rd = row.column_descr(0).unwrap();
     let styp = rd.sqltype();

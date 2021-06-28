@@ -4,14 +4,13 @@ use std::str;
 
 use crate::mgmt::{BaseCommandKind, BMS, WRITE};
 
+use super::protocol::{StageKind, LZ4_COMPRESSION_METHOD};
 use crate::ch::blocks::{Block, EMPTY_CLIENT_BLK_BYTES};
 use crate::ch::codecs::{BytesExt, CHMsgReadAware, CHMsgWriteAware};
 use crate::ch::protocol::{
     ClientCodes, ClientInfo, ConnCtx, Interface, QueryKind, ServerCodes,
 };
 use crate::errs::{BaseRtError, BaseRtResult};
-
-use super::protocol::{StageKind, LZ4_COMPRESSION_METHOD};
 
 const DBMS_NAME: &'static str = "TensorBase";
 //FIXME to include from path
@@ -361,6 +360,30 @@ fn response_query(
         Ok(BaseCommandKind::InsertFormatInlineValues(mut blk, qtn, tid)) => {
             let write = WRITE.get().unwrap();
             write(&mut blk, qtn.as_str(), tid)?;
+            Ok(())
+        }
+        Ok(BaseCommandKind::InsertFormatSelectValue(
+            blks,
+            qtn,
+            tid,
+        )) => {
+            let write = WRITE.get().unwrap();
+
+            log::debug!("subquery blks {:?}", blks);
+            for mut blk in blks {
+                write(&mut blk, qtn.as_str(), tid)?;
+            }
+
+            // if compression == 1 {
+            //     let _bs = cctx.get_raw_blk_resp();
+            //     header.encode_to(wb, Some(_bs))?;
+            // } else {
+            //     header.encode_to(wb, None)?;
+            // }
+
+            // cctx.current_tab_ins = qtn.clone();
+            // cctx.current_tid_ins = tid;
+
             Ok(())
         }
         Ok(
