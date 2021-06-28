@@ -1,11 +1,14 @@
-use base::{codec::encode_ascii_bytes_vec_short, datetimes::parse_to_epoch, mem::SyncPointer, strings::s};
+use base::{
+    codec::encode_ascii_bytes_vec_short, datetimes::parse_to_epoch,
+    mem::SyncPointer, strings::s,
+};
 use bytes::BytesMut;
 use chrono::{Local, Offset, TimeZone};
 use chrono_tz::{OffsetComponents, OffsetName, TZ_VARIANTS};
 use dashmap::DashMap;
 use lang::parse::{
-    parse_command, parse_create_database, parse_create_table,
-    parse_desc_table, parse_drop_database, parse_drop_table, parse_insert_into,
+    parse_command, parse_create_database, parse_create_table, parse_desc_table,
+    parse_drop_database, parse_drop_table, parse_insert_into,
     parse_optimize_table, parse_show_create_table, seek_to_sub_cmd, Pair, Rule,
 };
 use lightjit::jit;
@@ -78,11 +81,9 @@ impl std::hash::BuildHasher for BuildPtkExprsHasher {
 
 pub static BMS: SyncLazy<BaseMgmtSys> = SyncLazy::new(|| {
     let args: Vec<String> = match env::var("BASE_DBG_CONF_OVERRIDE") {
-        Ok(conf_path) => vec![
-            "target/debug/server".to_string(),
-            "-c".to_string(),
-            conf_path,
-        ],
+        Ok(conf_path) => {
+            vec!["target/debug/server".to_string(), "-c".to_string(), conf_path]
+        }
         _ => env::args().collect(),
     };
     // log::debug!("args: {:?}", args);
@@ -159,6 +160,7 @@ pub enum BaseCommandKind {
     InsertFormatInline(Block, String, Id),
     InsertFormatInlineValues(Block, String, Id),
     InsertFormatCSV(Block, String, Id),
+    InsertFormatSelectValue(Vec<Block>, String, Id),
     Optimize,
 }
 
@@ -359,10 +361,7 @@ impl<'a> BaseMgmtSys<'a> {
             .map_err(|e| BaseRtError::WrappingMetaError(e))?;
         let mut blk = Block::default();
         blk.nrows = bc.size;
-        blk.columns.push(Column {
-            name: b"name".to_vec(),
-            data: bc,
-        });
+        blk.columns.push(Column { name: b"name".to_vec(), data: bc });
         blk.ncols = blk.columns.len();
 
         Ok(blk)
@@ -375,10 +374,7 @@ impl<'a> BaseMgmtSys<'a> {
             .map_err(|e| BaseRtError::WrappingMetaError(e))?;
         let mut blk = Block::default();
         blk.nrows = bc.size;
-        blk.columns.push(Column {
-            name: b"name".to_vec(),
-            data: bc,
-        });
+        blk.columns.push(Column { name: b"name".to_vec(), data: bc });
         blk.ncols = blk.columns.len();
 
         Ok(blk)
@@ -579,8 +575,9 @@ impl<'a> BaseMgmtSys<'a> {
     pub fn command_insert_into(
         &self,
         p: Pair<Rule>,
-        current_db: &str,
+        cctx: &mut ConnCtx,
     ) -> BaseRtResult<BaseCommandKind> {
+        let current_db = &cctx.current_db;
         let insert_info = parse_insert_into(p)
             .map_err(|e| BaseRtError::WrappingLangError(e))?;
         let tab = insert_info.tab;
@@ -591,8 +588,8 @@ impl<'a> BaseMgmtSys<'a> {
         let tn = tab.name.as_str();
         let qtn = [dbn, tn].join(".");
         let tid = ms.tid_by_qname(&qtn).ok_or(BaseRtError::TableNotExist)?;
+        let mut blk = Default::default();
 
-        let mut blk: Block = Default::default();
         match insert_info.values {
             None => {
                 command_insert_into_gen_header(
@@ -600,7 +597,6 @@ impl<'a> BaseMgmtSys<'a> {
                 )?;
             }
             Some(vt) => {
-                // println!("vt: {:?}", vt);
                 command_insert_into_gen_block(
                     &tab,
                     &qtn,
@@ -625,6 +621,31 @@ impl<'a> BaseMgmtSys<'a> {
                 //FIXME
                 Ok(BaseCommandKind::InsertFormatInlineValues(blk, qtn, tid))
             }
+            lang::parse::InsertFormat::Select(ref select_stmt) => self
+                .command_insert_into_select(cctx, select_stmt, qtn, tid),
+        }
+    }
+
+    fn command_insert_into_select(
+        &self,
+        cctx: &mut ConnCtx,
+        select_stmt: &str,
+        qtn: String,
+        tid: Id,
+    ) -> BaseRtResult<BaseCommandKind> {
+        let query_id = &cctx.query_id;
+        let timer = Instant::now();
+        let p = BaseMgmtSys::parse_cmd_as_pair(select_stmt)?;
+
+        if let BaseCommandKind::Query(blks) =
+            self.command_query(p, &cctx.current_db, query_id)?
+        {
+            log::debug!("process subquery: {} in {:?}", query_id, timer.elapsed());
+            return Ok(BaseCommandKind::InsertFormatSelectValue(
+                blks, qtn, tid,
+            ));
+        } else {
+            unreachable!()
         }
     }
 
@@ -739,10 +760,8 @@ impl<'a> BaseMgmtSys<'a> {
 
     pub fn command_use_db(&self, p: Pair<Rule>) -> BaseRtResult<String> {
         //use_db > database_name > id
-        let p = p
-            .into_inner()
-            .next()
-            .ok_or(BaseRtError::CommandParsingError)?;
+        let p =
+            p.into_inner().next().ok_or(BaseRtError::CommandParsingError)?;
         let dbname = p.as_str().trim().to_owned();
         let ms = &self.meta_store;
         let id_opt = ms.dbid_by_name(&dbname);
@@ -847,9 +866,9 @@ impl<'a> BaseMgmtSys<'a> {
                 let blk = self.command_desc_table(p, &cctx.current_db)?;
                 Ok(BaseCommandKind::Query(vec![blk]))
             }
-            Rule::create_database => self
-                .command_create_database(p)
-                .map(|e| BaseCommandKind::Create),
+            Rule::create_database => {
+                self.command_create_database(p).map(|e| BaseCommandKind::Create)
+            }
             Rule::create_table => self
                 .command_create_table(p, &cctx.current_db, cmds.as_str())
                 .map(|e| BaseCommandKind::Create),
@@ -871,7 +890,7 @@ impl<'a> BaseMgmtSys<'a> {
                 return self.command_optimize_table(p, &cctx.current_db);
             }
             Rule::insert_into => {
-                return self.command_insert_into(p, &cctx.current_db);
+                return self.command_insert_into(p, cctx);
             }
             Rule::query => {
                 let query_id = &cctx.query_id;
