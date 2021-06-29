@@ -52,6 +52,7 @@ use sqlparser::ast::{
 use sqlparser::ast::{ColumnDef as SQLColumnDef, ColumnOption};
 use sqlparser::ast::{OrderByExpr, Statement};
 use sqlparser::parser::ParserError::ParserError;
+use sqlparser::ast::Ident as AstIdent;
 
 use super::{
     parser::DFParser,
@@ -1632,10 +1633,40 @@ pub fn convert_data_type(sql: &SQLDataType) -> Result<DataType> {
         SQLDataType::Timestamp => Ok(DataType::Timestamp(TimeUnit::Nanosecond, None)),
         //SQLDataType::Date => Ok(DataType::Date32),
         SQLDataType::Date => Ok(DataType::Date16),
+        SQLDataType::Custom(_) => convert_custom_data_type(sql),
         other => Err(DataFusionError::NotImplemented(format!(
             "Unsupported SQL type {:?}",
             other
         ))),
+    }
+}
+
+/// Convert custom SQL data type to relational representation of data type
+pub fn convert_custom_data_type(sql: &SQLDataType) -> Result<DataType> {
+    match sql {
+	SQLDataType::Custom(ObjectName(idents)) => {
+	    if idents.len() != 1 {
+		return Err(DataFusionError::NotImplemented(format!(
+		    "Unsupported custom SQL type {:?}", idents
+		)))
+	    }
+	    let AstIdent{value, quote_style: _} = &idents[0];
+	    match value.as_str() {
+		"Int16" => Ok(DataType::Int16),
+		"Int32" => Ok(DataType::Int32),
+		"Int64" => Ok(DataType::Int64),
+		"Float64" => Ok(DataType::Float64),
+		data_type => {
+		    return Err(DataFusionError::NotImplemented(format!(
+			"Unsupported custom SQL type {:?}", data_type
+		    )));
+		}
+	    }
+	},
+        other => Err(DataFusionError::NotImplemented(format!(
+            "Unsupported SQL type {:?}",
+            other
+        )))
     }
 }
 
