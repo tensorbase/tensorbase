@@ -173,7 +173,7 @@ fn gen_part_idxs<T: 'static + Sized + Copy>(
 ) -> BaseRtResult<HashMap<u64, Vec<(u32, u32)>, BuildBaseHasher>> {
     let mut parts =
         HashMap::<u64, Vec<(u32, u32)>, BuildBaseHasher>::with_hasher(BuildBaseHasher); //assumed blk dix < 4G
-    // let siz_typ_ptk = mem::size_of::<T>();
+                                                                                        // let siz_typ_ptk = mem::size_of::<T>();
     let ptk_expr_fn = unsafe { mem::transmute::<_, fn(T) -> u64>(ptk_expr_fn_ptr) };
     let is_datetime_typ = matches!(ctyp_ptk, BqlType::DateTime);
     let tz_ofs = BMS.timezone_sys_offset as i64;
@@ -714,7 +714,6 @@ mod unit_tests {
               }
           }
         }
-
 
         println!("start to seq part ...");
 

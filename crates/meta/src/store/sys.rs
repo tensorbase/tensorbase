@@ -671,7 +671,6 @@ impl MetaStore {
         }
     }
 
-
     pub fn dbid_by_name<T: AsRef<str>>(&self, name: T) -> Option<Id> {
         self.id(name)
     }
@@ -924,7 +923,6 @@ mod unit_tests {
             println!("v: {:?}", ci);
             assert!((cid - 2) as u32 == ci.ordinal);
         }
-
 
         println!("to iter all TabInfos...");
         let res = ms.tree_tabs.iter();

@@ -3,9 +3,9 @@ use std::{lazy::SyncLazy, sync::Arc};
 use arrow::{
     array::{
         ArrayData, ArrayRef, Date16Array, DecimalArray, FixedSizeBinaryArray,
-        Float32Array, Float64Array, GenericStringArray, Int8Array, Int16Array,
-        Int32Array, Int64Array, Timestamp32Array, UInt8Array, UInt16Array, UInt32Array,
-        UInt64Array,
+        Float32Array, Float64Array, GenericStringArray, Int16Array, Int32Array,
+        Int64Array, Int8Array, Timestamp32Array, UInt16Array, UInt32Array, UInt64Array,
+        UInt8Array,
     },
     buffer::Buffer,
     datatypes::{DataType, Field, Schema},

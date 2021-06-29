@@ -133,8 +133,6 @@ impl CHMsgWriteAware for BytesMut {
         self.write_varint(0);
     }
 
-
-
     #[inline(always)]
     fn write_empty_block(&mut self) {
         /// Set of pairs (`FIELD_NUM`, value) in binary form. Then 0.
@@ -159,7 +157,6 @@ impl CHMsgWriteAware for BytesMut {
     fn write_end_of_stream(&mut self) {
         self.write_varint(ServerCodes::EndOfStream as u64);
     }
-
 
     // #[inline(always)]
     // fn read_fix<T>(&mut self) -> T {
@@ -213,7 +210,6 @@ impl CHMsgReadAware for BytesMut {
         //FIXME one rust driver use arbitrary 128bit bytes as query_id?
         unsafe { Ok(std::str::from_utf8_unchecked(self.read_varbytes()?)) }
     }
-
 
     #[inline(always)]
     fn read_varbytes<'a, 'b>(&mut self) -> BaseRtResult<&'b [u8]> {
@@ -271,7 +267,6 @@ impl CHMsgReadAware for &[u8] {
         //FIXME one rust driver use arbitrary 128bit bytes as query_id?
         unsafe { Ok(std::str::from_utf8_unchecked(self.read_varbytes()?)) }
     }
-
 
     #[inline(always)]
     fn read_varbytes<'a, 'b>(&mut self) -> BaseRtResult<&'b [u8]> {

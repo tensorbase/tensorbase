@@ -43,7 +43,6 @@ fn integ_test_str() {
         "class Test21 { float x = 123.45; long long x =123456789101112 }"
     );
 
-
     let mut class_name = String::from("Test");
     // let member_name = String::from("var");
     let s = s!(class ${class_name.push('1');class_name}$ { });
@@ -53,7 +52,6 @@ fn integ_test_str() {
     let mut class_name = String::from("Test");
     let s = s!(class ${class_name.push('1');class_name}$ { });
     assert_eq!(s, "class Test1 { }");
-
 
     let bs = bs!(dasdsadsa);
     let sbs = bytes_to_cstring(bs);

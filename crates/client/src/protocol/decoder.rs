@@ -60,11 +60,10 @@ impl<'a, T: FromBytes, R: AsyncRead> ReadVString<'a, T, R> {
                 // log::info!("{:?}", rt);
                 return rt;
             } else {
-                self.length_ += ready!(
-                    self.inner
-                        .as_mut()
-                        .poll_read(cx, &mut self.data[self.length_..])?
-                );
+                self.length_ += ready!(self
+                    .inner
+                    .as_mut()
+                    .poll_read(cx, &mut self.data[self.length_..])?);
             }
         }
     }

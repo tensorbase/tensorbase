@@ -145,9 +145,7 @@ impl Inner {
         // or InnerConnection methods. Never do it.
         match self.socket {
             None => None,
-            Some(ref mut socket) => unsafe {
-                Some((socket, &mut *info))
-            },
+            Some(ref mut socket) => unsafe { Some((socket, &mut *info)) },
         }
     }
 

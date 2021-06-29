@@ -234,10 +234,8 @@ impl<R: AsyncBufRead + Unpin + Send> LZ4ReadAdapter<R> {
                 CompressionState::Compressed => {
                     let raw_size = self.raw_size;
                     // Read from underlying reader. Bypass buffering
-                    let n = ready!(
-                        Pin::new(&mut self.inner)
-                            .poll_read(cx, &mut self.data[self.p..])?
-                    );
+                    let n = ready!(Pin::new(&mut self.inner)
+                        .poll_read(cx, &mut self.data[self.p..])?);
                     self.p += n;
                     // Got to the end. Decompress and return raw buffer
                     if self.p >= self.data.len() {

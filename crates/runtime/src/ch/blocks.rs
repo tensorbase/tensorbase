@@ -721,9 +721,7 @@ mod unit_tests {
         // println!("encoded block: {:?}", &bs[..]);
         assert_eq!(
             &bs[..],
-            &[
-                0x01, 0x00, 0x01, 0x00, 0x02, 0xff, 0xff, 0xff, 0xff, 0x00, 0x00, 0x00
-            ]
+            &[0x01, 0x00, 0x01, 0x00, 0x02, 0xff, 0xff, 0xff, 0xff, 0x00, 0x00, 0x00]
         );
 
         //compressed empty blk
@@ -857,7 +855,7 @@ mod unit_tests {
         // println!("bs.as_ptr: {:p}", bs.as_ptr());
 
         bs.split_to(2); //skip msg protocol header
-        //decompress
+                        //decompress
         let nread = process_data_blk(&mut &bs[..], &mut _bs, true)?;
         assert!(nread > 0);
         println!(
@@ -910,7 +908,7 @@ mod unit_tests {
         // println!("bs.as_ptr: {:p}", bs.as_ptr());
 
         bs.split_to(2); //skip msg protocol header
-        //decompress
+                        //decompress
         let nread = process_data_blk(&mut &bs[..], &mut _bs, true)?;
         assert!(nread > 0);
         println!(

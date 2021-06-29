@@ -472,9 +472,7 @@ pub(crate) fn process_data_blk(
         lz4::decompress(&rb[..comp_size], dst_bs)
             .map_err(|_| BaseRtError::BlockDecompressionError)?;
 
-        unsafe {
-            rb1.advance_mut(raw_size)
-        };
+        unsafe { rb1.advance_mut(raw_size) };
         // log::debug!(
         //     "== heading 16B of rb0[len={}] after decompression: {:02x?}",
         //     rb0.len(),
@@ -482,23 +480,21 @@ pub(crate) fn process_data_blk(
         // );
 
         rb.advance(comp_size); //consume for rb
-        // if comp_size == 1028304 {
-        //     log::debug!("rb[len={}]: {:?}", rb.len(), &rb);
-        //     // unsafe {
-        //     //     log::debug!(
-        //     //         "==0 heading 16B of rb0[len={}] after decompression: {:02x?}",
-        //     //         rb0.len(),
-        //     //         std::slice::from_raw_parts(rb0.as_ptr(), 16)
-        //     //     );
-        //     // }
-        // }
+                               // if comp_size == 1028304 {
+                               //     log::debug!("rb[len={}]: {:?}", rb.len(), &rb);
+                               //     // unsafe {
+                               //     //     log::debug!(
+                               //     //         "==0 heading 16B of rb0[len={}] after decompression: {:02x?}",
+                               //     //         rb0.len(),
+                               //     //         std::slice::from_raw_parts(rb0.as_ptr(), 16)
+                               //     //     );
+                               //     // }
+                               // }
         Ok(raw_size)
     } else {
         let raw_size = rb.len() - EMPTY_CLIENT_BLK_BYTES.len();
         rb1.ensure_enough_bytes_to_write(raw_size); // make sure the buffer is enough
-        unsafe {
-            rb1.set_len(raw_size)
-        };
+        unsafe { rb1.set_len(raw_size) };
         rb1.copy_from_slice(&rb[..raw_size]);
         Ok(raw_size)
     }

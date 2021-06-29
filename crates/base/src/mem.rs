@@ -167,5 +167,4 @@ mod unit_tests {
     }
 }
 
-
 // ====== Benchmarks ======
