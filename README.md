@@ -92,7 +92,7 @@ Wechat group or other more are on [community](https://tensorbase.io/community/)
 
 Read the [Contributing](/docs/CONTRIBUTING.md). 
 
-Note: Recently, we enforce code style via ```cargo fmt```.
+Note: Recently, we [enforce code style via ```cargo fmt```](https://github.com/tensorbase/tensorbase/blob/main/docs/CONTRIBUTING.md#code-style).
 
 ## Documents (WIP)
 
