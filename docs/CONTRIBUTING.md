@@ -65,4 +65,5 @@ To address review comments, you should commit the changes to the same branch of 
 ## Code Style
 
 Keeping a consistent style for sources is very important for an open source project like TensorBase. TensorBase now requires all contributors should run ```cargo fmt``` before commit. 
-Note: ```cargo fmt``` will use ```rustfmt``` to format the source codes. You can install ```rustfmt``` [via rustup](https://github.com/rust-lang/rustfmt#on-the-nightly-toolchain).
+
+Note: ```cargo fmt``` will use ```rustfmt``` to format the source codes. You should install nightly ```rustfmt``` [via rustup](https://github.com/rust-lang/rustfmt#on-the-nightly-toolchain).
