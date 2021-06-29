@@ -641,6 +641,80 @@ async fn tests_integ_cast_LargeUtf8_to_Utf8() -> errors::Result<()> {
     Ok(())
 }
 
+#[allow(non_snake_case)]
+#[tokio::test]
+async fn tests_integ_cast_simple_datatype() -> errors::Result<()> {
+    let pool = get_pool();
+    let mut conn = pool.connection().await?;
+
+    {
+        let sql = "select cast(2147483647 as Int64)";
+        let mut query_result = conn.query(sql).await?;
+
+        while let Some(block) = query_result.next().await? {
+            for row in block.iter_rows() {
+                let res = row.value::<i64>(0)?.unwrap() as i64;
+                assert_eq!(res, std::i32::MAX as i64);
+            }
+        }
+    }
+
+    {
+        let sql = "select cast(-2147483648 as Int64)";
+        let mut query_result = conn.query(sql).await?;
+
+        while let Some(block) = query_result.next().await? {
+            for row in block.iter_rows() {
+                let res = row.value::<i64>(0)?.unwrap() as i64;
+                assert_eq!(res, std::i32::MIN as i64);
+            }
+        }
+    }
+
+    {
+        let sql = "select cast(0.000001 as Float64)";
+        let mut query_result = conn.query(sql).await?;
+
+        while let Some(block) = query_result.next().await? {
+            for row in block.iter_rows() {
+                let res = row.value::<f64>(0)?.unwrap() as f64;
+                assert_eq!(res, 0.000001);
+            }
+        }
+    }
+
+    conn.execute("create database if not exists test_db")
+        .await?;
+    conn.execute("use test_db").await?;
+    conn.execute(format!("DROP TABLE IF EXISTS test_tab"))
+        .await?;
+    conn.execute(format!("CREATE TABLE test_tab(a Int32)"))
+        .await?;
+
+    let data_s = (1..100000).into_iter().collect::<Vec<i32>>();
+    let sum_res: i64 = data_s.iter().map(|i| *i as i64).sum();
+    let block = Block::new("test_tab").add("a", data_s.clone());
+
+    let mut insert = conn.insert(&block).await?;
+    insert.commit().await?;
+
+    let mut conn = pool.connection().await?;
+    conn.execute("use test_db").await?;
+    {
+        let sql = "select sum(cast(a as Int64)) from test_tab";
+        let mut query_result = conn.query(sql).await?;
+
+        while let Some(block) = query_result.next().await? {
+            for row in block.iter_rows() {
+                let res = row.value::<i64>(0)?.unwrap() as i64;
+                assert_eq!(res, sum_res);
+            }
+        }
+    }
+
+    Ok(())
+}
+
 #[tokio::test]
 async fn tests_integ_date_cast() -> errors::Result<()> {
     let pool = get_pool();
