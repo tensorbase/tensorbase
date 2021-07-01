@@ -23,10 +23,6 @@ TensorBase hopes to change the status quo of bigdata system as follows:
   * hard to use (for end users) and understand (for developers)
   * not evolving with modern infrastructures (OS, hardware, engineering...)
 
-## :rocket: Quick News
-
-* [SQL on RISC-V Chip in Rust](https://tensorbase.io/2021/06/08/sql_on_riscv_in_rust.html)
-
 ## Features
 
 * Out-of-the-box to play ( [get started just now](#quick-start) )
