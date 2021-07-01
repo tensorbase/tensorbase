@@ -745,7 +745,6 @@ async fn tests_integ_date_cast() -> errors::Result<()> {
             let mut i = 0;
 
             for row in block.iter_rows() {
-                println!("{:?}", row);
                 let res: DateTime<Utc> = row.value(0)?.unwrap();
                 assert_eq!(res.date().naive_utc().to_string(), checks[i]);
                 i += 1;
@@ -781,8 +780,10 @@ async fn tests_integ_date_time_functions() -> errors::Result<()> {
 
     conn.execute(format!("DROP TABLE IF EXISTS test_tab_date"))
         .await?;
-    conn.execute(format!("CREATE TABLE test_tab_date(a Date, b DateTime)"))
-        .await?;
+    conn.execute(format!(
+        "CREATE TABLE test_tab_date(a Date, b DateTime, c String, d Int64)"
+    ))
+    .await?;
 
     let data_a = vec![
         Utc.ymd(2010, 1, 1),
@@ -800,6 +801,31 @@ async fn tests_integ_date_time_functions() -> errors::Result<()> {
         Utc.ymd(2021, 8, 31).and_hms(14, 32, 3),
         Utc.ymd(2021, 6, 27).and_hms(17, 44, 32),
     ];
+    let data_c = vec![
+        "2010-1-1",
+        "2011-2-28",
+        "2012-2-29",
+        "2012-3-4",
+        "2021-8-31",
+        "2021-6-27",
+    ];
+    let data_f = vec![
+        Utc.ymd(2010, 1, 1).and_hms(0, 0, 0),
+        Utc.ymd(2011, 2, 28).and_hms(0, 0, 0),
+        Utc.ymd(2012, 2, 29).and_hms(0, 0, 0),
+        Utc.ymd(2012, 3, 4).and_hms(0, 0, 0),
+        Utc.ymd(2021, 8, 31).and_hms(0, 0, 0),
+        Utc.ymd(2021, 6, 27).and_hms(0, 0, 0),
+    ];
+    let data_d = vec![
+        1262304000i64,
+        1298851200,
+        1330473600,
+        1330819200,
+        1630368000,
+        1624752000,
+    ];
+
     let years = vec![2010, 2011, 2012, 2012, 2021, 2021];
     let months = vec![1, 2, 2, 3, 8, 6];
     let quarters = vec![1, 1, 1, 1, 3, 2];
@@ -813,6 +839,8 @@ async fn tests_integ_date_time_functions() -> errors::Result<()> {
         Block::new("test_tab_date")
             .add("a", data_a)
             .add("b", data_b)
+            .add("c", data_c)
+            .add("d", data_d)
     };
 
     let mut insert = conn.insert(&block).await?;
@@ -827,7 +855,7 @@ async fn tests_integ_date_time_functions() -> errors::Result<()> {
             toDayOfMonth(a), toDayOfMonth(b), \
             toDayOfWeek(a), toDayOfWeek(b), \
             toQuarter(a), toQuarter(b), \
-            toHour(b), toMinute(b), toSecond(b) \
+            toHour(b), toMinute(b), toSecond(b), toDate(b), toDate(c), toDate(d) \
         from test_tab_date";
         let mut query_result = conn.query(sql).await?;
 
@@ -850,6 +878,9 @@ async fn tests_integ_date_time_functions() -> errors::Result<()> {
                 let hour_b: u8 = row.value(iter.next().unwrap())?.unwrap();
                 let minute_b: u8 = row.value(iter.next().unwrap())?.unwrap();
                 let second_b: u8 = row.value(iter.next().unwrap())?.unwrap();
+                let date1: DateTime<Utc> = row.value(iter.next().unwrap())?.unwrap();
+                let date2: DateTime<Utc> = row.value(iter.next().unwrap())?.unwrap();
+                let date3: DateTime<Utc> = row.value(iter.next().unwrap())?.unwrap();
                 assert_eq!(year_a, years[i]);
                 assert_eq!(year_b, years[i]);
                 assert_eq!(month_a, months[i]);
@@ -865,6 +896,9 @@ async fn tests_integ_date_time_functions() -> errors::Result<()> {
                 assert_eq!(hour_b, hours[i]);
                 assert_eq!(minute_b, minutes[i]);
                 assert_eq!(second_b, seconds[i]);
+                assert_eq!(date1, data_f[i]);
+                assert_eq!(date2, data_f[i]);
+                assert_eq!(date3, data_f[i]);
             }
         }
     }
