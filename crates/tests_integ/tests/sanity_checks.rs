@@ -18,13 +18,15 @@ async fn tests_integ_stress_test_ddl() -> errors::Result<()> {
     let pool = get_pool();
     let mut conn = pool.connection().await?;
 
-    conn.execute("create database if not exists test_db").await?;
+    conn.execute("create database if not exists test_db")
+        .await?;
     conn.execute("use test_db").await?;
 
     for i in 0..100 {
         let tn = format!("test_tab_{}", i);
         conn.execute(format!("DROP TABLE IF EXISTS {}", tn)).await?;
-        conn.execute(format!("CREATE TABLE {}(x Int64)", tn)).await?;
+        conn.execute(format!("CREATE TABLE {}(x Int64)", tn))
+            .await?;
         conn.execute(format!("TRUNCATE TABLE {}", tn)).await?;
     }
 
@@ -37,11 +39,14 @@ async fn tests_integ_basic_test_insert() -> errors::Result<()> {
     let pool = get_pool();
     let mut conn = pool.connection().await?;
 
-    conn.execute("create database if not exists test_db").await?;
+    conn.execute("create database if not exists test_db")
+        .await?;
     conn.execute("use test_db").await?;
 
-    conn.execute(format!("DROP TABLE IF EXISTS test_tab")).await?;
-    conn.execute(format!("CREATE TABLE test_tab(a Int64)")).await?;
+    conn.execute(format!("DROP TABLE IF EXISTS test_tab"))
+        .await?;
+    conn.execute(format!("CREATE TABLE test_tab(a Int64)"))
+        .await?;
 
     let data_a = vec![1i64, 3, 5, 7, 9, 11];
     let count_res = data_a.len() as i64;
@@ -81,6 +86,75 @@ async fn tests_integ_basic_test_insert() -> errors::Result<()> {
     Ok(())
 }
 
+#[tokio::test]
+async fn tests_integ_basic_test_insert_select() -> errors::Result<()> {
+    let pool = get_pool();
+    let mut conn = pool.connection().await?;
+    conn.execute("create database if not exists test_insert_select_db")
+        .await?;
+    conn.execute("use test_insert_select_db").await?;
+    conn.execute("drop table if exists test_t1").await?;
+    conn.execute("drop table if exists test_t2").await?;
+    conn.execute("create table test_t1(a UInt64, b UInt8)")
+        .await?;
+    conn.execute("create table test_t2(a UInt64, b UInt8)")
+        .await?;
+    conn.execute("insert into test_t1 values(1, 3), (2, 4), (3, 5)")
+        .await?;
+    conn.execute("insert into test_t2 select * from test_t1")
+        .await?;
+    let mut query_result = conn.query("select * from test_t2 order by a").await?;
+
+    while let Some(block) = query_result.next().await? {
+        let mut i = 1;
+        for row in block.iter_rows() {
+            assert_eq!(row.value::<u64>(0)?.unwrap(), i);
+            i += 1;
+        }
+    }
+
+    let mut conn = pool.connection().await?;
+    conn.execute("use test_insert_select_db").await?;
+    conn.execute("drop table if exists test_t3").await?;
+    conn.execute("drop table if exists test_t4").await?;
+    conn.execute("create table test_t3(a String)").await?;
+    conn.execute("create table test_t4(a String)").await?;
+    let block = {
+        Block::new("test_t3")
+            .add("a", vec!["aelvbs a1 233 🀄️", "b^&#*-['&**%%%", "c;;;;\n\t"])
+    };
+    let mut insert = conn.insert(&block).await?;
+    insert.commit().await?;
+
+    let mut conn = pool.connection().await?;
+    conn.execute("use test_insert_select_db").await?;
+    conn.execute("insert into test_t4 select * from test_t3")
+        .await?;
+    conn.execute("insert into test_t4(a) select a from test_t3 order by a limit 1")
+        .await?;
+    let mut query_result = conn.query("select count(*) from test_t4").await?;
+
+    while let Some(block) = query_result.next().await? {
+        for row in block.iter_rows() {
+            assert_eq!(row.value::<u64>(0)?.unwrap(), 4);
+        }
+    }
+
+    let mut conn = pool.connection().await?;
+    conn.execute("use test_insert_select_db").await?;
+    let mut query_result = conn
+        .query("select * from test_t4 order by a limit 1")
+        .await?;
+
+    while let Some(block) = query_result.next().await? {
+        for row in block.iter_rows() {
+            assert_eq!(row.value::<&str>(0)?.unwrap(), "c;;;;\n\t");
+        }
+    }
+
+    Ok(())
+}
+
 fn assert_results(row: Row, count_res: i64) -> errors::Result<()> {
     let rd = row.column_descr(0).unwrap();
     let styp = rd.sqltype();
@@ -97,11 +171,14 @@ async fn tests_integ_basic_insert_float() -> errors::Result<()> {
     let pool = get_pool();
     let mut conn = pool.connection().await?;
 
-    conn.execute("create database if not exists test_db").await?;
+    conn.execute("create database if not exists test_db")
+        .await?;
     conn.execute("use test_db").await?;
 
-    conn.execute(format!("DROP TABLE IF EXISTS test_tab")).await?;
-    conn.execute(format!("CREATE TABLE test_tab(a Float64)")).await?;
+    conn.execute(format!("DROP TABLE IF EXISTS test_tab"))
+        .await?;
+    conn.execute(format!("CREATE TABLE test_tab(a Float64)"))
+        .await?;
 
     let data_a = vec![1.1, 1.2, 1.3];
     let count_res = data_a.len() as i64;
@@ -147,11 +224,14 @@ async fn tests_integ_basic_insert_decimal32() -> errors::Result<()> {
     let pool = get_pool();
     let mut conn = pool.connection().await?;
 
-    conn.execute("create database if not exists test_db").await?;
+    conn.execute("create database if not exists test_db")
+        .await?;
     conn.execute("use test_db").await?;
 
-    conn.execute(format!("DROP TABLE IF EXISTS test_tab_dec")).await?;
-    conn.execute(format!("CREATE TABLE test_tab_dec(a Decimal(9,2))")).await?;
+    conn.execute(format!("DROP TABLE IF EXISTS test_tab_dec"))
+        .await?;
+    conn.execute(format!("CREATE TABLE test_tab_dec(a Decimal(9,2))"))
+        .await?;
 
     let data_a = vec![Decimal::from(12300_i32, 2), Decimal::from(1002_i32, 2)];
     let checks = vec!["123.00", "10.02"];
@@ -185,11 +265,14 @@ async fn tests_integ_basic_insert_decimal64() -> errors::Result<()> {
     let pool = get_pool();
     let mut conn = pool.connection().await?;
 
-    conn.execute("create database if not exists test_db").await?;
+    conn.execute("create database if not exists test_db")
+        .await?;
     conn.execute("use test_db").await?;
 
-    conn.execute(format!("DROP TABLE IF EXISTS test_tab_dec")).await?;
-    conn.execute(format!("CREATE TABLE test_tab_dec(a Decimal(12,2))")).await?;
+    conn.execute(format!("DROP TABLE IF EXISTS test_tab_dec"))
+        .await?;
+    conn.execute(format!("CREATE TABLE test_tab_dec(a Decimal(12,2))"))
+        .await?;
 
     let data_a = vec![
         Decimal::from(12300_i64, 2),
@@ -226,11 +309,14 @@ async fn tests_integ_basic_insert_date() -> errors::Result<()> {
     let pool = get_pool();
     let mut conn = pool.connection().await?;
 
-    conn.execute("create database if not exists test_db").await?;
+    conn.execute("create database if not exists test_db")
+        .await?;
     conn.execute("use test_db").await?;
 
-    conn.execute(format!("DROP TABLE IF EXISTS test_tab_date")).await?;
-    conn.execute(format!("CREATE TABLE test_tab_date(a Date)")).await?;
+    conn.execute(format!("DROP TABLE IF EXISTS test_tab_date"))
+        .await?;
+    conn.execute(format!("CREATE TABLE test_tab_date(a Date)"))
+        .await?;
 
     let data_a = vec![Utc.ymd(2010, 10, 20), Utc.ymd(2020, 1, 7)];
     let checks = vec!["2010-10-20", "2020-01-07"];
@@ -266,10 +352,12 @@ async fn tests_integ_basic_insert_lcstring() -> errors::Result<()> {
     let pool = get_pool();
     let mut conn = pool.connection().await?;
 
-    conn.execute("create database if not exists test_db").await?;
+    conn.execute("create database if not exists test_db")
+        .await?;
     conn.execute("use test_db").await?;
 
-    conn.execute(format!("DROP TABLE IF EXISTS test_tab")).await?;
+    conn.execute(format!("DROP TABLE IF EXISTS test_tab"))
+        .await?;
     conn.execute(format!("CREATE TABLE test_tab(s LowCardinality(String))"))
         .await?;
 
@@ -289,11 +377,14 @@ async fn tests_integ_basic_insert_string() -> errors::Result<()> {
     let pool = get_pool();
     let mut conn = pool.connection().await?;
 
-    conn.execute("create database if not exists test_db").await?;
+    conn.execute("create database if not exists test_db")
+        .await?;
     conn.execute("use test_db").await?;
 
-    conn.execute(format!("DROP TABLE IF EXISTS test_tab")).await?;
-    conn.execute(format!("CREATE TABLE test_tab(s String)")).await?;
+    conn.execute(format!("DROP TABLE IF EXISTS test_tab"))
+        .await?;
+    conn.execute(format!("CREATE TABLE test_tab(s String)"))
+        .await?;
 
     let data_s = vec!["a", "ab", "abc"];
     // let count_res = data_s.len() as i64;
@@ -327,11 +418,14 @@ async fn tests_integ_basic_insert_fixed_string() -> errors::Result<()> {
     let pool = get_pool();
     let mut conn = pool.connection().await?;
 
-    conn.execute("create database if not exists test_db").await?;
+    conn.execute("create database if not exists test_db")
+        .await?;
     conn.execute("use test_db").await?;
 
-    conn.execute(format!("DROP TABLE IF EXISTS test_tab")).await?;
-    conn.execute(format!("CREATE TABLE test_tab(s FixedString(3))")).await?;
+    conn.execute(format!("DROP TABLE IF EXISTS test_tab"))
+        .await?;
+    conn.execute(format!("CREATE TABLE test_tab(s FixedString(3))"))
+        .await?;
 
     let data_s = vec!["a  ", "ab ", "abc"];
     let count_res = data_s.len() as i64;
@@ -374,15 +468,22 @@ async fn tests_integ_truncate_table() -> errors::Result<()> {
     let pool = get_pool();
     let mut conn = pool.connection().await?;
 
-    conn.execute("create database if not exists test_db").await?;
+    conn.execute("create database if not exists test_db")
+        .await?;
     conn.execute("use test_db").await?;
 
-    conn.execute(format!("drop table if exists test1_tab")).await?;
-    conn.execute(format!("drop table if exists test1_tab")).await?;
-    conn.execute(format!("create table test1_tab(a UInt32)")).await?;
-    conn.execute(format!("create table test2_tab(a UInt32)")).await?;
-    conn.execute(format!("insert into test1_tab values(0),(1)")).await?;
-    conn.execute(format!("insert into test2_tab values(0),(1)")).await?;
+    conn.execute(format!("drop table if exists test1_tab"))
+        .await?;
+    conn.execute(format!("drop table if exists test1_tab"))
+        .await?;
+    conn.execute(format!("create table test1_tab(a UInt32)"))
+        .await?;
+    conn.execute(format!("create table test2_tab(a UInt32)"))
+        .await?;
+    conn.execute(format!("insert into test1_tab values(0),(1)"))
+        .await?;
+    conn.execute(format!("insert into test2_tab values(0),(1)"))
+        .await?;
 
     conn.execute(format!("truncate table test1_tab")).await?;
     {
@@ -409,7 +510,8 @@ async fn tests_integ_truncate_table() -> errors::Result<()> {
         }
     }
 
-    conn.execute(format!("insert into test1_tab values(0),(1)")).await?;
+    conn.execute(format!("insert into test1_tab values(0),(1)"))
+        .await?;
 
     {
         let sql = "select count(a) from test1_tab";
@@ -432,11 +534,14 @@ async fn tests_integ_desc_table() -> errors::Result<()> {
     let pool = get_pool();
     let mut conn = pool.connection().await?;
 
-    conn.execute("create database if not exists test_db").await?;
+    conn.execute("create database if not exists test_db")
+        .await?;
     conn.execute("use test_db").await?;
 
-    conn.execute(format!("drop table if exists test_tab")).await?;
-    conn.execute(format!("create table test(a UInt64, b String)")).await?;
+    conn.execute(format!("drop table if exists test_tab"))
+        .await?;
+    conn.execute(format!("create table test(a UInt64, b String)"))
+        .await?;
 
     {
         let sql = "desc test";
@@ -490,11 +595,14 @@ async fn tests_integ_cast_LargeUtf8_to_Utf8() -> errors::Result<()> {
     let pool = get_pool();
     let mut conn = pool.connection().await?;
 
-    conn.execute("create database if not exists test_db").await?;
+    conn.execute("create database if not exists test_db")
+        .await?;
     conn.execute("use test_db").await?;
 
-    conn.execute(format!("DROP TABLE IF EXISTS test_tab")).await?;
-    conn.execute(format!("CREATE TABLE test_tab(s String)")).await?;
+    conn.execute(format!("DROP TABLE IF EXISTS test_tab"))
+        .await?;
+    conn.execute(format!("CREATE TABLE test_tab(s String)"))
+        .await?;
 
     let data_s = vec!["a", "ab", "abc"];
     let count_res = data_s.len() as i64;
@@ -533,16 +641,93 @@ async fn tests_integ_cast_LargeUtf8_to_Utf8() -> errors::Result<()> {
     Ok(())
 }
 
+#[allow(non_snake_case)]
+#[tokio::test]
+async fn tests_integ_cast_simple_datatype() -> errors::Result<()> {
+    let pool = get_pool();
+    let mut conn = pool.connection().await?;
+
+    {
+        let sql = "select cast(2147483647 as Int64)";
+        let mut query_result = conn.query(sql).await?;
+
+        while let Some(block) = query_result.next().await? {
+            for row in block.iter_rows() {
+                let res = row.value::<i64>(0)?.unwrap() as i64;
+                assert_eq!(res, std::i32::MAX as i64);
+            }
+        }
+    }
+
+    {
+        let sql = "select cast(-2147483648 as Int64)";
+        let mut query_result = conn.query(sql).await?;
+
+        while let Some(block) = query_result.next().await? {
+            for row in block.iter_rows() {
+                let res = row.value::<i64>(0)?.unwrap() as i64;
+                assert_eq!(res, std::i32::MIN as i64);
+            }
+        }
+    }
+
+    {
+        let sql = "select cast(0.000001 as Float64)";
+        let mut query_result = conn.query(sql).await?;
+
+        while let Some(block) = query_result.next().await? {
+            for row in block.iter_rows() {
+                let res = row.value::<f64>(0)?.unwrap() as f64;
+                assert_eq!(res, 0.000001);
+            }
+        }
+    }
+
+    conn.execute("create database if not exists test_db")
+        .await?;
+    conn.execute("use test_db").await?;
+    conn.execute(format!("DROP TABLE IF EXISTS test_tab"))
+        .await?;
+    conn.execute(format!("CREATE TABLE test_tab(a Int32)"))
+        .await?;
+
+    let data_s = (1..100000).into_iter().collect::<Vec<i32>>();
+    let sum_res: i64 = data_s.iter().map(|i| *i as i64).sum();
+    let block = Block::new("test_tab").add("a", data_s.clone());
+
+    let mut insert = conn.insert(&block).await?;
+    insert.commit().await?;
+
+    let mut conn = pool.connection().await?;
+    conn.execute("use test_db").await?;
+    {
+        let sql = "select sum(cast(a as Int64)) from test_tab";
+        let mut query_result = conn.query(sql).await?;
+
+        while let Some(block) = query_result.next().await? {
+            for row in block.iter_rows() {
+                let res = row.value::<i64>(0)?.unwrap() as i64;
+                assert_eq!(res, sum_res);
+            }
+        }
+    }
+
+    Ok(())
+}
+
 #[tokio::test]
 async fn tests_integ_date_cast() -> errors::Result<()> {
     let pool = get_pool();
     let mut conn = pool.connection().await?;
 
-    conn.execute("create database if not exists test_db").await?;
+    conn.execute("create database if not exists test_db")
+        .await?;
     conn.execute("use test_db").await?;
 
-    conn.execute(format!("DROP TABLE IF EXISTS test_tab_date")).await?;
-    conn.execute(format!("CREATE TABLE test_tab_date(a Date)")).await?;
+    conn.execute(format!("DROP TABLE IF EXISTS test_tab_date"))
+        .await?;
+    conn.execute(format!("CREATE TABLE test_tab_date(a Date)"))
+        .await?;
 
     let data_a = vec![Utc.ymd(2010, 10, 20), Utc.ymd(2020, 1, 7)];
     let checks = vec!["2010-10-20", "2020-01-07"];
@@ -590,10 +775,12 @@ async fn tests_integ_date_time_functions() -> errors::Result<()> {
     let pool = get_pool();
     let mut conn = pool.connection().await?;
 
-    conn.execute("create database if not exists test_db").await?;
+    conn.execute("create database if not exists test_db")
+        .await?;
     conn.execute("use test_db").await?;
 
-    conn.execute(format!("DROP TABLE IF EXISTS test_tab_date")).await?;
+    conn.execute(format!("DROP TABLE IF EXISTS test_tab_date"))
+        .await?;
     conn.execute(format!("CREATE TABLE test_tab_date(a Date, b DateTime)"))
         .await?;
 
@@ -622,8 +809,11 @@ async fn tests_integ_date_time_functions() -> errors::Result<()> {
     let hours = vec![1, 2, 23, 5, 14, 17];
     let minutes = vec![1, 5, 59, 6, 32, 44];
     let seconds = vec![1, 6, 59, 7, 3, 32];
-    let block =
-        { Block::new("test_tab_date").add("a", data_a).add("b", data_b) };
+    let block = {
+        Block::new("test_tab_date")
+            .add("a", data_a)
+            .add("b", data_b)
+    };
 
     let mut insert = conn.insert(&block).await?;
     insert.commit().await?;

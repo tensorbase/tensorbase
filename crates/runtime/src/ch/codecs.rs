@@ -57,10 +57,7 @@ impl BytesExt for BytesMut {
     #[inline(always)]
     fn get_slice_mut_at_write_cursor(&mut self, len: usize) -> &mut [u8] {
         unsafe {
-            slice::from_raw_parts_mut(
-                self.as_mut_ptr().offset(self.len() as isize),
-                len,
-            )
+            slice::from_raw_parts_mut(self.as_mut_ptr().offset(self.len() as isize), len)
         }
     }
 
@@ -101,9 +98,8 @@ impl CHMsgWriteAware for BytesMut {
     #[inline(always)]
     fn write_varint(&mut self, value: u64) {
         self.reserve(10); //FIXME
-        let buf = unsafe {
-            slice::from_raw_parts_mut(self.as_mut_ptr().add(self.len()), 10)
-        };
+        let buf =
+            unsafe { slice::from_raw_parts_mut(self.as_mut_ptr().add(self.len()), 10) };
         let vi_len = encode_varint64(value, buf);
         unsafe {
             self.advance_mut(vi_len);
@@ -117,11 +113,7 @@ impl CHMsgWriteAware for BytesMut {
         self.write_varint(len as u64);
         // value.as_bytes().copy_to_slice()
         unsafe {
-            copy_nonoverlapping(
-                value.as_ptr(),
-                self.as_mut_ptr().add(self.len()),
-                len,
-            );
+            copy_nonoverlapping(value.as_ptr(), self.as_mut_ptr().add(self.len()), len);
             self.advance_mut(len);
         }
     }
@@ -141,8 +133,6 @@ impl CHMsgWriteAware for BytesMut {
         self.write_varint(0);
     }
 
-
-
     #[inline(always)]
     fn write_empty_block(&mut self) {
         /// Set of pairs (`FIELD_NUM`, value) in binary form. Then 0.
@@ -152,8 +142,7 @@ impl CHMsgWriteAware for BytesMut {
         // -1 [3..7] - bucket num as int32
         // 0  [8]    - ?
 
-        const EMPTY_BLK: [u8; 10] =
-            [1u8, 0, 2, 0xFF, 0xFF, 0xFF, 0xFF, 0, 0, 0];
+        const EMPTY_BLK: [u8; 10] = [1u8, 0, 2, 0xFF, 0xFF, 0xFF, 0xFF, 0, 0, 0];
         unsafe {
             copy_nonoverlapping(
                 &EMPTY_BLK as *const u8,
@@ -168,7 +157,6 @@ impl CHMsgWriteAware for BytesMut {
     fn write_end_of_stream(&mut self) {
         self.write_varint(ServerCodes::EndOfStream as u64);
     }
-
 
     // #[inline(always)]
     // fn read_fix<T>(&mut self) -> T {
@@ -222,7 +210,6 @@ impl CHMsgReadAware for BytesMut {
         //FIXME one rust driver use arbitrary 128bit bytes as query_id?
         unsafe { Ok(std::str::from_utf8_unchecked(self.read_varbytes()?)) }
     }
-
 
     #[inline(always)]
     fn read_varbytes<'a, 'b>(&mut self) -> BaseRtResult<&'b [u8]> {
@@ -281,7 +268,6 @@ impl CHMsgReadAware for &[u8] {
         unsafe { Ok(std::str::from_utf8_unchecked(self.read_varbytes()?)) }
     }
 
-
     #[inline(always)]
     fn read_varbytes<'a, 'b>(&mut self) -> BaseRtResult<&'b [u8]> {
         let len = self.read_varint()? as usize;
@@ -293,7 +279,6 @@ impl CHMsgReadAware for &[u8] {
         }
     }
 }
-
 
 #[inline(always)]
 fn read_raw_varint64_slow_bytesmut(bs: &mut BytesMut) -> BaseRtResult<u64> {

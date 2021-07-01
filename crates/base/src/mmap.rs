@@ -24,13 +24,8 @@ pub fn mm_anon(size: usize) -> BaseResult<MemAddr> {
 }
 
 #[inline]
-pub fn mm_mremap(
-    addr: MemAddr,
-    old_size: usize,
-    new_size: usize,
-) -> BaseResult<MemAddr> {
-    let ret =
-        unsafe { libc::mremap(addr, old_size, new_size, libc::MREMAP_MAYMOVE) };
+pub fn mm_mremap(addr: MemAddr, old_size: usize, new_size: usize) -> BaseResult<MemAddr> {
+    let ret = unsafe { libc::mremap(addr, old_size, new_size, libc::MREMAP_MAYMOVE) };
     if addr == libc::MAP_FAILED {
         Err(BaseError::FailedToMremap)
     } else {
@@ -82,16 +77,15 @@ pub fn mm_unmap(addr: MemAddr, size: usize) -> BaseResult<()> {
 // ====== Tests ======
 #[cfg(test)]
 mod unit_tests {
+    use libc::c_void;
     use std::{env, ffi::CString, fs, io::Error};
-    use libc::c_void;    
 
     use super::*;
 
     pub fn open(path: &str) -> std::io::Result<u32> {
         unsafe {
             let p = CString::new(path).expect("CString::new failed");
-            let mode =
-                libc::S_IRUSR | libc::S_IWUSR | libc::S_IRGRP | libc::S_IROTH;
+            let mode = libc::S_IRUSR | libc::S_IWUSR | libc::S_IRGRP | libc::S_IROTH;
             let fd = libc::open(
                 p.as_ptr(),
                 libc::O_CREAT | libc::O_RDWR | libc::O_NOATIME,
@@ -125,16 +119,8 @@ mod unit_tests {
         unsafe {
             libc::pwrite(fd as i32, buf1.as_ptr() as *const c_void, siz, 0);
             assert_eq!(*(addr.offset((siz / 2) as isize) as *const u8), 1u8);
-            libc::pwrite(
-                fd as i32,
-                buf2.as_ptr() as *const c_void,
-                siz,
-                siz as i64,
-            );
-            assert_eq!(
-                *(addr.offset((siz + siz / 2) as isize) as *const u8),
-                2u8
-            );
+            libc::pwrite(fd as i32, buf2.as_ptr() as *const c_void, siz, siz as i64);
+            assert_eq!(*(addr.offset((siz + siz / 2) as isize) as *const u8), 2u8);
         }
     }
 

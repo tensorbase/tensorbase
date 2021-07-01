@@ -103,8 +103,6 @@ async fn run_ker_test_arrow(
     let conf = ExecutionConfig::new();
     let mut ctx = ExecutionContext::with_config(conf);
 
-   
-
     // let start = Instant::now();
 
     // let elapsed = start.elapsed().as_micros();
@@ -178,7 +176,6 @@ async fn run_ker_test_arrow(
     // let output_partitions =
     //     coalesce_batches(&schema, vec![batches], 16 * 1024).await?;
     // let BaseTable = BaseTable::try_new(schema.clone(), output_partitions)?;
-
 
     // let start = Instant::now();
     // println!(

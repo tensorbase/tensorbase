@@ -3,9 +3,7 @@ use meta::{
     types::{BqlType, Id},
 };
 
-
-pub trait IQueryState {
-}
+pub trait IQueryState {}
 
 pub struct QueryState {
     pub copasss: Vec<Vec<Vec<CoPaInfo>>>,
@@ -18,8 +16,7 @@ unsafe impl Send for QueryState {}
 unsafe impl Sync for QueryState {}
 
 impl QueryState {
-    pub fn pretty_print(&self) {
-    }
+    pub fn pretty_print(&self) {}
 }
 
 impl Default for QueryState {

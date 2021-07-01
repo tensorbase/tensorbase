@@ -10,9 +10,9 @@ use super::column::{AsInColumn, ColumnDataAdapter, Deserialize, Row};
 use super::encoder::Encoder;
 use super::value::IntoColumn;
 use super::ServerWriter;
-use crate::{client::ServerInfo, types::SqlType};
 use crate::compression::LZ4CompressionWrapper;
 use crate::types::{Field, FIELD_NONE, FIELD_NULLABLE};
+use crate::{client::ServerInfo, types::SqlType};
 use chrono_tz::Tz;
 
 pub struct RowIterator<'a> {
@@ -49,7 +49,10 @@ impl<'a, D: Deserialize> Iterator for ItemIterator<'a, D> {
             let id = self.id;
             self.id += 1;
             let row = unsafe { Row::create(self.block, id) };
-            Some(<D as Deserialize>::deserialize(row).expect("unexpected deserialization error"))
+            Some(
+                <D as Deserialize>::deserialize(row)
+                    .expect("unexpected deserialization error"),
+            )
         }
     }
 }
@@ -202,8 +205,7 @@ impl fmt::Debug for BlockColumnHeader {
 }
 
 /// input Block column data.
-pub struct 
-BlockColumn {
+pub struct BlockColumn {
     pub(crate) header: BlockColumnHeader,
     pub(crate) data: Box<dyn AsInColumn>,
 }

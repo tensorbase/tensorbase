@@ -4,14 +4,13 @@ use std::str;
 
 use crate::mgmt::{BaseCommandKind, BMS, WRITE};
 
+use super::protocol::{StageKind, LZ4_COMPRESSION_METHOD};
 use crate::ch::blocks::{Block, EMPTY_CLIENT_BLK_BYTES};
 use crate::ch::codecs::{BytesExt, CHMsgReadAware, CHMsgWriteAware};
 use crate::ch::protocol::{
     ClientCodes, ClientInfo, ConnCtx, Interface, QueryKind, ServerCodes,
 };
 use crate::errs::{BaseRtError, BaseRtResult};
-
-use super::protocol::{StageKind, LZ4_COMPRESSION_METHOD};
 
 const DBMS_NAME: &'static str = "TensorBase";
 //FIXME to include from path
@@ -354,13 +353,31 @@ fn response_query(
             Ok(())
         }
         Ok(
-            BaseCommandKind::Create
-            | BaseCommandKind::Drop
-            | BaseCommandKind::Optimize,
+            BaseCommandKind::Create | BaseCommandKind::Drop | BaseCommandKind::Optimize,
         ) => Ok(()),
         Ok(BaseCommandKind::InsertFormatInlineValues(mut blk, qtn, tid)) => {
             let write = WRITE.get().unwrap();
             write(&mut blk, qtn.as_str(), tid)?;
+            Ok(())
+        }
+        Ok(BaseCommandKind::InsertFormatSelectValue(blks, qtn, tid)) => {
+            let write = WRITE.get().unwrap();
+
+            log::debug!("subquery blks {:?}", blks);
+            for mut blk in blks {
+                write(&mut blk, qtn.as_str(), tid)?;
+            }
+
+            // if compression == 1 {
+            //     let _bs = cctx.get_raw_blk_resp();
+            //     header.encode_to(wb, Some(_bs))?;
+            // } else {
+            //     header.encode_to(wb, None)?;
+            // }
+
+            // cctx.current_tab_ins = qtn.clone();
+            // cctx.current_tid_ins = tid;
+
             Ok(())
         }
         Ok(
@@ -370,11 +387,7 @@ fn response_query(
             //NOTE for insert, server side need to send header for
             // Send block to the client - table structure.
             //sendData(state.io.out->getHeader());
-            log::debug!(
-                "[{}]header for insert into: {:?}",
-                cctx.query_id,
-                header
-            );
+            log::debug!("[{}]header for insert into: {:?}", cctx.query_id, header);
             if compression == 1 {
                 let _bs = cctx.get_raw_blk_resp();
                 header.encode_to(wb, Some(_bs))?;
@@ -467,16 +480,16 @@ pub(crate) fn process_data_blk(
         // );
 
         rb.advance(comp_size); //consume for rb
-        // if comp_size == 1028304 {
-        //     log::debug!("rb[len={}]: {:?}", rb.len(), &rb);
-        //     // unsafe {
-        //     //     log::debug!(
-        //     //         "==0 heading 16B of rb0[len={}] after decompression: {:02x?}",
-        //     //         rb0.len(),
-        //     //         std::slice::from_raw_parts(rb0.as_ptr(), 16)
-        //     //     );
-        //     // }
-        // }
+                               // if comp_size == 1028304 {
+                               //     log::debug!("rb[len={}]: {:?}", rb.len(), &rb);
+                               //     // unsafe {
+                               //     //     log::debug!(
+                               //     //         "==0 heading 16B of rb0[len={}] after decompression: {:02x?}",
+                               //     //         rb0.len(),
+                               //     //         std::slice::from_raw_parts(rb0.as_ptr(), 16)
+                               //     //     );
+                               //     // }
+                               // }
         Ok(raw_size)
     } else {
         let raw_size = rb.len() - EMPTY_CLIENT_BLK_BYTES.len();

@@ -33,7 +33,7 @@ pub enum MetaError {
 
     #[error("System level entities (like system, default database) can not removed")]
     SystemLevelEntitiesCanNotRemoved,
-    
+
     #[error(
         "Entity should exist but can not be read. Contact with developers for help."
     )]
@@ -41,7 +41,6 @@ pub enum MetaError {
 
     // #[error("Database [{0}] has existed")]
     // DbExistedError(u64),
-
     #[error("Entity [{0}] has existed")]
     EntityExistedError(u64),
 
@@ -89,7 +88,6 @@ pub enum MetaError {
 
     // #[error("Error when getting fd size from ps")]
     // GetFdSizeError,
-
     #[error("TransactionError [{0}] happened")]
     WrappingTransactionError(String),
 
@@ -111,7 +109,6 @@ pub enum MetaError {
     #[error("Option is None But should not")]
     OptionIsNoneButShouldNot,
 }
-
 
 impl<T: std::fmt::Display> From<TransactionError<T>> for MetaError {
     fn from(te: TransactionError<T>) -> Self {

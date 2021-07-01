@@ -41,7 +41,7 @@ pub fn get_pool() -> Pool {
 struct Opts {
     /// Sets a custom config file. Could have been an Option<T> with no default too
     #[clap(short, long)]
-    #[allow(dead_code)] 
+    #[allow(dead_code)]
     test_name: Option<String>,
 }
 

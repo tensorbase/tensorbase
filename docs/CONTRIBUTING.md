@@ -4,9 +4,9 @@
 
 # Contribution guide
 
-TensorBase is a community-driven open source project and we welcome any contributor. Contributions to the TensorBase project are expected to adhere to our [Code of Conduct](/specs/CODE_OF_CONDUCT.md).
+TensorBase is an international open source community for next-generation OLAP and we welcome any contributor. Contributions to the TensorBase project are expected to adhere to our [Code of Conduct](/specs/CODE_OF_CONDUCT.md).
 
-This document outlines some conventions about development workflow, commit message formatting, contact points and other resources to make it easier to get your contribution accepted. You can also join us in our Discussions, Discord server, Slack channel or Wechat group for help with any issues.
+This document outlines some key points about development workflow, commit, formatting and other resources to make it easier for you to quickly participate and contribute into the community. You can also join us in the Discussions, Discord server, Slack channel or Wechat group if you need any more help.
 
 <!-- TOC -->
 
@@ -15,10 +15,10 @@ This document outlines some conventions about development workflow, commit messa
     - [Before you get started](#before-you-get-started)
         - [Sign the CLA or use DCO](#sign-the-cla-or-using-dco)
         - [Setup your development environment](#setup-your-development-environment)
-    - [Your First Contribution](#your-first-contribution)
+    - [Find Your First Contribution](#find-your-first-contribution)
     - [Contribution Workflow](#contribution-workflow)
     - [Code review](#code-review)
-        - [Style reference](#style-reference)
+    - [Code Style](#code-style)
 
 <!-- /TOC -->
 
@@ -37,7 +37,7 @@ for DCO: you sign off your commits every time. This is verbose. But if some cont
 TensorBase is written in Rust. Before you start contributing code, you need to set up your Rust development environment.
 
 
-## Your First Contribution
+## Find Your First Contribution
 
 All set to contribute? You can start by finding an existing issue with the [good first issue](https://github.com/tensorbase/tensorbase/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22) or [help-wanted](https://github.com/tensorbase/tensorbase/issues?q=is%3Aissue+is%3Aopen+label%3Ahelp-wanted) label. These issues are well suited for new contributors.
 
@@ -48,12 +48,13 @@ To contribute to the TensorBase code base, please follow the workflow as defined
 1. Create a topic branch from where you want to base your work. This is usually main.
 2. Make commits of logical units and add test case if the change fixes a bug or adds new functionality.
 3. Run tests and make sure all the tests are passed.
-4. Make sure your commit messages are in the proper format (TBD).
-5. Push your changes to a topic branch in your fork of the repository.
-6. Submit a pull request.
-7. If you want core committers to help you easier, select ["Allow edits from maintainers" in the UI of your pull request](https://docs.github.com/en/github/collaborating-with-issues-and-pull-requests/allowing-changes-to-a-pull-request-branch-created-from-a-fork).
+4. Run ```cargo fmt``` before commit to enforce an unified code style.
+5. Make sure your commit messages are in the proper format (TBD).
+6. Push your changes to a topic branch in your fork of the repository.
+7. Submit a pull request.
+8. If you want core committers to help you easier, select ["Allow edits from maintainers" in the UI of your pull request](https://docs.github.com/en/github/collaborating-with-issues-and-pull-requests/allowing-changes-to-a-pull-request-branch-created-from-a-fork).
 
-Thanks for your contributions!
+Base community thanks for your contributions!
 
 ## Code review
 
@@ -61,6 +62,8 @@ If your pull request (PR) is opened, it will be assigned to reviewers. Those rev
 
 To address review comments, you should commit the changes to the same branch of the PR on your fork.
 
-### Style reference
+## Code Style
 
-Keeping a consistent style for code, code comments, commit messages, and pull requests is very important for a project like TensorBase. Now TensorBase uses the tool [*rustfmt*](/rustfmt.toml) to gate the coding style. If you are using IDE like vscode, the style is guanrateened automatically.
+Keeping a consistent style for sources is very important for an open source project like TensorBase. TensorBase now requires all contributors should run ```cargo fmt``` before commit. 
+
+Note: ```cargo fmt``` will use ```rustfmt``` to format the source codes. You should install nightly ```rustfmt``` [via rustup](https://github.com/rust-lang/rustfmt#on-the-nightly-toolchain).

@@ -15,8 +15,8 @@ use super::decoder::ValueReader;
 #[cfg(feature = "int128")]
 use super::value::ValueDecimal128;
 use super::value::{
-    ValueDate, ValueDateTime, ValueDateTime64, ValueDecimal32, ValueDecimal64, ValueIp4, ValueIp6,
-    ValueUuid,
+    ValueDate, ValueDateTime, ValueDateTime64, ValueDecimal32, ValueDecimal64, ValueIp4,
+    ValueIp6, ValueUuid,
 };
 
 use super::{Value, ValueRefEnum};
@@ -806,16 +806,21 @@ pub(crate) struct FixedArrayColumn<T> {
 }
 
 impl<T: Send + IntoArray + 'static> FixedArrayColumn<T> {
-    pub(crate) async fn load_column<R>(mut reader: R, rows: u64) -> Result<Box<dyn AsInColumn>>
+    pub(crate) async fn load_column<R>(
+        mut reader: R,
+        rows: u64,
+    ) -> Result<Box<dyn AsInColumn>>
     where
         R: AsyncBufRead + Unpin,
     {
-        let index: FixedColumn<u64> = FixedColumn::load_column(reader.borrow_mut(), rows).await?;
+        let index: FixedColumn<u64> =
+            FixedColumn::load_column(reader.borrow_mut(), rows).await?;
 
         debug_assert!(index.is_sorted());
 
         let rows = *index.data.last().expect("null size array");
-        let data: FixedColumn<T> = FixedColumn::load_column(reader.borrow_mut(), rows).await?;
+        let data: FixedColumn<T> =
+            FixedColumn::load_column(reader.borrow_mut(), rows).await?;
 
         Ok(Box::new(FixedArrayColumn {
             data: data.data,

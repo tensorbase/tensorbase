@@ -137,7 +137,9 @@ impl Inner {
 
     /// Split self into Stream and ServerInfo
     #[inline]
-    pub(super) fn split(&mut self) -> Option<(&mut (dyn AsyncReadWrite + '_), &mut ServerInfo)> {
+    pub(super) fn split(
+        &mut self,
+    ) -> Option<(&mut (dyn AsyncReadWrite + '_), &mut ServerInfo)> {
         let info = &mut self.info as *mut ServerInfo;
         // SAFETY: This can be risky if caller use returned values inside Connection
         // or InnerConnection methods. Never do it.
@@ -180,7 +182,9 @@ impl Inner {
             );
 
             let (revision, timezone) = match stream.next().await? {
-                Some(Response::Hello(_name, _major, _minor, revision, tz)) => (revision as u32, tz),
+                Some(Response::Hello(_name, _major, _minor, revision, tz)) => {
+                    (revision as u32, tz)
+                }
                 _ => {
                     socket.shutdown(Shutdown::Both)?;
                     return Err(DriverError::ConnectionTimeout.into());
@@ -434,7 +438,8 @@ impl Connection {
 
         info.set_pending();
 
-        let mut stream = ResponseStream::with_capacity(DEFAULT_QUERY_BUF_SIZE, rw, info, timeout);
+        let mut stream =
+            ResponseStream::with_capacity(DEFAULT_QUERY_BUF_SIZE, rw, info, timeout);
 
         stream.write(self.out.as_slice()).await?;
         self.out.truncate(DEF_OUT_BUF_SIZE);

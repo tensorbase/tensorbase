@@ -88,10 +88,8 @@ impl MetaStore {
             .map_err(|_e| MetaError::OpenError)?;
         let tree0 = mdb.open_tree(b"0").map_err(|_e| MetaError::OpenError)?;
         let tree1 = mdb.open_tree(b"1").map_err(|_e| MetaError::OpenError)?;
-        let tree_tabs =
-            mdb.open_tree(b"ts").map_err(|_e| MetaError::OpenError)?;
-        let tree_cols =
-            mdb.open_tree(b"cs").map_err(|_e| MetaError::OpenError)?;
+        let tree_tabs = mdb.open_tree(b"ts").map_err(|_e| MetaError::OpenError)?;
+        let tree_cols = mdb.open_tree(b"cs").map_err(|_e| MetaError::OpenError)?;
         Ok(MetaStore {
             mdb,
             tree0,
@@ -255,8 +253,7 @@ impl MetaStore {
     }
 
     pub fn get_table_names(&self, dbname: &str) -> MetaResult<Vec<String>> {
-        let tbn_iter =
-            self.tree0.scan_prefix([KEY_SYS_IDX_TABS, dbname].join(""));
+        let tbn_iter = self.tree0.scan_prefix([KEY_SYS_IDX_TABS, dbname].join(""));
         let mut rt = vec![];
         for kv in tbn_iter {
             let (_, v) = kv.map_err(|_| MetaError::GetError)?;
@@ -273,8 +270,7 @@ impl MetaStore {
 
     //deprecated, get_tables -> get_table_names
     pub fn get_tables(&self, dbname: &str) -> MetaResult<BaseChunk> {
-        let tbn_iter =
-            self.tree0.scan_prefix([KEY_SYS_IDX_TABS, dbname].join(""));
+        let tbn_iter = self.tree0.scan_prefix([KEY_SYS_IDX_TABS, dbname].join(""));
         let mut rt = vec![];
         let mut size = 0usize;
         for kv in tbn_iter {
@@ -317,18 +313,13 @@ impl MetaStore {
     }
 
     #[inline(always)]
-    fn _get_columns(
-        &self,
-        cnp: &String,
-    ) -> MetaResult<Vec<(String, u64, ColumnInfo)>> {
+    fn _get_columns(&self, cnp: &String) -> MetaResult<Vec<(String, u64, ColumnInfo)>> {
         let ci_iter = self.tree0.scan_prefix(cnp);
         let mut rt = vec![];
         for kv in ci_iter {
             let (bs_qcn, bs_cid) = kv.map_err(|_| MetaError::GetError)?;
-            let cn = unsafe {
-                std::str::from_utf8_unchecked(&(&*bs_qcn)[cnp.len()..])
-            }
-            .to_string();
+            let cn = unsafe { std::str::from_utf8_unchecked(&(&*bs_qcn)[cnp.len()..]) }
+                .to_string();
             let iv_cid = &*bs_cid;
             let cid = *iv_cid.into_ref::<u64>();
             // log::info!("v: {}", unsafe{std::str::from_utf8_unchecked(bs)});
@@ -342,10 +333,7 @@ impl MetaStore {
         Ok(rt)
     }
 
-    pub fn get_column_ids(
-        &self,
-        qtn: &str,
-    ) -> MetaResult<Vec<Id>> {
+    pub fn get_column_ids(&self, qtn: &str) -> MetaResult<Vec<Id>> {
         // let cnp = to_qualified_key!(dbname, tname, "");
         let ci_iter = self.tree0.scan_prefix(qtn);
         let mut rt = vec![];
@@ -380,11 +368,7 @@ impl MetaStore {
     }
 
     //drop all column and table metas
-    pub fn remove_table(
-        &self,
-        dbname: &str,
-        tabname: &str,
-    ) -> MetaResult<(Id, Vec<Id>)> {
+    pub fn remove_table(&self, dbname: &str, tabname: &str) -> MetaResult<(Id, Vec<Id>)> {
         if dbname == "system" {
             return Err(MetaError::SystemLevelEntitiesCanNotRemoved);
         }
@@ -448,12 +432,7 @@ impl MetaStore {
 
     // pub fn create_table(&self, ) -> MetaResult<()> {}
 
-    fn new_col(
-        &self,
-        dbname: &str,
-        tabname: &str,
-        colname: &str,
-    ) -> MetaResult<Id> {
+    fn new_col(&self, dbname: &str, tabname: &str, colname: &str) -> MetaResult<Id> {
         let ks = to_qualified_key!(dbname, tabname, colname);
         self._new(&ks)
     }
@@ -524,10 +503,7 @@ impl MetaStore {
         Ok(())
     }
 
-    pub fn get_table_info_create_script(
-        &self,
-        tid: Id,
-    ) -> MetaResult<Option<IVec>> {
+    pub fn get_table_info_create_script(&self, tid: Id) -> MetaResult<Option<IVec>> {
         self._get_table_info(tid, "cr")
     }
     pub fn get_table_info_partition_keys_expr(
@@ -536,10 +512,7 @@ impl MetaStore {
     ) -> MetaResult<Option<IVec>> {
         self._get_table_info(tid, "pa")
     }
-    pub fn get_table_info_partition_cols(
-        &self,
-        tid: Id,
-    ) -> MetaResult<Option<IVec>> {
+    pub fn get_table_info_partition_cols(&self, tid: Id) -> MetaResult<Option<IVec>> {
         self._get_table_info(tid, "pc")
     }
     pub fn get_table_info_setting(
@@ -558,17 +531,13 @@ impl MetaStore {
         self.tree_tabs.get(key).map_err(|_e| MetaError::GetError)
     }
 
-    #[allow(dead_code)] 
+    #[allow(dead_code)]
     fn get_table_info_engine(&self, tid: Id) -> MetaResult<EngineType> {
         self._get_table_info_prim_int::<u8>(tid, "en")
             .map(|e| EngineType::from(e))
     }
 
-    fn _get_table_info_prim_int<T: PrimInt>(
-        &self,
-        tid: Id,
-        k: &str,
-    ) -> MetaResult<T> {
+    fn _get_table_info_prim_int<T: PrimInt>(&self, tid: Id, k: &str) -> MetaResult<T> {
         let mut key: Vec<u8> = Vec::with_capacity(16);
         key.extend_from_slice(to_key_id_order(tid).as_bytes());
         key.extend_from_slice(k.as_bytes());
@@ -588,12 +557,7 @@ impl MetaStore {
     }
 
     // tree_tabs:
-    fn insert_table_info_kv<T: AsBytes>(
-        &self,
-        tid: Id,
-        k: &str,
-        v: T,
-    ) -> MetaResult<()> {
+    fn insert_table_info_kv<T: AsBytes>(&self, tid: Id, k: &str, v: T) -> MetaResult<()> {
         let mut key: Vec<u8> = Vec::with_capacity(16);
         key.extend_from_slice(to_key_id_order(tid).as_bytes());
         key.extend_from_slice(k.as_bytes());
@@ -608,7 +572,7 @@ impl MetaStore {
         Ok(())
     }
 
-    #[allow(dead_code)] 
+    #[allow(dead_code)]
     fn insert_cell<T: AsBytes, U: AsBytes>(
         &self,
         cid: Id,
@@ -707,7 +671,6 @@ impl MetaStore {
         }
     }
 
-
     pub fn dbid_by_name<T: AsRef<str>>(&self, name: T) -> Option<Id> {
         self.id(name)
     }
@@ -720,7 +683,7 @@ impl MetaStore {
         self.id(qname)
     }
 
-    #[allow(dead_code)] 
+    #[allow(dead_code)]
     fn pretty_print(&self) -> MetaResult<()> {
         let name = &*self.mdb.name();
         println!("mdb: {}", unsafe { std::str::from_utf8_unchecked(&*name) });
@@ -902,11 +865,7 @@ mod unit_tests {
     fn sanity_checks_v2() -> MetaResult<()> {
         #[allow(unused_must_use)]
         {
-            TermLogger::init(
-                LevelFilter::Info,
-                Config::default(),
-                TerminalMode::Mixed,
-            );
+            TermLogger::init(LevelFilter::Info, Config::default(), TerminalMode::Mixed);
         }
 
         let mut t = Table {
@@ -964,7 +923,6 @@ mod unit_tests {
             println!("v: {:?}", ci);
             assert!((cid - 2) as u32 == ci.ordinal);
         }
-
 
         println!("to iter all TabInfos...");
         let res = ms.tree_tabs.iter();

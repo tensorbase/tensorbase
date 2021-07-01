@@ -69,8 +69,8 @@ impl CoPaInfo {
 
 #[inline(always)]
 pub fn open_file_as_fd(fpath: &Vec<u8>) -> MetaResult<u32> {
-    let part_file = CStr::from_bytes_with_nul(fpath)
-        .map_err(|_| MetaError::GetPartInfoError)?;
+    let part_file =
+        CStr::from_bytes_with_nul(fpath).map_err(|_| MetaError::GetPartInfoError)?;
     open(part_file)
 }
 
@@ -89,20 +89,15 @@ pub fn ensure_table_path_existed(tid: Id, dp: &str) -> MetaResult<()> {
     bs_dn[n] = b'/';
     n += 1;
     let dir_path = bytes_cat!(dp.as_bytes(), b"/", &bs_dn[..=n]);
-    let dir = CStr::from_bytes_with_nul(&dir_path)
-        .map_err(|_e| MetaError::GetPartInfoError)?;
+    let dir =
+        CStr::from_bytes_with_nul(&dir_path).map_err(|_e| MetaError::GetPartInfoError)?;
     mkdir(dir)?;
     // log::debug!("mkdir : {:?} done!", &dir);
     Ok(())
 }
 
 #[inline]
-pub fn get_part_path(
-    tid: Id,
-    cid: Id,
-    ptk: u64,
-    dp: &str,
-) -> MetaResult<Vec<u8>> {
+pub fn get_part_path(tid: Id, cid: Id, ptk: u64, dp: &str) -> MetaResult<Vec<u8>> {
     //open file
     let mut bs_fn = [0u8; 56];
     let mut n = itoa::write(&mut bs_fn[..], tid)?;
@@ -158,14 +153,10 @@ impl<'a> PartStore<'a> {
             .cache_capacity(128 * 1024 * 1024) //FIXME configurable
             .open()
             .map_err(|_| MetaError::OpenError)?;
-        let tree_part_size =
-            mdb.open_tree(b"ps").map_err(|_| MetaError::OpenError)?;
-        let tree_parts =
-            mdb.open_tree(b"pt").map_err(|_| MetaError::OpenError)?;
-        let tree_prids =
-            mdb.open_tree(b"pr").map_err(|_| MetaError::OpenError)?;
-        let tree_locks =
-            mdb.open_tree(b"l").map_err(|_e| MetaError::OpenError)?;
+        let tree_part_size = mdb.open_tree(b"ps").map_err(|_| MetaError::OpenError)?;
+        let tree_parts = mdb.open_tree(b"pt").map_err(|_| MetaError::OpenError)?;
+        let tree_prids = mdb.open_tree(b"pr").map_err(|_| MetaError::OpenError)?;
+        let tree_locks = mdb.open_tree(b"l").map_err(|_e| MetaError::OpenError)?;
         tree_locks.clear().map_err(|_e| MetaError::OpenError)?;
 
         Ok(PartStore {
@@ -209,8 +200,10 @@ impl<'a> PartStore<'a> {
     #[inline]
     fn is_locked(&self, tid: Id) -> MetaResult<bool> {
         let kbs = tid.to_be_bytes();
-        let res =
-            self.tree_locks.get(kbs).map_err(|_| MetaError::FailToLockTable)?;
+        let res = self
+            .tree_locks
+            .get(kbs)
+            .map_err(|_| MetaError::FailToLockTable)?;
         match res {
             Some(iv) => {
                 let v = *(&*iv).into_ref::<u8>();
@@ -351,9 +344,8 @@ impl<'a> PartStore<'a> {
                     let fpath = get_part_path(tid, *cid, ptk, dp)?;
                     // println!("fpath: {}", std::str::from_utf8(&fpath).unwrap());
                     let pfd = open_file_as_fd(&fpath)?;
-                    let len_in_bytes = CoPaInfo::len_in_bytes(
-                        size, *col_typ, *cid, ptk, self,
-                    )?;
+                    let len_in_bytes =
+                        CoPaInfo::len_in_bytes(size, *col_typ, *cid, ptk, self)?;
                     // log::debug!("--- copar size: {}, len: {}", size, len_in_bytes);
                     let addr = mm_file_ro(pfd, len_in_bytes)?;
                     //issue#22 add om
@@ -367,7 +359,12 @@ impl<'a> PartStore<'a> {
                     unsafe {
                         close(pfd as i32);
                     }
-                    cps.push(CoPaInfo { addr, addr_om, size, len_in_bytes })
+                    cps.push(CoPaInfo {
+                        addr,
+                        addr_om,
+                        size,
+                        len_in_bytes,
+                    })
                 } else {
                     return Err(MetaError::GetPartInfoError);
                 }
@@ -441,11 +438,7 @@ impl<'a> PartStore<'a> {
             let kbs = &*k;
             let (k0, k1) = kbs.into_ref::<(usize, usize)>();
             let prid = *(&*v).into_ref::<u64>();
-            println!(
-                "(tid, ptk): {:?}, prid: {}",
-                (k0.to_be(), k1.to_be()),
-                prid
-            );
+            println!("(tid, ptk): {:?}, prid: {}", (k0.to_be(), k1.to_be()), prid);
             ss += prid;
         }
         println!("total num of rows: {}", ss);
@@ -526,15 +519,9 @@ impl<'a> PartStore<'a> {
 
 fn mkdir(path: &CStr) -> MetaResult<()> {
     unsafe {
-        let mode =
-            libc::S_IRWXU | libc::S_IRWXG | libc::S_IROTH | libc::S_IXOTH;
+        let mode = libc::S_IRWXU | libc::S_IRWXG | libc::S_IROTH | libc::S_IXOTH;
         let res = libc::mkdir(path.as_ptr(), mode);
-        if res < 0
-            && !matches!(
-                Error::last_os_error().kind(),
-                ErrorKind::AlreadyExists
-            )
-        {
+        if res < 0 && !matches!(Error::last_os_error().kind(), ErrorKind::AlreadyExists) {
             Err(MetaError::WrappingIOError(Error::last_os_error()))
         } else {
             Ok(())
@@ -545,8 +532,7 @@ fn mkdir(path: &CStr) -> MetaResult<()> {
 #[inline(always)]
 fn open(path: &CStr) -> MetaResult<u32> {
     unsafe {
-        let mode =
-            libc::S_IRUSR | libc::S_IWUSR | libc::S_IRGRP | libc::S_IROTH;
+        let mode = libc::S_IRUSR | libc::S_IWUSR | libc::S_IRGRP | libc::S_IROTH;
         let fd = libc::open(
             path.as_ptr(),
             libc::O_CREAT | libc::O_RDWR | libc::O_NOATIME,
@@ -748,9 +734,7 @@ mod unit_tests {
 
         let cids = vec![(1u64, BqlType::UInt(32))]; //faked
         let mut cpss = Vec::new();
-        ps.fill_copainfos_int_by_ptk_range(
-            &mut cpss, tid, &cids, 20200102, 20200103,
-        )?;
+        ps.fill_copainfos_int_by_ptk_range(&mut cpss, tid, &cids, 20200102, 20200103)?;
         let mut ct_part = 0;
         for cps in cpss {
             // println!("copa: {:?}", cpi);

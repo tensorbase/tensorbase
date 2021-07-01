@@ -48,7 +48,7 @@ pub fn unixtime_to_hms(unixtime: i32) -> HMS {
     let (hours, seconds) = div_mod_floor(seconds, 3_600);
     let (minutes, seconds) = div_mod_floor(seconds, 60);
     let (h, m, s) = (hours as u8, minutes as u8, seconds as u8);
-    HMS { h,  m,  s }
+    HMS { h, m, s }
 }
 
 #[inline(always)]
@@ -230,11 +230,7 @@ mod unit_tests {
         for days in 0..4096 * 20 {
             let weekday = days_to_weekday(days);
             let ymd = days_to_ymd(days);
-            let date = NaiveDate::from_ymd(
-                ymd.y as i32,
-                ymd.m as u32,
-                ymd.d as u32
-            );
+            let date = NaiveDate::from_ymd(ymd.y as i32, ymd.m as u32, ymd.d as u32);
             assert_eq!(weekday, date.weekday().number_from_monday() as u8);
         }
     }
@@ -264,11 +260,7 @@ mod unit_tests {
         for epoch in (1..1000_000_000).step_by(1000) {
             let weekday = unixtime_to_weekday(epoch);
             let ymd = unixtime_to_ymd(epoch);
-            let date = NaiveDate::from_ymd(
-                ymd.y as i32,
-                ymd.m as u32,
-                ymd.d as u32
-            );
+            let date = NaiveDate::from_ymd(ymd.y as i32, ymd.m as u32, ymd.d as u32);
             assert_eq!(weekday, date.weekday().number_from_monday() as u8);
         }
     }
@@ -279,9 +271,14 @@ mod unit_tests {
             let ymd = unixtime_to_ymd(epoch as i32);
             let hms = unixtime_to_hms(epoch as i32);
             let seconds = unixtime_to_second(epoch as i32);
-            let converted_epoch = ymdhms_to_unixtime(
-                YMDHMS(ymd.y as i16, ymd.m, ymd.d, hms.h, hms.m, hms.s)
-            );
+            let converted_epoch = ymdhms_to_unixtime(YMDHMS(
+                ymd.y as i16,
+                ymd.m,
+                ymd.d,
+                hms.h,
+                hms.m,
+                hms.s,
+            ));
             assert_eq!(epoch, converted_epoch);
             assert_eq!(hms.s, seconds);
         }

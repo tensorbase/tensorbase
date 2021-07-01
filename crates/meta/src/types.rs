@@ -211,9 +211,7 @@ impl BqlType {
             decimal_item if decimal_item.starts_with(b"Decimal") => {
                 Self::_decimal_type(decimal_item)
             }
-            fixed_string_item
-                if fixed_string_item.starts_with(b"FixedString") =>
-            {
+            fixed_string_item if fixed_string_item.starts_with(b"FixedString") => {
                 match &fixed_string_item[b"FixedString".len()..] {
                     [b'(', len @ .., b')'] => {
                         Ok(BqlType::FixedString(Self::_parse_num(len)?))
@@ -226,8 +224,7 @@ impl BqlType {
     }
 
     fn _parse_num(bytes: &[u8]) -> MetaResult<u8> {
-        btoi::btou(bytes.trim())
-            .map_err(|_e| MetaError::UnknownBqlTypeConversionError)
+        btoi::btou(bytes.trim()).map_err(|_e| MetaError::UnknownBqlTypeConversionError)
     }
 
     fn _decimal_type(decimal_item: &[u8]) -> MetaResult<Self> {
@@ -544,18 +541,9 @@ mod unit_tests {
             BqlType::from_str("Decimal(11 , 3)")?,
             BqlType::Decimal(11, 3)
         );
-        assert_eq!(
-            BqlType::from_str("Decimal( 9, 2)")?,
-            BqlType::Decimal(9, 2)
-        );
-        assert_eq!(
-            BqlType::from_str("Decimal32( 4 )")?,
-            BqlType::Decimal(9, 4)
-        );
-        assert_eq!(
-            BqlType::from_str("Decimal32(  9)")?,
-            BqlType::Decimal(9, 9)
-        );
+        assert_eq!(BqlType::from_str("Decimal( 9, 2)")?, BqlType::Decimal(9, 2));
+        assert_eq!(BqlType::from_str("Decimal32( 4 )")?, BqlType::Decimal(9, 4));
+        assert_eq!(BqlType::from_str("Decimal32(  9)")?, BqlType::Decimal(9, 9));
         assert_eq!(
             BqlType::from_str("Decimal64( 4 )")?,
             BqlType::Decimal(18, 4)
@@ -618,10 +606,7 @@ mod unit_tests {
     #[test]
     fn test_bqltype_to_vec() -> MetaResult<()> {
         assert_eq!(b"String".to_vec(), BqlType::String.to_vec()?);
-        assert_eq!(
-            b"Decimal(11,3)".to_vec(),
-            BqlType::Decimal(11, 3).to_vec()?
-        );
+        assert_eq!(b"Decimal(11,3)".to_vec(), BqlType::Decimal(11, 3).to_vec()?);
         assert_eq!(b"Int8".to_vec(), BqlType::Int(8).to_vec()?);
         assert_eq!(b"Int32".to_vec(), BqlType::Int(32).to_vec()?);
         assert_eq!(b"UInt32".to_vec(), BqlType::UInt(32).to_vec()?);

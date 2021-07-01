@@ -15,6 +15,9 @@ members = [
     "crates/datafusion",
     "crates/datafusion_tests",
     "crates/parquet",
+    "crates/ballista/rust/core",
+    "crates/ballista/rust/executor",
+    "crates/ballista/rust/scheduler",
 ]
 
 [profile.release]

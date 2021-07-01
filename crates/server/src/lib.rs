@@ -47,9 +47,9 @@ impl Future for BaseSrvConn {
                 this.write_buf.write_end_of_stream();
                 return Poll::Ready(Err(BaseRtError::TooBigMessageSize));
             }
-            this.read_buf.ensure_enough_bytes_to_write(this.read_buf.len());
-            let read =
-                Pin::new(&mut this.io).poll_read_buf(cx, &mut this.read_buf);
+            this.read_buf
+                .ensure_enough_bytes_to_write(this.read_buf.len());
+            let read = Pin::new(&mut this.io).poll_read_buf(cx, &mut this.read_buf);
             match read {
                 Poll::Pending => {
                     if !this.read_buf.is_empty() {

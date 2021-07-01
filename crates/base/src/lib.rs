@@ -15,15 +15,21 @@
 *   limitations under the License.
 */
 #![allow(incomplete_features)]
-#![feature(backtrace, specialization, llvm_asm, vec_into_raw_parts, core_intrinsics)]
-pub mod utils;
-pub mod mem;
-pub mod fs;
-pub mod strings;
-pub mod errs;
-pub mod hash;
-pub mod mmap;
-pub mod datetimes;
+#![feature(
+    backtrace,
+    specialization,
+    llvm_asm,
+    vec_into_raw_parts,
+    core_intrinsics
+)]
 pub mod codec;
+pub mod datetimes;
+pub mod errs;
+pub mod fs;
+pub mod hash;
+pub mod mem;
+pub mod mmap;
+pub mod strings;
+pub mod utils;
 
 pub use base_proc_macro::async_test;

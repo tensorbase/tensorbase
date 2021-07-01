@@ -8,7 +8,11 @@ use actix_service::fn_service;
 use baselog::{ConfigBuilder, LevelFilter, TermLogger, TerminalMode};
 use bytes::BytesMut;
 use log::info;
-use runtime::{mgmt::{BMS, READ, WRITE}, read::query, write::write_block};
+use runtime::{
+    mgmt::{BMS, READ, WRITE},
+    read::query,
+    write::write_block,
+};
 use server::BaseSrvConn;
 
 #[global_allocator]

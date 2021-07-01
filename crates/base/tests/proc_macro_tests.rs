@@ -1,6 +1,6 @@
 // #![recursion_limit="512"] //macros bang?
 use base::strings::{bs, bytes_to_cstring, s};
-use base::{with_timer, with_timer_print, debug};
+use base::{debug, with_timer, with_timer_print};
 use std::{ffi::CString, thread, time};
 
 #[test]
@@ -16,10 +16,7 @@ fn integ_test_timing() {
         thread::sleep(ten_millis);
         thread::sleep(ten_millis);
     }
-    assert!(
-        (t1.elapsed() - ten_millis - ten_millis)
-            < time::Duration::from_millis(1)
-    );
+    assert!((t1.elapsed() - ten_millis - ten_millis) < time::Duration::from_millis(1));
 }
 
 #[test]
@@ -41,8 +38,10 @@ fn integ_test_str() {
 
     let dsadsa = String::from("Test2");
     let s = s!(class $dsadsa$1 { float x = $some_float$; $typ$ x =$some_int$ });
-    assert_eq!(s, "class Test21 { float x = 123.45; long long x =123456789101112 }");
-
+    assert_eq!(
+        s,
+        "class Test21 { float x = 123.45; long long x =123456789101112 }"
+    );
 
     let mut class_name = String::from("Test");
     // let member_name = String::from("var");
@@ -53,7 +52,6 @@ fn integ_test_str() {
     let mut class_name = String::from("Test");
     let s = s!(class ${class_name.push('1');class_name}$ { });
     assert_eq!(s, "class Test1 { }");
-
 
     let bs = bs!(dasdsadsa);
     let sbs = bytes_to_cstring(bs);

@@ -16,8 +16,8 @@
 */
 use std::{ffi::CString, str};
 
-pub use base_proc_macro::s;
 pub use base_proc_macro::bs;
+pub use base_proc_macro::s;
 
 pub trait PutIntoString {
     fn put_into_string(self, sbuf: &mut String);
@@ -89,7 +89,6 @@ impl PutIntoString for $name {
 }
 
 def_put_into_string_for_float! { f32, f64,}
-
 
 //for cs
 pub trait PutIntoBytes {
@@ -185,9 +184,9 @@ impl PutIntoBytes for $name {
 
 def_put_into_string_for_float! { f32, f64,}
 
-
 #[inline]
-pub fn remove_whitespace(s: &mut String) {//remove_whitespace
+pub fn remove_whitespace(s: &mut String) {
+    //remove_whitespace
     s.retain(|c| !c.is_whitespace());
 }
 
@@ -209,8 +208,11 @@ impl BytesTrim for [u8] {
         &self[self.iter().take_while(|b| b.is_ascii_whitespace()).count()..]
     }
     fn trim_end(&self) -> &Self {
-        let trimmed =
-            self.iter().rev().take_while(|b| b.is_ascii_whitespace()).count();
+        let trimmed = self
+            .iter()
+            .rev()
+            .take_while(|b| b.is_ascii_whitespace())
+            .count();
         &self[..self.len() - trimmed]
     }
 }
@@ -234,6 +236,6 @@ mod unit_tests {
     fn test_bytes_to_cstring() {
         let cs = super::bytes_to_cstring(b"abc".to_vec());
         crate::debug!(&cs);
-        assert_eq!(cs, CString::new("abc").unwrap() )
+        assert_eq!(cs, CString::new("abc").unwrap())
     }
 }

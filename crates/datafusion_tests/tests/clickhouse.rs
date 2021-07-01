@@ -1,14 +1,13 @@
 #[cfg(test)]
 mod tests {
     use arrow::array::Array;
+    use arrow::datatypes::Timestamp32Type;
     use arrow::{array::PrimitiveArray, datatypes::Date16Type};
     use datafusion::physical_plan::clickhouse::*;
-    use arrow::datatypes::Timestamp32Type;
 
     #[test]
     fn test_to_year() {
-        let a: PrimitiveArray<Date16Type> =
-            vec![Some(1), None, Some(366)].into();
+        let a: PrimitiveArray<Date16Type> = vec![Some(1), None, Some(366)].into();
 
         let b = date16_to_year(&a).unwrap();
         assert_eq!(1970, b.value(0));
@@ -33,8 +32,7 @@ mod tests {
 
     #[test]
     fn test_to_month() {
-        let a: PrimitiveArray<Date16Type> =
-            vec![Some(1), None, Some(364)].into();
+        let a: PrimitiveArray<Date16Type> = vec![Some(1), None, Some(364)].into();
 
         let b = date16_to_month(&a).unwrap();
         assert_eq!(1, b.value(0));
@@ -59,8 +57,7 @@ mod tests {
 
     #[test]
     fn test_to_day_of_month() {
-        let a: PrimitiveArray<Date16Type> =
-            vec![Some(1), None, Some(58)].into();
+        let a: PrimitiveArray<Date16Type> = vec![Some(1), None, Some(58)].into();
 
         let b = date16_to_day_of_month(&a).unwrap();
         assert_eq!(2, b.value(0));
