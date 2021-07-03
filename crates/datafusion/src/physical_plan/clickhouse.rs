@@ -12,12 +12,15 @@ use crate::{
 };
 use arrow::{
     array::{
-        Date16Array, Timestamp32Array, UInt16Array, UInt8Array,
+        Date16Array, Timestamp32Array, UInt16Array, UInt8Array, 
+        BooleanArray, ArrayRef, GenericStringArray, StringOffsetSizeTrait, Array,
     },
     datatypes::DataType,
 };
 use fmt::{Debug, Formatter};
 use std::{fmt, str::FromStr, sync::Arc};
+use std::any::type_name;
+use log::debug;
 
 use base::datetimes::{days_to_year, days_to_ymd, unixtime_to_year, unixtime_to_ymd, unixtime_to_hms, unixtime_to_second, days_to_ordinal, days_to_weekday, unixtime_to_ordinal, unixtime_to_weekday};
 
@@ -44,6 +47,8 @@ pub enum BuiltinScalarFunction {
     ToMinute,
     /// toSecond,
     ToSecond,
+    /// endsWith,
+    EndsWith,
 }
 
 impl fmt::Display for BuiltinScalarFunction {
@@ -68,7 +73,7 @@ impl FromStr for BuiltinScalarFunction {
             "toHour" => BuiltinScalarFunction::ToHour,
             "toMinute" => BuiltinScalarFunction::ToMinute,
             "toSecond" => BuiltinScalarFunction::ToSecond,
-
+            "endsWith" => BuiltinScalarFunction::EndsWith,
             _ => {
                 return Err(DataFusionError::Plan(format!(
                     "There is no built-in clickhouse function named {}",
@@ -99,6 +104,7 @@ impl BuiltinScalarFunction {
             BuiltinScalarFunction::ToHour => Ok(DataType::UInt8),
             BuiltinScalarFunction::ToMinute => Ok(DataType::UInt8),
             BuiltinScalarFunction::ToSecond => Ok(DataType::UInt8),
+            BuiltinScalarFunction::EndsWith => Ok(DataType::Boolean),
         }
     }
 
@@ -118,6 +124,7 @@ impl BuiltinScalarFunction {
             BuiltinScalarFunction::ToHour => expr_to_hour,
             BuiltinScalarFunction::ToMinute => expr_to_minute,
             BuiltinScalarFunction::ToSecond => expr_to_second,
+            BuiltinScalarFunction::EndsWith => expr_ends_with,
         }
     }
 
@@ -136,6 +143,7 @@ impl BuiltinScalarFunction {
             BuiltinScalarFunction::ToHour
             | BuiltinScalarFunction::ToMinute
             | BuiltinScalarFunction::ToSecond => Signature::Uniform(1, vec![DataType::Timestamp32(None)]),
+            BuiltinScalarFunction::EndsWith => Signature::Any(2),
         }
     }
 }
@@ -297,5 +305,97 @@ wrap_datetime_fn! {
     /// wrapping to backend to_second logics
     "toSecond" => fn expr_to_second {
         DataType::Timestamp32(_) => fn timestamp32_to_second(Timestamp32Array) -> UInt8Array,
+    }
+}
+
+
+/// Returns true if string ends with suffix for utf-8.
+pub fn utf8_ends_with(args: &[ArrayRef]) -> Result<BooleanArray> {
+    ends_with::<i32>(args)
+}
+
+/// Returns true if string ends with suffix for large utf-8.
+pub fn large_utf8_ends_with(args: &[ArrayRef]) -> Result<BooleanArray> {
+    ends_with::<i64>(args)
+}
+
+macro_rules! downcast_string_arg {
+    ($ARG:expr, $NAME:expr, $T:ident) => {{
+        $ARG.as_any()
+            .downcast_ref::<GenericStringArray<T>>()
+            .ok_or_else(|| {
+                DataFusionError::Internal(format!(
+                    "could not cast {} to {}",
+                    $NAME,
+                    type_name::<GenericStringArray<T>>()
+                ))
+            })?
+    }};
+}
+
+/// Returns true if string ends with prefix.
+/// endsWith('alphabet', 'alph') = 't'
+fn ends_with<T: StringOffsetSizeTrait>(args: &[ArrayRef]) -> Result<BooleanArray> {
+    if args[0].is_null(0) || args[1].is_null(1) {
+        return Ok(BooleanArray::from(vec![None]));
+    }
+
+    let string_array = downcast_string_arg!(args[0], "string", T);
+    let suffix_array = downcast_string_arg!(args[1], "suffix", T);
+    let suffix = suffix_array.value(0);
+
+    let result = string_array
+        .iter()
+        .map(|string| string.map(|string: &str| string.ends_with(suffix)))
+        .collect::<BooleanArray>();
+    Ok(result)
+}
+
+macro_rules! wrap_string_fn {
+    ( $(
+        $(#[$OUTER:meta])* $NAME:literal => fn $FUNC:ident {
+            $( $DATA_TYPE:pat => fn $OP:ident -> $OUTPUT_TY:ty, )*
+        }
+    )* ) => { $(
+        $(#[$OUTER])*
+        pub fn $FUNC(args: &[ColumnarValue]) -> $crate::error::Result<ColumnarValue> {
+            match args[0].data_type() {
+                $(
+                _data_type @ $DATA_TYPE => {
+                    let len = args
+                        .iter()
+                        .fold(Option::<usize>::None, |acc, arg| match arg {
+                            ColumnarValue::Scalar(_) => acc,
+                            ColumnarValue::Array(a) => Some(a.len()),
+                        });
+                    
+                    // to array
+                    let args = if let Some(len) = len {
+                        args.iter()
+                            .map(|arg| arg.clone().into_array(len))
+                            .collect::<Vec<ArrayRef>>()
+                    } else {
+                        args.iter()
+                            .map(|arg| arg.clone().into_array(1))
+                            .collect::<Vec<ArrayRef>>()
+                    };
+                
+                    let res = $OP(&args)?;
+                    Ok(ColumnarValue::Array(Arc::new(res)))
+                },)*
+                other => Err(DataFusionError::Internal(format!(
+                    "Unsupported data type {:?} for function {}",
+                    other, $NAME,
+                ))),
+            }
+        }
+    )* }
+}
+
+wrap_string_fn! {
+    /// wrapping to backend endsWith logics
+    "endsWith" => fn expr_ends_with {
+        DataType::Utf8 => fn utf8_ends_with -> BooleanArray,
+        DataType::LargeUtf8 => fn large_utf8_ends_with -> BooleanArray,
     }
 }
