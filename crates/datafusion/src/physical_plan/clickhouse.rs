@@ -9,8 +9,8 @@ use crate::scalar::ScalarValue;
 use arrow::{
     array::{
         Date16Array, Int64Array, LargeStringArray, Timestamp32Array, UInt16Array,
-        UInt8Array, UInt16Array, BooleanArray, ArrayRef, GenericStringArray,
-	StringOffsetSizeTrait, Array,
+        UInt8Array, BooleanArray, ArrayRef, GenericStringArray,
+	StringOffsetSizeTrait,
     },
     datatypes::DataType,
 };
@@ -18,7 +18,6 @@ use chrono::prelude::*;
 use fmt::{Debug, Formatter};
 use std::{fmt, str::FromStr, sync::Arc};
 use std::any::type_name;
-use log::debug;
 
 use base::datetimes::{
     days_to_ordinal, days_to_weekday, days_to_year, days_to_ymd, unixtime_to_days,
