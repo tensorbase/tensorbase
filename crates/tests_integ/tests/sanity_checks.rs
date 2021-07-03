@@ -1,7 +1,8 @@
 use client::prelude::*;
 use client::{prelude::errors, types::SqlType};
 mod common;
-use chrono::{DateTime, TimeZone, Utc};
+use chrono::{DateTime, NaiveDate, TimeZone, Utc};
+use chrono_tz::Tz;
 use client::prelude::types::Decimal;
 use common::get_pool;
 // macro_rules! get {
@@ -792,14 +793,20 @@ async fn tests_integ_date_time_functions() -> errors::Result<()> {
         Utc.ymd(2021, 8, 31),
         Utc.ymd(2021, 6, 27),
     ];
+
+    let tz = Tz::Etc__GMTMinus8;
     let data_b = vec![
-        Utc.ymd(2010, 1, 1).and_hms(1, 1, 1),
-        Utc.ymd(2011, 2, 28).and_hms(2, 5, 6),
-        Utc.ymd(2012, 2, 29).and_hms(23, 59, 59),
-        Utc.ymd(2012, 3, 4).and_hms(5, 6, 7),
-        Utc.ymd(2021, 8, 31).and_hms(14, 32, 3),
-        Utc.ymd(2021, 6, 27).and_hms(17, 44, 32),
+        NaiveDate::from_ymd(2010, 1, 1).and_hms(1, 1, 1),
+        NaiveDate::from_ymd(2011, 2, 28).and_hms(2, 5, 6),
+        NaiveDate::from_ymd(2012, 2, 29).and_hms(23, 59, 59),
+        NaiveDate::from_ymd(2012, 3, 4).and_hms(5, 6, 7),
+        NaiveDate::from_ymd(2021, 8, 31).and_hms(14, 32, 3),
+        NaiveDate::from_ymd(2021, 6, 27).and_hms(17, 44, 32),
     ];
+    let data_b: Vec<_> = data_b
+        .into_iter()
+        .map(|b| Utc.from_utc_datetime(&tz.from_local_datetime(&b).unwrap().naive_utc()))
+        .collect();
     let years = vec![2010, 2011, 2012, 2012, 2021, 2021];
     let months = vec![1, 2, 2, 3, 8, 6];
     let quarters = vec![1, 1, 1, 1, 3, 2];

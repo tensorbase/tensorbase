@@ -11,13 +11,11 @@ pub fn query(
     query_id: &str,
     current_db: &str,
     p: Pair<Rule>,
-    tz_offset: i32,
 ) -> BaseRtResult<Vec<Block>> {
     let timer = Instant::now();
     let query_id = query_id.replace("-", "_");
     let raw_query = p.as_str().to_string();
     let mut qs = QueryState::default();
-    qs.tz_offset = tz_offset;
 
     // debug_assert!(ret == 0);
     let res = engine::run(

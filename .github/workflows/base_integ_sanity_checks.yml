@@ -35,6 +35,7 @@ jobs:
             [server]                           
             ip_addr = "localhost"              
             port = 9528   
+            timezone = "Etc/GMT-8"
     - name: TensorBase wait for server up 01
       run: cargo install wait-for-them
     - name: TensorBase wait for server up 02
