@@ -29,13 +29,37 @@ mod tests {
 
         let a: GenericStringArray<i64> = vec![Some("")].into();
         let args = ColumnarValue::Array(Arc::new(a));
-        let b = expr_to_date(&[args]);
-        assert!(b.is_err());
+        let b = expr_to_date(&[args]).unwrap();
+        match b {
+            ColumnarValue::Array(arr) => {
+                assert_eq!(
+                    arr.as_any()
+                        .downcast_ref::<Date16Array>()
+                        .unwrap()
+                        .iter()
+                        .collect::<Vec<_>>(),
+                    vec![None]
+                );
+            }
+            _ => {}
+        }
 
         let a: GenericStringArray<i64> = vec![Some("2012")].into();
         let args = ColumnarValue::Array(Arc::new(a));
-        let b = expr_to_date(&[args]);
-        assert!(b.is_err());
+        let b = expr_to_date(&[args]).unwrap();
+        match b {
+            ColumnarValue::Array(arr) => {
+                assert_eq!(
+                    arr.as_any()
+                        .downcast_ref::<Date16Array>()
+                        .unwrap()
+                        .iter()
+                        .collect::<Vec<_>>(),
+                    vec![None]
+                );
+            }
+            _ => {}
+        }
 
         let a: PrimitiveArray<Int64Type> =
             vec![Some(1262304000_i64), Some(1298851200)].into();
@@ -116,8 +140,18 @@ mod tests {
 
         let a: PrimitiveArray<Date16Type> = vec![None].into();
         let args = ColumnarValue::Array(Arc::new(a));
-        let b = expr_to_year(&[args]);
-        assert!(b.is_err());
+        let b = expr_to_year(&[args]).unwrap();
+
+        match b {
+            ColumnarValue::Array(arr) => {
+                assert_eq!(
+                    arr.as_any()
+                        .downcast_ref::<Date16Array>(),
+                    None
+                );
+            }
+            _ => {}
+        }
     }
 
     #[test]
@@ -157,8 +191,19 @@ mod tests {
 
         let a: PrimitiveArray<Date16Type> = vec![None].into();
         let args = ColumnarValue::Array(Arc::new(a));
-        let b = expr_to_year(&[args]);
-        assert!(b.is_err());
+        let b = expr_to_year(&[args]).unwrap();
+
+        match b {
+            ColumnarValue::Array(arr) => {
+                assert_eq!(
+                    arr.as_any()
+                        .downcast_ref::<UInt8Array>(),
+                    None
+                );
+            }
+            _ => {}
+        }
+
     }
 
     #[test]
@@ -200,8 +245,17 @@ mod tests {
 
         let a: PrimitiveArray<Date16Type> = vec![None].into();
         let args = ColumnarValue::Array(Arc::new(a));
-        let b = expr_to_year(&[args]);
-        assert!(b.is_err());
+        let b = expr_to_year(&[args]).unwrap();
+        match b {
+            ColumnarValue::Array(arr) => {
+                assert_eq!(
+                    arr.as_any()
+                        .downcast_ref::<UInt8Array>(),
+                    None
+                );
+            }
+            _ => {}
+        }
     }
 
     #[test]
@@ -241,8 +295,17 @@ mod tests {
 
         let a: PrimitiveArray<Date16Type> = vec![None].into();
         let args = ColumnarValue::Array(Arc::new(a));
-        let b = expr_to_year(&[args]);
-        assert!(b.is_err());
+        let b = expr_to_year(&[args]).unwrap();
+        match b {
+            ColumnarValue::Array(arr) => {
+                assert_eq!(
+                    arr.as_any()
+                        .downcast_ref::<UInt8Array>(),
+                    None
+                );
+            }
+            _ => {}
+        }
     }
 
     #[test]
@@ -283,8 +346,17 @@ mod tests {
 
         let a: PrimitiveArray<Date16Type> = vec![None].into();
         let args = ColumnarValue::Array(Arc::new(a));
-        let b = expr_to_year(&[args]);
-        assert!(b.is_err());
+        let b = expr_to_year(&[args]).unwrap();
+        match b {
+            ColumnarValue::Array(arr) => {
+                assert_eq!(
+                    arr.as_any()
+                        .downcast_ref::<UInt8Array>(),
+                    None
+                );
+            }
+            _ => {}
+        }
     }
 
     #[test]
@@ -327,8 +399,17 @@ mod tests {
 
         let a: PrimitiveArray<Date16Type> = vec![None].into();
         let args = ColumnarValue::Array(Arc::new(a));
-        let b = expr_to_year(&[args]);
-        assert!(b.is_err());
+        let b = expr_to_year(&[args]).unwrap();
+        match b {
+            ColumnarValue::Array(arr) => {
+                assert_eq!(
+                    arr.as_any()
+                        .downcast_ref::<UInt8Array>(),
+                    None
+                );
+            }
+            _ => {}
+        }
     }
 
     #[test]
@@ -371,8 +452,17 @@ mod tests {
 
         let a: PrimitiveArray<Date16Type> = vec![None].into();
         let args = ColumnarValue::Array(Arc::new(a));
-        let b = expr_to_year(&[args]);
-        assert!(b.is_err());
+        let b = expr_to_year(&[args]).unwrap();
+        match b {
+            ColumnarValue::Array(arr) => {
+                assert_eq!(
+                    arr.as_any()
+                        .downcast_ref::<UInt8Array>(),
+                    None
+                );
+            }
+            _ => {}
+        }
     }
 
     #[test]
