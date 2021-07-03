@@ -7,7 +7,6 @@ pub trait IQueryState {}
 
 pub struct QueryState {
     pub copasss: Vec<Vec<Vec<CoPaInfo>>>,
-    pub tz_offset: i32,
     pub tid: Id,
     pub cis: Vec<(Id, BqlType)>,
 }
@@ -23,7 +22,6 @@ impl Default for QueryState {
     fn default() -> Self {
         QueryState {
             copasss: Vec::new(),
-            tz_offset: 0,
             tid: 0,
             cis: Vec::new(),
         }

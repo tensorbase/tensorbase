@@ -176,7 +176,7 @@ fn gen_part_idxs<T: 'static + Sized + Copy>(
                                                                                         // let siz_typ_ptk = mem::size_of::<T>();
     let ptk_expr_fn = unsafe { mem::transmute::<_, fn(T) -> u64>(ptk_expr_fn_ptr) };
     let is_datetime_typ = matches!(ctyp_ptk, BqlType::DateTime);
-    let tz_ofs = BMS.timezone_sys_offset as i64;
+    let tz_ofs = BMS.timezone.offset() as i64;
     for j in 0..nr {
         //FIXME
         let ptk = if is_datetime_typ {

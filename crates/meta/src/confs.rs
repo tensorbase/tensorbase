@@ -46,6 +46,7 @@ pub struct Server {
     pub ip_addr: String,
     #[serde(default = "Server::default_port")]
     pub port: u16,
+    pub timezone: Option<String>,
 }
 
 impl Server {
@@ -63,6 +64,7 @@ impl Default for Server {
         Server {
             ip_addr: Server::default_ip_addr(),
             port: Server::default_port(),
+            ..Default::default()
         }
     }
 }

@@ -1,9 +1,9 @@
-use base::datetimes::{days_to_ymd, unixtime_to_ymd};
+use base::datetimes::{days_to_ymd, unixtime_to_ymd_utc};
 
 //FIXME expensive a little
 #[allow(non_snake_case)]
 pub fn toYYYY(ut: u64) -> u64 {
-    let ymd = unixtime_to_ymd(ut as i32);
+    let ymd = unixtime_to_ymd_utc(ut as i32);
     ymd.y as u64
 }
 
@@ -21,13 +21,13 @@ pub fn date_toYYYYMM(ut: u64) -> u64 {
 
 #[allow(non_snake_case)]
 pub fn toYYYYMM(ut: u64) -> u64 {
-    let ymd = unixtime_to_ymd(ut as i32);
+    let ymd = unixtime_to_ymd_utc(ut as i32);
     ymd.y as u64 * 100 + ymd.m as u64
 }
 
 #[allow(non_snake_case)]
 pub fn toYYYYMMDD(ut: u64) -> u64 {
-    let ymd = unixtime_to_ymd(ut as i32);
+    let ymd = unixtime_to_ymd_utc(ut as i32);
     ymd.y as u64 * 10000 + ymd.m as u64 * 100 + ymd.d as u64
 }
 
