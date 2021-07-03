@@ -92,7 +92,11 @@ pub fn days_to_ymd(days: i32) -> YMD {
 
 #[inline(always)]
 const fn leaps(years: i32) -> i32 {
-    (years - 1) / 4 - (years - 1) / 100 + (years - 1) / 400
+    let a = years - 1;
+    let b = a >> 2;
+    let c = a / 100;
+    let d = c >> 2;
+    b - c + d
 }
 
 #[inline(always)]
