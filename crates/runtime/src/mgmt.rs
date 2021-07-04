@@ -967,7 +967,8 @@ fn parse_literal_as_bytes(lit: &str, btyp: BqlType) -> BaseRtResult<Vec<u8>> {
             _ => return Err(BaseRtError::UnsupportedValueConversion),
         },
         BqlType::DateTime => {
-            let ut = parse_to_epoch(lit)?;
+            let tz_offset = BMS.timezone.offset();
+            let ut = parse_to_epoch(lit, tz_offset)?;
             let v = ut.to_le_bytes();
             rt.extend(&v);
         }
