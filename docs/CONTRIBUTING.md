@@ -19,6 +19,7 @@ This document outlines some key points about development workflow, commit, forma
     - [Contribution Workflow](#contribution-workflow)
     - [Code review](#code-review)
     - [Code Style](#code-style)
+    - [Convention of the Commit Message](#convention-of-the-commit-message)
 
 <!-- /TOC -->
 
@@ -67,3 +68,41 @@ To address review comments, you should commit the changes to the same branch of 
 Keeping a consistent style for sources is very important for an open source project like TensorBase. TensorBase now requires all contributors should run ```cargo fmt``` before commit. 
 
 Note: ```cargo fmt``` will use ```rustfmt``` to format the source codes. You should install nightly ```rustfmt``` [via rustup](https://github.com/rust-lang/rustfmt#on-the-nightly-toolchain).
+
+## Convention of the Commit Message
+
+Keep [these commit conventions](https://www.conventionalcommits.org/en/v1.0.0/)
+when committing your codes. 
+> It provides an easy set of rules for creating an explicit commit history;
+> which makes it easier to write automated tools on top of.
+
+The commit message should be structured as follows:
+```
+<TYPE>[optional scope]: <description>
+
+[Optional body]
+
+[Optional footer(s)]
+```
+Note that there should be **ONE empty line** between the message header and the 
+body.
+
+We prefer uppercase letters for the `TYPE` word, which is easier to 
+differentiate from the scope, or the description words.
+
+Here is a brief instruction about when to use which type in the commit message:
+> - `BUILD`: Changes that affect the build system or external dependencies (example scopes: cargo, npm)
+> - `CI`: Changes to our CI configuration files and scripts (example scopes: Travis, Circle, BrowserStack, SauceLabs)
+> - `DOCS`: Documentation only changes
+> - `FEAT`: A new feature for the user, not a new feature for build script
+> - `FIX`: A bug fix for the user, not a fix to a build script
+> - `PERF`: A code change that improves performance
+> - `REFACTOR`: A code change that neither fixes a bug nor adds a feature
+> - `STYLE`: Changes that do not affect the meaning of the code (white-space, formatting, missing semi-colons, etc)
+> - `TEST`: Adding missing tests or correcting existing tests
+
+Here are some examples of commit messages:
+- `FEAT(arrow): store the timezone in ``Timestamp32`` as ``BaseTimeZone`` `
+- `DOCS: update the commit conventions`
+- `CHORE(server): update the server's version`
+- `TEST(integ): add sanity checks`
