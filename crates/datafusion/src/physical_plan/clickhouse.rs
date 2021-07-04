@@ -234,14 +234,12 @@ pub fn timestamp32_to_second(array: &Timestamp32Array) -> Result<UInt8Array> {
 }
 
 /// Extracts the date from Timestamp32 array
-#[inline]
-fn timestamp32_to_date(array: &Timestamp32Array) -> Result<Date16Array> {
+pub fn timestamp32_to_date(array: &Timestamp32Array) -> Result<Date16Array> {
     Ok(array.values().iter().map(|x| Some(unixtime_to_days(*x) as u16)).collect())
 }
 
 /// Extracts the date from Int64Array array
-#[inline]
-fn int64_to_date(array: &Int64Array) -> Result<Date16Array> {
+pub fn int64_to_date(array: &Int64Array) -> Result<Date16Array> {
     Ok(array.values().iter().map(|x| Some(unixtime_to_days(*x as i32) as u16)).collect())
 }
 
