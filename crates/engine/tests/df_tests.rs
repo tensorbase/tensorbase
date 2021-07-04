@@ -92,7 +92,6 @@ async fn run_ker_test_arrow(
 ) -> EngineResult<()> {
     // let sql = "select numbers from system.numbers limit 10";
     let mut qs = engine::types::QueryState::default();
-    qs.tz_offset = 8 * 3600;
 
     let timer = Instant::now();
 

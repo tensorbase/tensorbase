@@ -1,8 +1,8 @@
 extern crate chrono;
-extern crate server_mysql;
 extern crate mysql;
 extern crate mysql_common as myc;
 extern crate nom;
+extern crate server_mysql;
 
 use mysql::prelude::*;
 use std::io;
@@ -10,8 +10,8 @@ use std::net;
 use std::thread;
 
 use server_mysql::{
-    Column, ErrorKind, InitWriter, MysqlIntermediary, MysqlShim, ParamParser, QueryResultWriter,
-    StatementMetaWriter,
+    Column, ErrorKind, InitWriter, MysqlIntermediary, MysqlShim, ParamParser,
+    QueryResultWriter, StatementMetaWriter,
 };
 
 struct TestingShim<Q, P, E, I> {
@@ -27,7 +27,11 @@ impl<Q, P, E, I> MysqlShim<net::TcpStream> for TestingShim<Q, P, E, I>
 where
     Q: FnMut(&str, QueryResultWriter<net::TcpStream>) -> io::Result<()>,
     P: FnMut(&str) -> u32,
-    E: FnMut(u32, Vec<server_mysql::ParamValue>, QueryResultWriter<net::TcpStream>) -> io::Result<()>,
+    E: FnMut(
+        u32,
+        Vec<server_mysql::ParamValue>,
+        QueryResultWriter<net::TcpStream>,
+    ) -> io::Result<()>,
     I: FnMut(&str, InitWriter<net::TcpStream>) -> io::Result<()>,
 {
     type Error = io::Error;
@@ -52,7 +56,11 @@ where
 
     fn on_close(&mut self, _: u32) {}
 
-    fn on_init(&mut self, schema: &str, writer: InitWriter<net::TcpStream>) -> io::Result<()> {
+    fn on_init(
+        &mut self,
+        schema: &str,
+        writer: InitWriter<net::TcpStream>,
+    ) -> io::Result<()> {
         (self.on_i)(schema, writer)
     }
 
@@ -71,7 +79,11 @@ where
     P: 'static + Send + FnMut(&str) -> u32,
     E: 'static
         + Send
-        + FnMut(u32, Vec<server_mysql::ParamValue>, QueryResultWriter<net::TcpStream>) -> io::Result<()>,
+        + FnMut(
+            u32,
+            Vec<server_mysql::ParamValue>,
+            QueryResultWriter<net::TcpStream>,
+        ) -> io::Result<()>,
     I: 'static + Send + FnMut(&str, InitWriter<net::TcpStream>) -> io::Result<()>,
 {
     fn new(on_q: Q, on_p: P, on_e: E, on_i: I) -> Self {
@@ -251,7 +263,9 @@ fn error_response() {
         |_, _| unreachable!(),
     )
     .test(|db| {
-        if let mysql::Error::MySqlError(e) = db.query_iter("SELECT a, b FROM foo").unwrap_err() {
+        if let mysql::Error::MySqlError(e) =
+            db.query_iter("SELECT a, b FROM foo").unwrap_err()
+        {
             assert_eq!(
                 e,
                 mysql::error::MySqlError {

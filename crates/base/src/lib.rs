@@ -20,7 +20,8 @@
     specialization,
     llvm_asm,
     vec_into_raw_parts,
-    core_intrinsics
+    core_intrinsics,
+    once_cell
 )]
 pub mod codec;
 pub mod datetimes;

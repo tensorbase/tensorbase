@@ -15,7 +15,9 @@ chrono = "0.4"
 num-integer = "0.1"
 num-traits = "0.2"
 crc32c = "0.6"
+chrono-tz = "0.5"
+serde = "1.0"
+serde_derive = "1.0"
 
 [dev-dependencies]
 anyhow = "1.0"
-# chrono = "0.4"

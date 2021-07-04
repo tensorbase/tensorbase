@@ -260,7 +260,7 @@ fn response_hello(
     wb.write_varint(DBMS_VERSION_MAJOR);
     wb.write_varint(DBMS_VERSION_MINOR);
     wb.write_varint(REVISION);
-    wb.write_str(&BMS.timezone_sys);
+    wb.write_str(BMS.timezone.name());
     wb.write_str(DBMS_NAME);
     wb.write_varint(DBMS_VERSION_PATCH);
 

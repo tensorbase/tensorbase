@@ -3,8 +3,8 @@ use crate::myc::io::WriteMysqlExt;
 use crate::packet::PacketWriter;
 use crate::{Column, ErrorKind};
 use byteorder::{LittleEndian, WriteBytesExt};
+use myc::constants::{CapabilityFlags, UTF8_GENERAL_CI};
 use std::io::{self, Write};
-use myc::constants::{UTF8_GENERAL_CI, CapabilityFlags};
 
 pub(crate) fn write_eof_packet<W: Write>(
     w: &mut PacketWriter<W>,
@@ -53,7 +53,10 @@ pub(crate) fn write_handshake_packet<W: Write>(
     // 5.1.10 because that's what Ruby's ActiveRecord requires
     w.write_all(&b"5.1.10-alpha-msql-proxy\0"[..])?;
 
-    let capabilities = CapabilityFlags::CLIENT_PROTOCOL_41 | CapabilityFlags::CLIENT_PLUGIN_AUTH | CapabilityFlags::CLIENT_SECURE_CONNECTION | CapabilityFlags::CLIENT_CONNECT_WITH_DB;
+    let capabilities = CapabilityFlags::CLIENT_PROTOCOL_41
+        | CapabilityFlags::CLIENT_PLUGIN_AUTH
+        | CapabilityFlags::CLIENT_SECURE_CONNECTION
+        | CapabilityFlags::CLIENT_CONNECT_WITH_DB;
 
     w.write_u32::<LittleEndian>(connection_id)?;
     w.write_all(&nonce[0..8])?;
@@ -72,7 +75,11 @@ pub(crate) fn write_handshake_packet<W: Write>(
     w.end_packet()
 }
 
-pub fn write_err<W: Write>(err: ErrorKind, msg: &[u8], w: &mut PacketWriter<W>) -> io::Result<()> {
+pub fn write_err<W: Write>(
+    err: ErrorKind,
+    msg: &[u8],
+    w: &mut PacketWriter<W>,
+) -> io::Result<()> {
     w.write_u8(0xFF)?;
     w.write_u16::<LittleEndian>(err as u16)?;
     w.write_u8(b'#')?;
@@ -148,7 +155,10 @@ where
     }
 }
 
-pub(crate) fn column_definitions<'a, I, W>(i: I, w: &mut PacketWriter<W>) -> io::Result<()>
+pub(crate) fn column_definitions<'a, I, W>(
+    i: I,
+    w: &mut PacketWriter<W>,
+) -> io::Result<()>
 where
     I: IntoIterator<Item = &'a Column>,
     <I as IntoIterator>::IntoIter: ExactSizeIterator,

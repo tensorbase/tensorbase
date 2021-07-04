@@ -23,6 +23,7 @@ lightjit = { path = "../lightjit" }
 baselog = { git = "https://github.com/tensorbase/baselog.git", branch = "main" }
 clickhouse-rs-cityhash-sys = "0.1.2"
 arrow = { path = "../arrow" }
+datafusion = { path = "../datafusion", features = ["simd"] }
 
 [dev-dependencies]
 test_utils = { path = "../test_utils" }

@@ -1,10 +1,10 @@
 use base::{
-    codec::encode_ascii_bytes_vec_short, datetimes::parse_to_epoch, mem::SyncPointer,
+    codec::encode_ascii_bytes_vec_short,
+    datetimes::{parse_to_epoch, BaseTimeZone},
+    mem::SyncPointer,
     strings::s,
 };
 use bytes::BytesMut;
-use chrono::{Local, Offset, TimeZone};
-use chrono_tz::{OffsetComponents, OffsetName, TZ_VARIANTS};
 use dashmap::DashMap;
 use lang::parse::{
     parse_command, parse_create_database, parse_create_table, parse_desc_table,
@@ -26,6 +26,7 @@ use std::{
     panic::panic_any,
     path::Path,
     pin::Pin,
+    str::FromStr,
     sync::Mutex,
     time::Instant,
 };
@@ -40,6 +41,7 @@ use crate::{
     },
     errs::{BaseRtError, BaseRtResult},
 };
+use datafusion::physical_plan::clickhouse::DEFAULT_TIMEZONE;
 
 pub static READ: SyncOnceCell<
     fn(
@@ -48,7 +50,6 @@ pub static READ: SyncOnceCell<
         query_id: &str,
         current_db: &str,
         p: Pair<Rule>,
-        tz_offset: i32,
     ) -> BaseRtResult<Vec<Block>>,
 > = SyncOnceCell::new();
 
@@ -188,8 +189,7 @@ pub struct BaseMgmtSys<'a> {
     pub meta_store: MetaStore,
     pub part_store: PartStore<'a>,
     pub ptk_exprs_reg: DashMap<Id, SyncPointer<u8>, BuildPtkExprsHasher>,
-    pub timezone_sys: String,
-    pub timezone_sys_offset: i32,
+    pub timezone: BaseTimeZone,
 }
 
 impl<'a> BaseMgmtSys<'a> {
@@ -198,26 +198,13 @@ impl<'a> BaseMgmtSys<'a> {
         let meta_store =
             MetaStore::new(ms_path).map_err(|e| BaseRtError::WrappingMetaError(e))?;
         let part_store = PartStore::new(ms_path, &conf.system.data_dirs)?;
-        let (timezone_sys, timezone_sys_offset) = {
-            let mut ret = ("GMT".to_string(), 0);
-            let ctz = Local::now().offset().fix();
-            for tz in TZ_VARIANTS.iter() {
-                let some_time = tz.ymd(1, 1, 1).and_hms(0, 0, 0);
-                let stz = some_time.offset().fix();
-                if stz == ctz {
-                    let tz_sys = some_time.offset().tz_id();
-                    let tz_sys_offset =
-                        some_time.offset().base_utc_offset().num_seconds() as i32;
-                    log::info!(
-                        "current timezone sets to {}",
-                        tz_sys,
-                        // tz_sys_offset
-                    );
-                    ret = (tz_sys.to_string(), tz_sys_offset)
-                }
-            }
-            ret
+        let timezone = match &conf.server.timezone {
+            Some(tz_name) => BaseTimeZone::from_str(&tz_name)?,
+            _ => BaseTimeZone::from_local().unwrap_or_default(),
         };
+        DEFAULT_TIMEZONE.get_or_init(|| timezone.clone());
+        log::info!("current timezone sets to {}", timezone);
+
         //prepare two system level databases
         let res = meta_store.new_db("system");
         match res {
@@ -265,8 +252,7 @@ impl<'a> BaseMgmtSys<'a> {
             meta_store,
             part_store,
             ptk_exprs_reg,
-            timezone_sys,
-            timezone_sys_offset,
+            timezone,
         })
     }
 
@@ -591,16 +577,7 @@ impl<'a> BaseMgmtSys<'a> {
                 command_insert_into_gen_header(&tab, &qtn, ms, &mut blk, dbn, tn)?;
             }
             Some(vt) => {
-                command_insert_into_gen_block(
-                    &tab,
-                    &qtn,
-                    ms,
-                    &mut blk,
-                    dbn,
-                    tn,
-                    vt,
-                    self.timezone_sys_offset,
-                )?;
+                command_insert_into_gen_block(&tab, &qtn, ms, &mut blk, dbn, tn, vt)?;
             }
         }
 
@@ -791,14 +768,7 @@ impl<'a> BaseMgmtSys<'a> {
         // raw_query: String,
     ) -> BaseRtResult<BaseCommandKind> {
         let read = READ.get().unwrap();
-        let blks = read(
-            &self.meta_store,
-            &self.part_store,
-            query_id,
-            current_db,
-            p,
-            self.timezone_sys_offset,
-        )?;
+        let blks = read(&self.meta_store, &self.part_store, query_id, current_db, p)?;
         Ok(BaseCommandKind::Query(blks))
     }
 
@@ -931,11 +901,7 @@ fn command_insert_into_gen_header(
     Ok(())
 }
 
-fn parse_literal_as_bytes(
-    lit: &str,
-    btyp: BqlType,
-    tz_offset: i32,
-) -> BaseRtResult<Vec<u8>> {
+fn parse_literal_as_bytes(lit: &str, btyp: BqlType) -> BaseRtResult<Vec<u8>> {
     let mut rt = Vec::new();
     match btyp {
         BqlType::UInt(bits) => match bits {
@@ -1001,10 +967,8 @@ fn parse_literal_as_bytes(
             _ => return Err(BaseRtError::UnsupportedValueConversion),
         },
         BqlType::DateTime => {
-            let ut = (parse_to_epoch(lit)
-                .map_err(|_e| BaseRtError::InsertIntoValueParsingError)?
-                as i64
-                - (tz_offset as i64)) as u32;
+            let tz_offset = BMS.timezone.offset();
+            let ut = parse_to_epoch(lit, tz_offset)?;
             let v = ut.to_le_bytes();
             rt.extend(&v);
         }
@@ -1026,7 +990,6 @@ fn command_insert_into_gen_block(
     dbn: &str,
     tn: &str,
     rows: Vec<Vec<String>>,
-    tz_offset: i32,
 ) -> BaseRtResult<()> {
     let nr = rows.len();
     if tab.columns.len() != 0 {
@@ -1052,7 +1015,7 @@ fn command_insert_into_gen_block(
         //     let mut data: Vec<u8> = Vec::new();
         //     for i in 0..nr {
         //         let lit = &rows[i][ic];
-        //         let bs = parse_literal_as_bytes(lit, btype, tz_offset)?;
+        //         let bs = parse_literal_as_bytes(lit, btype)?;
         //         data.extend(bs);
         //     }
         //     blk.columns.push(Column {
@@ -1085,7 +1048,7 @@ fn command_insert_into_gen_block(
             let mut data: Vec<u8> = Vec::new();
             for i in 0..nr {
                 let lit = &rows[i][ic];
-                let bs = parse_literal_as_bytes(lit, btype, tz_offset)?;
+                let bs = parse_literal_as_bytes(lit, btype)?;
                 data.extend(bs);
             }
             blk.columns.push(Column {

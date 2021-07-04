@@ -2,13 +2,13 @@
 //! a MySQL database. To try this out, start a PostgreSQL database at localhost:5432, and then run
 //! this example. Notice that `main` does *not* use PostgreSQL bindings, just MySQL ones!
 
-extern crate server_mysql;
 extern crate mysql;
 extern crate postgres;
+extern crate server_mysql;
 extern crate slab;
 
-use server_mysql::*;
 use mysql::prelude::*;
+use server_mysql::*;
 use slab::Slab;
 
 use std::io;
@@ -114,7 +114,11 @@ impl Postgres {
 impl<W: io::Write> MysqlShim<W> for Postgres {
     type Error = postgres::Error;
 
-    fn on_prepare(&mut self, query: &str, info: StatementMetaWriter<W>) -> Result<(), Self::Error> {
+    fn on_prepare(
+        &mut self,
+        query: &str,
+        info: StatementMetaWriter<W>,
+    ) -> Result<(), Self::Error> {
         match self.connection.prepare(query) {
             Ok(stmt) => {
                 // the PostgreSQL server will tell us about the parameter types and output columns
@@ -231,7 +235,11 @@ impl<W: io::Write> MysqlShim<W> for Postgres {
         self.prepared.remove(id as usize);
     }
 
-    fn on_query(&mut self, query: &str, results: QueryResultWriter<W>) -> Result<(), Self::Error> {
+    fn on_query(
+        &mut self,
+        query: &str,
+        results: QueryResultWriter<W>,
+    ) -> Result<(), Self::Error> {
         answer_rows(results, self.connection.query(query, &[]))
     }
 }
@@ -270,13 +278,21 @@ fn answer_rows<W: io::Write>(
             for row in &rows {
                 for (c, col) in cols.iter().enumerate() {
                     match col.coltype {
-                        ColumnType::MYSQL_TYPE_SHORT => writer.write_col(row.get::<_, i16>(c))?,
-                        ColumnType::MYSQL_TYPE_LONG => writer.write_col(row.get::<_, i32>(c))?,
+                        ColumnType::MYSQL_TYPE_SHORT => {
+                            writer.write_col(row.get::<_, i16>(c))?
+                        }
+                        ColumnType::MYSQL_TYPE_LONG => {
+                            writer.write_col(row.get::<_, i32>(c))?
+                        }
                         ColumnType::MYSQL_TYPE_LONGLONG => {
                             writer.write_col(row.get::<_, i64>(c))?
                         }
-                        ColumnType::MYSQL_TYPE_FLOAT => writer.write_col(row.get::<_, f32>(c))?,
-                        ColumnType::MYSQL_TYPE_DOUBLE => writer.write_col(row.get::<_, f64>(c))?,
+                        ColumnType::MYSQL_TYPE_FLOAT => {
+                            writer.write_col(row.get::<_, f32>(c))?
+                        }
+                        ColumnType::MYSQL_TYPE_DOUBLE => {
+                            writer.write_col(row.get::<_, f64>(c))?
+                        }
                         ColumnType::MYSQL_TYPE_STRING => {
                             writer.write_col(row.get::<_, String>(c))?
                         }
