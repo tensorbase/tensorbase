@@ -243,35 +243,35 @@ def_datetime_fn! {
     }
     /// Extracts the years from Timestamp32 array
     fn timestamp32_to_year(array: &Timestamp32Array, tz) -> Result<UInt16Array> {
-        |x, tz| Some(unixtime_to_year(x? as i32, tz))
+        |x, tz| Some(unixtime_to_year(x? as i32, tz.offset()))
     }
     /// Extracts the months from Timestamp32 array
     fn timestamp32_to_month(array: &Timestamp32Array, tz) -> Result<UInt8Array> {
-        |x, tz| Some(unixtime_to_ymd(x? as i32, tz).m)
+        |x, tz| Some(unixtime_to_ymd(x? as i32, tz.offset()).m)
     }
     /// Extracts the days of year from Timestamp32 array
     fn timestamp32_to_day_of_year(array: &Timestamp32Array, tz) -> Result<UInt16Array> {
-        |x, tz| Some(unixtime_to_ordinal(x? as i32, tz))
+        |x, tz| Some(unixtime_to_ordinal(x? as i32, tz.offset()))
     }
     /// Extracts the days of month from Timestamp32 array
     fn timestamp32_to_day_of_month(array: &Timestamp32Array, tz) -> Result<UInt8Array> {
-        |x, tz| Some(unixtime_to_ymd(x? as i32, tz).d)
+        |x, tz| Some(unixtime_to_ymd(x? as i32, tz.offset()).d)
     }
     /// Extracts the days of week from Timestamp32 array
     fn timestamp32_to_day_of_week(array: &Timestamp32Array, tz) -> Result<UInt8Array> {
-        |x, tz| Some(unixtime_to_weekday(x? as i32, tz))
+        |x, tz| Some(unixtime_to_weekday(x? as i32, tz.offset()))
     }
     /// Extracts the months from Timestamp32 array
     fn timestamp32_to_quarter(array: &Timestamp32Array, tz) -> Result<UInt8Array> {
-        |x, tz| Some(month_to_quarter(unixtime_to_ymd(x? as i32, tz).m))
+        |x, tz| Some(month_to_quarter(unixtime_to_ymd(x? as i32, tz.offset()).m))
     }
     /// Extracts the hours from Timestamp32 array
     fn timestamp32_to_hour(array: &Timestamp32Array, tz) -> Result<UInt8Array> {
-        |x, tz| Some(unixtime_to_hms(x? as i32, tz).h)
+        |x, tz| Some(unixtime_to_hms(x? as i32, tz.offset()).h)
     }
     /// Extracts the minutes from Timestamp32 array
     fn timestamp32_to_minute(array: &Timestamp32Array, tz) -> Result<UInt8Array> {
-        |x, tz| Some(unixtime_to_hms(x? as i32, tz).m)
+        |x, tz| Some(unixtime_to_hms(x? as i32, tz.offset()).m)
     }
     /// Extracts the seconds from Timestamp32 array
     fn timestamp32_to_second(array: &Timestamp32Array, _tz) -> Result<UInt8Array> {
