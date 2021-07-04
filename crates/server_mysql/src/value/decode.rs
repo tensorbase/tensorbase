@@ -85,7 +85,11 @@ macro_rules! read_bytes {
 }
 
 impl<'a> ValueInner<'a> {
-    fn parse_from(input: &mut &'a [u8], ct: ColumnType, unsigned: bool) -> io::Result<Self> {
+    fn parse_from(
+        input: &mut &'a [u8],
+        ct: ColumnType,
+        unsigned: bool,
+    ) -> io::Result<Self> {
         match ct {
             ColumnType::MYSQL_TYPE_STRING
             | ColumnType::MYSQL_TYPE_VAR_STRING
@@ -310,7 +314,9 @@ mod tests {
                 let v: $t = $v;
                 data.write_bin_value(&myc::value::Value::from(v)).unwrap();
                 assert_eq!(
-                    Into::<$t>::into(Value::parse_from(&mut &data[..], $ct, !$sig).unwrap()),
+                    Into::<$t>::into(
+                        Value::parse_from(&mut &data[..], $ct, !$sig).unwrap()
+                    ),
                     v
                 );
             }

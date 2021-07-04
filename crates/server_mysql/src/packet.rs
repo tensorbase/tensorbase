@@ -1,8 +1,8 @@
 use byteorder::{ByteOrder, LittleEndian};
 use std::io;
 use std::io::prelude::*;
-use tokio::io::AsyncReadExt;
 use tokio::io::AsyncRead;
+use tokio::io::AsyncReadExt;
 
 const U24_MAX: usize = 16_777_215;
 

@@ -5,8 +5,8 @@
 //! $
 //! ```
 
-extern crate server_mysql;
 extern crate mysql;
+extern crate server_mysql;
 
 use server_mysql::*;
 use std::io;

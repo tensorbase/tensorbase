@@ -95,14 +95,14 @@
 
 extern crate mysql_common as myc;
 
+use async_trait::async_trait;
 use std::collections::HashMap;
 use std::io;
 use std::io::prelude::*;
 use std::iter;
 use std::net;
-use async_trait::async_trait;
-use tokio::io::{AsyncWrite, AsyncWriteExt};
 use tokio::io::AsyncRead;
+use tokio::io::{AsyncWrite, AsyncWriteExt};
 
 pub use crate::myc::constants::{ColumnFlags, ColumnType, StatusFlags};
 
@@ -136,12 +136,14 @@ pub struct Column {
 
 pub use crate::errorcodes::ErrorKind;
 pub use crate::params::{ParamParser, ParamValue, Params};
-pub use crate::resultset::{InitWriter, QueryResultWriter, RowWriter, StatementMetaWriter};
+pub use crate::resultset::{
+    InitWriter, QueryResultWriter, RowWriter, StatementMetaWriter,
+};
 pub use crate::value::{ToMysqlValue, Value, ValueInner};
-use std::io::Cursor;
 use crate::writers::write_handshake_packet;
-use nom::AsBytes;
 use myc::scramble::scramble_native;
+use nom::AsBytes;
+use std::io::Cursor;
 
 /// Implementors of this trait can be used to drive a MySQL-compatible database backend.
 pub trait MysqlShim<W: Write> {
@@ -227,8 +229,8 @@ pub trait AsyncMysqlShim<W: Write + Send> {
     /// Called when the client wishes to deallocate resources associated with a previously prepared
     /// statement.
     async fn on_close<'a>(&'a mut self, stmt: u32)
-        where
-            W: 'async_trait;
+    where
+        W: 'async_trait;
 
     /// Called when the client issues a query for immediate execution.
     ///
@@ -241,23 +243,30 @@ pub trait AsyncMysqlShim<W: Write + Send> {
     ) -> Result<(), Self::Error>;
 
     /// Called when client switches database.
-    async fn on_init<'a>(&'a mut self, _: &'a str, _: InitWriter<'a, W>) -> Result<(), Self::Error> {
+    async fn on_init<'a>(
+        &'a mut self,
+        _: &'a str,
+        _: InitWriter<'a, W>,
+    ) -> Result<(), Self::Error> {
         Ok(())
     }
 
     /// Generate salt for native auth plugin
     async fn generate_nonce<'a>(&'a mut self) -> Result<Vec<u8>, Self::Error>
-        where
-            W: 'async_trait
+    where
+        W: 'async_trait,
     {
-        let random_bytes: Vec<u8> = (0..20).map(|_| { rand::random::<u8>() }).collect();
+        let random_bytes: Vec<u8> = (0..20).map(|_| rand::random::<u8>()).collect();
         Ok(random_bytes)
     }
 
     /// Return Some if auth is required
-    async fn on_auth<'a>(&'a mut self, _user: Vec<u8>) -> Result<Option<Vec<u8>>, Self::Error>
-        where
-            W: 'async_trait
+    async fn on_auth<'a>(
+        &'a mut self,
+        _user: Vec<u8>,
+    ) -> Result<Option<Vec<u8>>, Self::Error>
+    where
+        W: 'async_trait,
     {
         Ok(None)
     }
@@ -348,12 +357,18 @@ impl<B: MysqlShim<W>, R: Read, W: Write> MysqlIntermediary<B, R, W> {
                         if let nom::error::ErrorKind::Eof = nom_e_kind {
                             io::Error::new(
                                 io::ErrorKind::UnexpectedEof,
-                                format!("client did not complete handshake; got {:?}", input),
+                                format!(
+                                    "client did not complete handshake; got {:?}",
+                                    input
+                                ),
                             )
                         } else {
                             io::Error::new(
                                 io::ErrorKind::InvalidData,
-                                format!("bad client handshake; got {:?} ({:?})", input, nom_e_kind),
+                                format!(
+                                    "bad client handshake; got {:?} ({:?})",
+                                    input, nom_e_kind
+                                ),
                             )
                         }
                     }
@@ -402,13 +417,15 @@ impl<B: MysqlShim<W>, R: Read, W: Write> MysqlIntermediary<B, R, W> {
                         };
                         let schema = ::std::str::from_utf8(&q[b"USE ".len()..])
                             .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
-                        let schema = schema.trim().trim_end_matches(';').trim_matches('`');
+                        let schema =
+                            schema.trim().trim_end_matches(';').trim_matches('`');
                         self.shim.on_init(&schema, w)?;
                     } else {
                         let w = QueryResultWriter::new(&mut self.writer, false);
                         self.shim.on_query(
-                            ::std::str::from_utf8(q)
-                                .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?,
+                            ::std::str::from_utf8(q).map_err(|e| {
+                                io::Error::new(io::ErrorKind::InvalidData, e)
+                            })?,
                             w,
                         )?;
                     }
@@ -445,7 +462,10 @@ impl<B: MysqlShim<W>, R: Read, W: Write> MysqlIntermediary<B, R, W> {
                         .ok_or_else(|| {
                             io::Error::new(
                                 io::ErrorKind::InvalidData,
-                                format!("got long data packet for unknown statement {}", stmt),
+                                format!(
+                                    "got long data packet for unknown statement {}",
+                                    stmt
+                                ),
                             )
                         })?
                         .long_data
@@ -478,7 +498,12 @@ impl<B: MysqlShim<W>, R: Read, W: Write> MysqlIntermediary<B, R, W> {
                     )?;
                 }
                 Command::Ping => {
-                    writers::write_ok_packet(&mut self.writer, 0, 0, StatusFlags::empty())?;
+                    writers::write_ok_packet(
+                        &mut self.writer,
+                        0,
+                        0,
+                        StatusFlags::empty(),
+                    )?;
                 }
                 Command::Quit => {
                     break;
@@ -495,10 +520,12 @@ impl<B: MysqlShim<W>, R: Read, W: Write> MysqlIntermediary<B, R, W> {
 pub struct AsyncMysqlIntermediary<B, R: AsyncRead + AsyncWrite + Unpin> {
     shim: B,
     reader: packet::PacketReader<R>,
-    writer: packet::PacketWriter<Cursor<Vec<u8>>>
+    writer: packet::PacketWriter<Cursor<Vec<u8>>>,
 }
 
-impl<B: AsyncMysqlShim<Cursor<Vec<u8>>> + Send, R: AsyncRead + AsyncWrite + Unpin> AsyncMysqlIntermediary<B, R> {
+impl<B: AsyncMysqlShim<Cursor<Vec<u8>>> + Send, R: AsyncRead + AsyncWrite + Unpin>
+    AsyncMysqlIntermediary<B, R>
+{
     /// Create a new server over two one-way channels and process client commands until the client
     /// disconnects or an error occurs.
     pub async fn run_on(shim: B, stream: R) -> Result<(), B::Error> {
@@ -507,7 +534,7 @@ impl<B: AsyncMysqlShim<Cursor<Vec<u8>>> + Send, R: AsyncRead + AsyncWrite + Unpi
         let mut mi = AsyncMysqlIntermediary {
             shim,
             reader: r,
-            writer: w
+            writer: w,
         };
         if !mi.init().await? {
             return Ok(());
@@ -539,12 +566,18 @@ impl<B: AsyncMysqlShim<Cursor<Vec<u8>>> + Send, R: AsyncRead + AsyncWrite + Unpi
                         if let nom::error::ErrorKind::Eof = nom_e_kind {
                             io::Error::new(
                                 io::ErrorKind::UnexpectedEof,
-                                format!("client did not complete handshake; got {:?}", input),
+                                format!(
+                                    "client did not complete handshake; got {:?}",
+                                    input
+                                ),
                             )
                         } else {
                             io::Error::new(
                                 io::ErrorKind::InvalidData,
-                                format!("bad client handshake; got {:?} ({:?})", input, nom_e_kind),
+                                format!(
+                                    "bad client handshake; got {:?} ({:?})",
+                                    input, nom_e_kind
+                                ),
                             )
                         }
                     }
@@ -558,30 +591,43 @@ impl<B: AsyncMysqlShim<Cursor<Vec<u8>>> + Send, R: AsyncRead + AsyncWrite + Unpi
 
         if let Some(password) = auth_option {
             if password.is_empty() {
-                writers::write_err(ErrorKind::ER_PASSWORD_NO_MATCH, b"Incorrect user name or password", &mut self.writer)?;
+                writers::write_err(
+                    ErrorKind::ER_PASSWORD_NO_MATCH,
+                    b"Incorrect user name or password",
+                    &mut self.writer,
+                )?;
                 self.writer_flush().await?;
                 return Ok(false);
             } else {
-                let encrypted = scramble_native(nonce.as_slice(), password.as_slice()).unwrap();
+                let encrypted =
+                    scramble_native(nonce.as_slice(), password.as_slice()).unwrap();
 
-                let auth =
-                    if handshake.auth_plugin == Some(plugin.to_vec()) {
-                        handshake.auth.clone()
-                    } else {
-                        writers::write_auth_switch_packet(&mut self.writer, plugin, nonce.as_slice())?;
-                        self.writer_flush().await?;
-                        let (seq, auth) = self.reader.next_async().await?.ok_or_else(|| {
+                let auth = if handshake.auth_plugin == Some(plugin.to_vec()) {
+                    handshake.auth.clone()
+                } else {
+                    writers::write_auth_switch_packet(
+                        &mut self.writer,
+                        plugin,
+                        nonce.as_slice(),
+                    )?;
+                    self.writer_flush().await?;
+                    let (seq, auth) =
+                        self.reader.next_async().await?.ok_or_else(|| {
                             io::Error::new(
                                 io::ErrorKind::ConnectionAborted,
                                 "peer terminated connection",
                             )
                         })?;
-                        self.writer.set_seq(seq + 1);
-                        auth.as_bytes().to_vec()
-                    };
+                    self.writer.set_seq(seq + 1);
+                    auth.as_bytes().to_vec()
+                };
 
                 if auth.as_slice() != encrypted {
-                    writers::write_err(ErrorKind::ER_PASSWORD_NO_MATCH, b"Incorrect user name or password", &mut self.writer)?;
+                    writers::write_err(
+                        ErrorKind::ER_PASSWORD_NO_MATCH,
+                        b"Incorrect user name or password",
+                        &mut self.writer,
+                    )?;
                     self.writer_flush().await?;
                     return Ok(false);
                 }
@@ -638,15 +684,19 @@ impl<B: AsyncMysqlShim<Cursor<Vec<u8>>> + Send, R: AsyncRead + AsyncWrite + Unpi
                         };
                         let schema = ::std::str::from_utf8(&q[b"USE ".len()..])
                             .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
-                        let schema = schema.trim().trim_end_matches(';').trim_matches('`');
+                        let schema =
+                            schema.trim().trim_end_matches(';').trim_matches('`');
                         self.shim.on_init(&schema, w).await?;
                     } else {
                         let w = QueryResultWriter::new(&mut self.writer, false);
-                        self.shim.on_query(
-                            ::std::str::from_utf8(q)
-                                .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?,
-                            w,
-                        ).await?;
+                        self.shim
+                            .on_query(
+                                ::std::str::from_utf8(q).map_err(|e| {
+                                    io::Error::new(io::ErrorKind::InvalidData, e)
+                                })?,
+                                w,
+                            )
+                            .await?;
                     }
                 }
                 Command::Prepare(q) => {
@@ -655,11 +705,14 @@ impl<B: AsyncMysqlShim<Cursor<Vec<u8>>> + Send, R: AsyncRead + AsyncWrite + Unpi
                         stmts: &mut stmts,
                     };
 
-                    self.shim.on_prepare(
-                        ::std::str::from_utf8(q)
-                            .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?,
-                        w,
-                    ).await?;
+                    self.shim
+                        .on_prepare(
+                            ::std::str::from_utf8(q).map_err(|e| {
+                                io::Error::new(io::ErrorKind::InvalidData, e)
+                            })?,
+                            w,
+                        )
+                        .await?;
                 }
                 Command::Execute { stmt, params } => {
                     let state = stmts.get_mut(&stmt).ok_or_else(|| {
@@ -681,7 +734,10 @@ impl<B: AsyncMysqlShim<Cursor<Vec<u8>>> + Send, R: AsyncRead + AsyncWrite + Unpi
                         .ok_or_else(|| {
                             io::Error::new(
                                 io::ErrorKind::InvalidData,
-                                format!("got long data packet for unknown statement {}", stmt),
+                                format!(
+                                    "got long data packet for unknown statement {}",
+                                    stmt
+                                ),
                             )
                         })?
                         .long_data
@@ -707,14 +763,22 @@ impl<B: AsyncMysqlShim<Cursor<Vec<u8>>> + Send, R: AsyncRead + AsyncWrite + Unpi
                     let w = InitWriter {
                         writer: &mut self.writer,
                     };
-                    self.shim.on_init(
-                        ::std::str::from_utf8(schema)
-                            .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?,
-                        w,
-                    ).await?;
+                    self.shim
+                        .on_init(
+                            ::std::str::from_utf8(schema).map_err(|e| {
+                                io::Error::new(io::ErrorKind::InvalidData, e)
+                            })?,
+                            w,
+                        )
+                        .await?;
                 }
                 Command::Ping => {
-                    writers::write_ok_packet(&mut self.writer, 0, 0, StatusFlags::empty())?;
+                    writers::write_ok_packet(
+                        &mut self.writer,
+                        0,
+                        0,
+                        StatusFlags::empty(),
+                    )?;
                 }
                 Command::Quit => {
                     break;

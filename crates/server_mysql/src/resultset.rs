@@ -234,7 +234,10 @@ where
     #[inline]
     fn start(&mut self) -> io::Result<()> {
         if !self.columns.is_empty() {
-            writers::column_definitions(self.columns, self.result.as_mut().unwrap().writer)?;
+            writers::column_definitions(
+                self.columns,
+                self.result.as_mut().unwrap().writer,
+            )?;
         }
         Ok(())
     }

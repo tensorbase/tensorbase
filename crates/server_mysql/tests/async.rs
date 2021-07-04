@@ -1,20 +1,23 @@
 #![feature(async_closure)]
 extern crate chrono;
 extern crate futures;
-extern crate server_mysql;
 extern crate mysql_async;
 extern crate mysql_common as myc;
 extern crate nom;
+extern crate server_mysql;
 extern crate tokio;
 
 use futures::{Future, IntoFuture};
 use mysql_async::prelude::*;
 use std::io;
 
-use server_mysql::{Column, ErrorKind, ParamParser, QueryResultWriter, StatementMetaWriter, AsyncMysqlShim, AsyncMysqlIntermediary};
+use async_trait::async_trait;
+use server_mysql::{
+    AsyncMysqlIntermediary, AsyncMysqlShim, Column, ErrorKind, ParamParser,
+    QueryResultWriter, StatementMetaWriter,
+};
 use std::io::Cursor;
 use tokio::net::TcpListener;
-use async_trait::async_trait;
 use tokio::task;
 
 struct TestingShim<Q, P, E> {
@@ -28,12 +31,19 @@ struct TestingShim<Q, P, E> {
 #[async_trait]
 impl<Q, P, E> AsyncMysqlShim<Cursor<Vec<u8>>> for TestingShim<Q, P, E>
 where
-    Q: 'static + Send + Sync + FnMut(&str, QueryResultWriter<Cursor<Vec<u8>>>) -> io::Result<()>,
-    P: 'static + Send + Sync+ FnMut(&str) -> u32,
+    Q: 'static
+        + Send
+        + Sync
+        + FnMut(&str, QueryResultWriter<Cursor<Vec<u8>>>) -> io::Result<()>,
+    P: 'static + Send + Sync + FnMut(&str) -> u32,
     E: 'static
         + Send
         + Sync
-        + FnMut(u32, Vec<server_mysql::ParamValue>, QueryResultWriter<Cursor<Vec<u8>>>) -> io::Result<()>,
+        + FnMut(
+            u32,
+            Vec<server_mysql::ParamValue>,
+            QueryResultWriter<Cursor<Vec<u8>>>,
+        ) -> io::Result<()>,
 {
     type Error = io::Error;
 
@@ -65,7 +75,10 @@ where
         (self.on_q)(query, results)
     }
 
-    async fn on_auth<'a>(&'a mut self, user: Vec<u8>) -> Result<Option<Vec<u8>>, Self::Error> {
+    async fn on_auth<'a>(
+        &'a mut self,
+        user: Vec<u8>,
+    ) -> Result<Option<Vec<u8>>, Self::Error> {
         Ok(if user == b"foo" {
             Some(b"bar".to_vec())
         } else {
@@ -76,12 +89,19 @@ where
 
 impl<Q, P, E> TestingShim<Q, P, E>
 where
-    Q: 'static + Send + Sync + FnMut(&str, QueryResultWriter<Cursor<Vec<u8>>>) -> io::Result<()>,
-    P: 'static + Send + Sync+ FnMut(&str) -> u32,
+    Q: 'static
+        + Send
+        + Sync
+        + FnMut(&str, QueryResultWriter<Cursor<Vec<u8>>>) -> io::Result<()>,
+    P: 'static + Send + Sync + FnMut(&str) -> u32,
     E: 'static
         + Send
         + Sync
-        + FnMut(u32, Vec<server_mysql::ParamValue>, QueryResultWriter<Cursor<Vec<u8>>>) -> io::Result<()>,
+        + FnMut(
+            u32,
+            Vec<server_mysql::ParamValue>,
+            QueryResultWriter<Cursor<Vec<u8>>>,
+        ) -> io::Result<()>,
 {
     fn new(on_q: Q, on_p: P, on_e: E) -> Self {
         TestingShim {
@@ -114,14 +134,13 @@ where
         let listen = tokio::spawn(async move {
             let (socket, _) = listener.accept().await.unwrap();
 
-            AsyncMysqlIntermediary::run_on(
-                self,
-                socket,
-            ).await.unwrap();
+            AsyncMysqlIntermediary::run_on(self, socket).await.unwrap();
         });
 
         let conn = task::spawn_blocking(move || {
-            mysql_async::Conn::new(format!("mysql://127.0.0.1:{}", port)).and_then(|conn| c(conn)).wait()
+            mysql_async::Conn::new(format!("mysql://127.0.0.1:{}", port))
+                .and_then(|conn| c(conn))
+                .wait()
         });
 
         let (r1, r2) = tokio::join!(listen, conn);
@@ -131,9 +150,9 @@ where
     }
 
     async fn test_with_password<C, F>(self, c: C, user: String, password: String)
-        where
-            F: IntoFuture<Item = (), Error = mysql_async::error::Error>,
-            C: FnOnce(mysql_async::Conn) -> F + Send + Sync + 'static,
+    where
+        F: IntoFuture<Item = (), Error = mysql_async::error::Error>,
+        C: FnOnce(mysql_async::Conn) -> F + Send + Sync + 'static,
     {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let port = listener.local_addr().unwrap().port();
@@ -141,14 +160,16 @@ where
         let listen = tokio::spawn(async move {
             let (socket, _) = listener.accept().await.unwrap();
 
-            AsyncMysqlIntermediary::run_on(
-                self,
-                socket,
-            ).await.unwrap();
+            AsyncMysqlIntermediary::run_on(self, socket).await.unwrap();
         });
 
         let conn = task::spawn_blocking(move || {
-            mysql_async::Conn::new(format!("mysql://{}:{}@127.0.0.1:{}", user, password, port)).and_then(|conn| c(conn)).wait()
+            mysql_async::Conn::new(format!(
+                "mysql://{}:{}@127.0.0.1:{}",
+                user, password, port
+            ))
+            .and_then(|conn| c(conn))
+            .wait()
         });
 
         let (r1, r2) = tokio::join!(listen, conn);
@@ -165,7 +186,8 @@ async fn it_connects() {
         |_| unreachable!(),
         |_, _, _| unreachable!(),
     )
-    .test(|_| Ok(())).await;
+    .test(|_| Ok(()))
+    .await;
 }
 
 #[tokio::test]
@@ -175,7 +197,8 @@ async fn it_connects_with_password() {
         |_| unreachable!(),
         |_, _, _| unreachable!(),
     )
-        .test_with_password(|_| Ok(()), "foo".to_string(), "bar".to_string()).await;
+    .test_with_password(|_| Ok(()), "foo".to_string(), "bar".to_string())
+    .await;
 }
 
 #[tokio::test]
@@ -186,7 +209,8 @@ async fn it_connects_with_wrong_password() {
         |_| unreachable!(),
         |_, _, _| unreachable!(),
     )
-        .test_with_password(|_| Ok(()), "foo".to_string(), "bar1".to_string()).await;
+    .test_with_password(|_| Ok(()), "foo".to_string(), "bar1".to_string())
+    .await;
 }
 
 #[tokio::test]
@@ -196,7 +220,8 @@ async fn it_pings() {
         |_| unreachable!(),
         |_, _, _| unreachable!(),
     )
-    .test(|db| db.ping().map(|_| ())).await;
+    .test(|db| db.ping().map(|_| ()))
+    .await;
 }
 
 #[tokio::test]
@@ -213,7 +238,8 @@ async fn empty_response() {
                 assert_eq!(rs.len(), 0);
                 Ok(())
             })
-    }).await;
+    })
+    .await;
 }
 
 #[tokio::test]
@@ -236,7 +262,8 @@ async fn no_rows() {
                 assert_eq!(rs.len(), 0);
                 Ok(())
             })
-    }).await;
+    })
+    .await;
 }
 
 #[tokio::test]
@@ -253,7 +280,8 @@ async fn no_columns() {
                 assert_eq!(rs.len(), 0);
                 Ok(())
             })
-    }).await;
+    })
+    .await;
 }
 
 #[tokio::test]
@@ -270,7 +298,8 @@ async fn no_columns_but_rows() {
                 assert_eq!(rs.len(), 0);
                 Ok(())
             })
-    }).await;
+    })
+    .await;
 }
 
 #[tokio::test]
@@ -284,7 +313,8 @@ async fn really_long_query() {
         |_| unreachable!(),
         |_, _, _| unreachable!(),
     )
-    .test(move |db| db.drop_query(long).map(|_| ())).await;
+    .test(move |db| db.drop_query(long).map(|_| ()))
+    .await;
 }
 
 #[tokio::test]
@@ -300,11 +330,13 @@ async fn error_response() {
         db.query("SELECT a, b FROM foo").then(move |r| {
             match r {
                 Ok(_) => assert!(false),
-                Err(mysql_async::error::Error::Server(mysql_async::error::ServerError {
-                    code,
-                    message: ref msg,
-                    ref state,
-                })) => {
+                Err(mysql_async::error::Error::Server(
+                    mysql_async::error::ServerError {
+                        code,
+                        message: ref msg,
+                        ref state,
+                    },
+                )) => {
                     assert_eq!(
                         state,
                         &String::from_utf8(err.0.sqlstate().to_vec()).unwrap()
@@ -319,7 +351,8 @@ async fn error_response() {
             }
             Ok(())
         })
-    }).await;
+    })
+    .await;
 }
 
 #[tokio::test]
@@ -342,7 +375,8 @@ async fn empty_on_drop() {
                 assert_eq!(rs.len(), 0);
                 Ok(())
             })
-    }).await;
+    })
+    .await;
 }
 
 #[tokio::test]
@@ -371,7 +405,8 @@ async fn it_queries_nulls() {
                 assert_eq!(rs[0][0], mysql_async::Value::NULL);
                 Ok(())
             })
-    }).await;
+    })
+    .await;
 }
 
 #[tokio::test]
@@ -400,7 +435,8 @@ async fn it_queries() {
                 assert_eq!(rs[0].get::<i16, _>(0), Some(1024));
                 Ok(())
             })
-    }).await;
+    })
+    .await;
 }
 
 #[tokio::test]
@@ -444,7 +480,8 @@ async fn it_queries_many_rows() {
                 assert_eq!(rs[1].get::<i16, _>(1), Some(1025));
                 Ok(())
             })
-    }).await;
+    })
+    .await;
 }
 
 #[tokio::test]
@@ -495,7 +532,8 @@ async fn it_prepares() {
                 assert_eq!(rs[0].get::<i16, _>(0), Some(1024));
                 Ok(())
             })
-    }).await;
+    })
+    .await;
 }
 
 #[tokio::test]
@@ -617,7 +655,8 @@ async fn insert_exec() {
             assert_eq!(res.last_insert_id(), Some(1));
             Ok(())
         })
-    }).await;
+    })
+    .await;
 }
 
 #[tokio::test]
@@ -668,7 +707,8 @@ async fn send_long() {
                 assert_eq!(rs[0].get::<i16, _>(0), Some(1024));
                 Ok(())
             })
-    }).await;
+    })
+    .await;
 }
 
 #[tokio::test]
@@ -722,7 +762,8 @@ async fn it_prepares_many() {
                 assert_eq!(rs[1].get::<i16, _>(1), Some(1025));
                 Ok(())
             })
-    }).await;
+    })
+    .await;
 }
 
 #[tokio::test]
@@ -758,7 +799,8 @@ async fn prepared_empty() {
                 assert_eq!(rs.len(), 0);
                 Ok(())
             })
-    }).await;
+    })
+    .await;
 }
 
 #[tokio::test]
@@ -793,7 +835,8 @@ async fn prepared_no_params() {
                 assert_eq!(rs[0].get::<i16, _>(0), Some(1024));
                 Ok(())
             })
-    }).await;
+    })
+    .await;
 }
 
 #[tokio::test]
@@ -866,7 +909,8 @@ async fn prepared_nulls() {
             assert_eq!(rs[0].get::<i16, _>(1), Some(42));
             Ok(())
         })
-    }).await;
+    })
+    .await;
 }
 
 #[tokio::test]
@@ -891,7 +935,8 @@ async fn prepared_no_rows() {
                 assert_eq!(rs.len(), 0);
                 Ok(())
             })
-    }).await;
+    })
+    .await;
 }
 
 #[tokio::test]
@@ -908,7 +953,8 @@ async fn prepared_no_cols_but_rows() {
                 assert_eq!(rs.len(), 0);
                 Ok(())
             })
-    }).await;
+    })
+    .await;
 }
 
 #[tokio::test]
@@ -925,5 +971,6 @@ async fn prepared_no_cols() {
                 assert_eq!(rs.len(), 0);
                 Ok(())
             })
-    }).await;
+    })
+    .await;
 }

@@ -331,7 +331,9 @@ impl ToMysqlValue for f32 {
     mysql_text_trivial!();
     fn to_mysql_bin<W: Write>(&self, w: &mut W, c: &Column) -> io::Result<()> {
         match c.coltype {
-            ColumnType::MYSQL_TYPE_DOUBLE => w.write_f64::<LittleEndian>(f64::from(*self)),
+            ColumnType::MYSQL_TYPE_DOUBLE => {
+                w.write_f64::<LittleEndian>(f64::from(*self))
+            }
             ColumnType::MYSQL_TYPE_FLOAT => w.write_f32::<LittleEndian>(*self),
             _ => Err(bad(self, c)),
         }
@@ -416,7 +418,8 @@ use chrono::{self, Datelike, NaiveDate, NaiveDateTime, Timelike};
 impl ToMysqlValue for NaiveDate {
     fn to_mysql_text<W: Write>(&self, w: &mut W) -> io::Result<()> {
         w.write_lenenc_str(
-            format!("{:04}-{:02}-{:02}", self.year(), self.month(), self.day()).as_bytes(),
+            format!("{:04}-{:02}-{:02}", self.year(), self.month(), self.day())
+                .as_bytes(),
         )
         .map(|_| ())
     }
@@ -596,11 +599,16 @@ impl ToMysqlValue for myc::value::Value {
                 // smallest containing type, and then call on that
                 let signed = !c.colflags.contains(ColumnFlags::UNSIGNED_FLAG);
                 if signed {
-                    if n >= i64::from(i8::min_value()) && n <= i64::from(i8::max_value()) {
+                    if n >= i64::from(i8::min_value()) && n <= i64::from(i8::max_value())
+                    {
                         (n as i8).to_mysql_bin(w, c)
-                    } else if n >= i64::from(i16::min_value()) && n <= i64::from(i16::max_value()) {
+                    } else if n >= i64::from(i16::min_value())
+                        && n <= i64::from(i16::max_value())
+                    {
                         (n as i16).to_mysql_bin(w, c)
-                    } else if n >= i64::from(i32::min_value()) && n <= i64::from(i32::max_value()) {
+                    } else if n >= i64::from(i32::min_value())
+                        && n <= i64::from(i32::max_value())
+                    {
                         (n as i32).to_mysql_bin(w, c)
                     } else {
                         n.to_mysql_bin(w, c)

@@ -18,8 +18,7 @@ pub fn client_handshake(i: &[u8]) -> nom::IResult<&[u8], ClientHandshake> {
     let (i, cap) = nom::number::complete::le_u16(i)?;
 
     let capabilities = CapabilityFlags::from_bits_truncate(cap as u32);
-    if capabilities.contains(CapabilityFlags::CLIENT_PROTOCOL_41)
-    {
+    if capabilities.contains(CapabilityFlags::CLIENT_PROTOCOL_41) {
         // HandshakeResponse41
         let (i, cap2) = nom::number::complete::le_u16(i)?;
         let cap = (cap2 as u32) << 16 | cap as u32;
@@ -29,13 +28,14 @@ pub fn client_handshake(i: &[u8]) -> nom::IResult<&[u8], ClientHandshake> {
         let (i, collation) = nom::bytes::complete::take(1u8)(i)?;
         let (i, _) = nom::bytes::complete::take(23u8)(i)?;
         let (i, username) = parse_zero_terminated_string(i)?;
-        let (i, auth) =
-            if capabilities.contains(CapabilityFlags::CLIENT_PLUGIN_AUTH_LENENC_CLIENT_DATA) ||
-                capabilities.contains(CapabilityFlags::CLIENT_SECURE_CONNECTION) {
-                parse_len_enc_string(i)?
-            } else {
-                parse_zero_terminated_string(i)?
-            };
+        let (i, auth) = if capabilities
+            .contains(CapabilityFlags::CLIENT_PLUGIN_AUTH_LENENC_CLIENT_DATA)
+            || capabilities.contains(CapabilityFlags::CLIENT_SECURE_CONNECTION)
+        {
+            parse_len_enc_string(i)?
+        } else {
+            parse_zero_terminated_string(i)?
+        };
         let (i, database) =
             if capabilities.contains(CapabilityFlags::CLIENT_CONNECT_WITH_DB) {
                 nom::combinator::map(parse_zero_terminated_string, |v| Some(v))(i)?
@@ -85,7 +85,7 @@ pub fn client_handshake(i: &[u8]) -> nom::IResult<&[u8], ClientHandshake> {
                 username,
                 database,
                 auth,
-                auth_plugin: None
+                auth_plugin: None,
             },
         ))
     }
@@ -145,9 +145,24 @@ pub fn parse_len_enc_string(i: &[u8]) -> nom::IResult<&[u8], Vec<u8>> {
 
 pub fn parse_len_enc_int(i: &[u8]) -> nom::IResult<&[u8], u64> {
     nom::branch::alt((
-        nom::sequence::preceded(nom::bytes::complete::tag(&[0xFE]), nom::number::complete::le_u64),
-        nom::combinator::map(nom::sequence::preceded(nom::bytes::complete::tag(&[0xFD]), nom::number::complete::le_u24), |v| v as u64),
-        nom::combinator::map(nom::sequence::preceded(nom::bytes::complete::tag(&[0xFC]), nom::number::complete::le_u16), |v| v as u64),
+        nom::sequence::preceded(
+            nom::bytes::complete::tag(&[0xFE]),
+            nom::number::complete::le_u64,
+        ),
+        nom::combinator::map(
+            nom::sequence::preceded(
+                nom::bytes::complete::tag(&[0xFD]),
+                nom::number::complete::le_u24,
+            ),
+            |v| v as u64,
+        ),
+        nom::combinator::map(
+            nom::sequence::preceded(
+                nom::bytes::complete::tag(&[0xFC]),
+                nom::number::complete::le_u16,
+            ),
+            |v| v as u64,
+        ),
         nom::combinator::map(nom::number::complete::le_u8, |v| v as u64),
     ))(i)
 }
@@ -200,10 +215,10 @@ mod tests {
     #[test]
     fn it_parses_handshake() {
         let data = &[
-            0x27, 0x00, 0x00, 0x01, 0x85, 0xa6, 0x3f, 0x20, 0x00, 0x00, 0x00, 0x01, 0x21, 0x00,
-            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x6a, 0x6f, 0x6e, 0x00, 0x00, 0x00,
-            0x00,
+            0x27, 0x00, 0x00, 0x01, 0x85, 0xa6, 0x3f, 0x20, 0x00, 0x00, 0x00, 0x01, 0x21,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x6a, 0x6f, 0x6e,
+            0x00, 0x00, 0x00, 0x00,
         ];
         let r = Cursor::new(&data[..]);
         let mut pr = PacketReader::new(r);
@@ -230,9 +245,9 @@ mod tests {
     #[test]
     fn it_parses_request() {
         let data = &[
-            0x21, 0x00, 0x00, 0x00, 0x03, 0x73, 0x65, 0x6c, 0x65, 0x63, 0x74, 0x20, 0x40, 0x40,
-            0x76, 0x65, 0x72, 0x73, 0x69, 0x6f, 0x6e, 0x5f, 0x63, 0x6f, 0x6d, 0x6d, 0x65, 0x6e,
-            0x74, 0x20, 0x6c, 0x69, 0x6d, 0x69, 0x74, 0x20, 0x31,
+            0x21, 0x00, 0x00, 0x00, 0x03, 0x73, 0x65, 0x6c, 0x65, 0x63, 0x74, 0x20, 0x40,
+            0x40, 0x76, 0x65, 0x72, 0x73, 0x69, 0x6f, 0x6e, 0x5f, 0x63, 0x6f, 0x6d, 0x6d,
+            0x65, 0x6e, 0x74, 0x20, 0x6c, 0x69, 0x6d, 0x69, 0x74, 0x20, 0x31,
         ];
         let r = Cursor::new(&data[..]);
         let mut pr = PacketReader::new(r);
@@ -250,9 +265,9 @@ mod tests {
         // in a future version. The mysql command line tool issues one of these commands after
         // switching databases with USE <DB>.
         let data = &[
-            0x21, 0x00, 0x00, 0x00, 0x04, 0x73, 0x65, 0x6c, 0x65, 0x63, 0x74, 0x20, 0x40, 0x40,
-            0x76, 0x65, 0x72, 0x73, 0x69, 0x6f, 0x6e, 0x5f, 0x63, 0x6f, 0x6d, 0x6d, 0x65, 0x6e,
-            0x74, 0x20, 0x6c, 0x69, 0x6d, 0x69, 0x74, 0x20, 0x31,
+            0x21, 0x00, 0x00, 0x00, 0x04, 0x73, 0x65, 0x6c, 0x65, 0x63, 0x74, 0x20, 0x40,
+            0x40, 0x76, 0x65, 0x72, 0x73, 0x69, 0x6f, 0x6e, 0x5f, 0x63, 0x6f, 0x6d, 0x6d,
+            0x65, 0x6e, 0x74, 0x20, 0x6c, 0x69, 0x6d, 0x69, 0x74, 0x20, 0x31,
         ];
         let r = Cursor::new(&data[..]);
         let mut pr = PacketReader::new(r);
