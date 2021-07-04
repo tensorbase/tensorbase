@@ -32,6 +32,9 @@ pub enum BaseError {
     #[error("Invalid datetime digit")]
     InvalidDatetimeDigit,
 
+    #[error("Invalid time zone {0}")]
+    InvalidTimeZone(String),
+
     #[error("Failed to mmap")]
     FailedToMmap,
 
