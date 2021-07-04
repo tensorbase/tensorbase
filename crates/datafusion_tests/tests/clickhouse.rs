@@ -2,7 +2,7 @@
 mod tests {
     use arrow::array::{UInt16Array, UInt8Array};
     use arrow::{
-        array::{Date16Array, GenericStringArray, PrimitiveArray},
+        array::{Date16Array, PrimitiveArray},
         datatypes::{Date16Type, Int64Type, Timestamp32Type},
     };
     use datafusion::physical_plan::{clickhouse::*, ColumnarValue};
@@ -10,57 +10,6 @@ mod tests {
 
     #[test]
     fn test_to_date() {
-        let a: GenericStringArray<i64> = vec!["2020-02-01", "2022-10-28"].into();
-        let args = ColumnarValue::Array(Arc::new(a));
-        let b = expr_to_date(&[args]).unwrap();
-        match b {
-            ColumnarValue::Array(arr) => {
-                assert_eq!(
-                    arr.as_any()
-                        .downcast_ref::<Date16Array>()
-                        .unwrap()
-                        .iter()
-                        .collect::<Vec<_>>(),
-                    vec![Some(18293), Some(19293)]
-                );
-            }
-            _ => {}
-        }
-
-        let a: GenericStringArray<i64> = vec![Some("")].into();
-        let args = ColumnarValue::Array(Arc::new(a));
-        let b = expr_to_date(&[args]).unwrap();
-        match b {
-            ColumnarValue::Array(arr) => {
-                assert_eq!(
-                    arr.as_any()
-                        .downcast_ref::<Date16Array>()
-                        .unwrap()
-                        .iter()
-                        .collect::<Vec<_>>(),
-                    vec![None]
-                );
-            }
-            _ => {}
-        }
-
-        let a: GenericStringArray<i64> = vec![Some("2012")].into();
-        let args = ColumnarValue::Array(Arc::new(a));
-        let b = expr_to_date(&[args]).unwrap();
-        match b {
-            ColumnarValue::Array(arr) => {
-                assert_eq!(
-                    arr.as_any()
-                        .downcast_ref::<Date16Array>()
-                        .unwrap()
-                        .iter()
-                        .collect::<Vec<_>>(),
-                    vec![None]
-                );
-            }
-            _ => {}
-        }
-
         let a: PrimitiveArray<Int64Type> =
             vec![Some(1262304000_i64), Some(1298851200)].into();
         let args = ColumnarValue::Array(Arc::new(a));
@@ -102,10 +51,7 @@ mod tests {
 
     #[test]
     fn stress_to_date() {
-        let a: GenericStringArray<i64> = std::iter::repeat("2020-2-1")
-            .take(4096)
-            .collect::<Vec<_>>()
-            .into();
+        let a: PrimitiveArray<Timestamp32Type> = vec![1625131000].into();
         let args = [ColumnarValue::Array(Arc::new(a))];
 
         let ts = ::std::time::Instant::now();
@@ -144,11 +90,7 @@ mod tests {
 
         match b {
             ColumnarValue::Array(arr) => {
-                assert_eq!(
-                    arr.as_any()
-                        .downcast_ref::<Date16Array>(),
-                    None
-                );
+                assert_eq!(arr.as_any().downcast_ref::<Date16Array>(), None);
             }
             _ => {}
         }
@@ -195,15 +137,10 @@ mod tests {
 
         match b {
             ColumnarValue::Array(arr) => {
-                assert_eq!(
-                    arr.as_any()
-                        .downcast_ref::<UInt8Array>(),
-                    None
-                );
+                assert_eq!(arr.as_any().downcast_ref::<UInt8Array>(), None);
             }
             _ => {}
         }
-
     }
 
     #[test]
@@ -248,11 +185,7 @@ mod tests {
         let b = expr_to_year(&[args]).unwrap();
         match b {
             ColumnarValue::Array(arr) => {
-                assert_eq!(
-                    arr.as_any()
-                        .downcast_ref::<UInt8Array>(),
-                    None
-                );
+                assert_eq!(arr.as_any().downcast_ref::<UInt8Array>(), None);
             }
             _ => {}
         }
@@ -298,11 +231,7 @@ mod tests {
         let b = expr_to_year(&[args]).unwrap();
         match b {
             ColumnarValue::Array(arr) => {
-                assert_eq!(
-                    arr.as_any()
-                        .downcast_ref::<UInt8Array>(),
-                    None
-                );
+                assert_eq!(arr.as_any().downcast_ref::<UInt8Array>(), None);
             }
             _ => {}
         }
@@ -349,11 +278,7 @@ mod tests {
         let b = expr_to_year(&[args]).unwrap();
         match b {
             ColumnarValue::Array(arr) => {
-                assert_eq!(
-                    arr.as_any()
-                        .downcast_ref::<UInt8Array>(),
-                    None
-                );
+                assert_eq!(arr.as_any().downcast_ref::<UInt8Array>(), None);
             }
             _ => {}
         }
@@ -402,11 +327,7 @@ mod tests {
         let b = expr_to_year(&[args]).unwrap();
         match b {
             ColumnarValue::Array(arr) => {
-                assert_eq!(
-                    arr.as_any()
-                        .downcast_ref::<UInt8Array>(),
-                    None
-                );
+                assert_eq!(arr.as_any().downcast_ref::<UInt8Array>(), None);
             }
             _ => {}
         }
@@ -455,11 +376,7 @@ mod tests {
         let b = expr_to_year(&[args]).unwrap();
         match b {
             ColumnarValue::Array(arr) => {
-                assert_eq!(
-                    arr.as_any()
-                        .downcast_ref::<UInt8Array>(),
-                    None
-                );
+                assert_eq!(arr.as_any().downcast_ref::<UInt8Array>(), None);
             }
             _ => {}
         }

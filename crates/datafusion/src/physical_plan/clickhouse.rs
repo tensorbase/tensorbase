@@ -8,13 +8,12 @@ use crate::physical_plan::functions::Signature;
 use crate::scalar::ScalarValue;
 use arrow::{
     array::{
-        Date16Array, Int64Array, LargeStringArray, Timestamp32Array, UInt16Array,
+        Date16Array, Int64Array, Timestamp32Array, UInt16Array,
         UInt8Array, BooleanArray, ArrayRef, GenericStringArray,
 	StringOffsetSizeTrait,
     },
     datatypes::DataType,
 };
-use chrono::prelude::*;
 use fmt::{Debug, Formatter};
 use std::{fmt, str::FromStr, sync::Arc};
 use std::any::type_name;
@@ -145,7 +144,6 @@ impl BuiltinScalarFunction {
                     1,
                     vec![DataType::Date16, DataType::Timestamp32(None)],
                 ),
-                Signature::Uniform(1, vec![DataType::Date16, DataType::LargeUtf8]),
                 Signature::Uniform(1, vec![DataType::Date16, DataType::Int64]),
             ]),
             BuiltinScalarFunction::ToHour
@@ -157,117 +155,109 @@ impl BuiltinScalarFunction {
 }
 
 /// Extracts the years from Date16 array
-#[inline]
-fn date16_to_year(x: &u16) -> Result<Option<u16>> {
-    Ok(Some(days_to_year(*x as i32)))
+pub fn date16_to_year(array: &Date16Array) -> Result<UInt16Array> {
+    Ok(array.values().iter().map(|x| Some(days_to_year(*x as i32))).collect())
 }
 
 /// Extracts the months from Date16 array
-#[inline]
-fn date16_to_month(x: &u16) -> Result<Option<u8>> {
-    Ok(Some(days_to_ymd(*x as i32).m))
+pub fn date16_to_month(array: &Date16Array) -> Result<UInt8Array> {
+    Ok(array.values().iter().map(|x| Some(days_to_ymd(*x as i32).m)).collect())
 }
 
 /// Extracts the days of year from Date16 array
-#[inline]
-fn date16_to_day_of_year(x: &u16) -> Result<Option<u16>> {
-    Ok(Some(days_to_ordinal(*x as i32)))
+pub fn date16_to_day_of_year(array: &Date16Array) -> Result<UInt16Array> {
+    Ok(array.values().iter().map(|x| Some(days_to_ordinal(*x as i32))).collect())
 }
 
 /// Extracts the days of month from Date16 array
-#[inline]
-fn date16_to_day_of_month(x: &u16) -> Result<Option<u8>> {
-    Ok(Some(days_to_ymd(*x as i32).d))
+pub fn date16_to_day_of_month(array: &Date16Array) -> Result<UInt8Array> {
+    Ok(array.values().iter().map(|x| Some(days_to_ymd(*x as i32).d)).collect())
 }
 
 /// Extracts the days of week from Date16 array
-#[inline]
-fn date16_to_day_of_week(x: &u16) -> Result<Option<u8>> {
-    Ok(Some(days_to_weekday(*x as i32)))
+pub fn date16_to_day_of_week(array: &Date16Array) -> Result<UInt8Array> {
+    Ok(array.values().iter().map(|x| Some(days_to_weekday(*x as i32))).collect())
 }
 
-#[inline]
 fn month_to_quarter(month: u8) -> u8 {
     (month - 1) / 3 + 1
 }
 
-/// Extracts the months from i32
-#[inline]
-pub fn date16_to_quarter(x: &u16) -> Result<Option<u8>> {
-    Ok(Some(month_to_quarter(days_to_ymd(*x as i32).m)))
+/// Extracts the months from Date16 array
+pub fn date16_to_quarter(array: &Date16Array) -> Result<UInt8Array> {
+    Ok(array.values().iter().map(|x| Some(month_to_quarter(days_to_ymd(*x as i32).m))).collect())
 }
 
-/// Extracts the years from i32
-#[inline]
-fn timestamp32_to_year(x: &i32) -> Result<Option<u16>> {
-    Ok(Some(unixtime_to_year(*x)))
-}
-
-/// Extracts the months from i32
-#[inline]
-fn timestamp32_to_month(x: &i32) -> Result<Option<u8>> {
-    Ok(Some(unixtime_to_ymd(*x).m))
-}
-
-/// Extracts the days of year from i32
-#[inline]
-fn timestamp32_to_day_of_year(x: &i32) -> Result<Option<u16>> {
-    Ok(Some(unixtime_to_ordinal(*x)))
-}
-
-/// Extracts the days of month from i32
-#[inline]
-pub fn timestamp32_to_day_of_month(x: &i32) -> Result<Option<u8>> {
-    Ok(Some(unixtime_to_ymd(*x).d))
-}
-
-/// Extracts the days of week from i32
-fn timestamp32_to_day_of_week(x: &i32) -> Result<Option<u8>> {
-    Ok(Some(unixtime_to_weekday(*x)))
+/// Extracts the years from Timestamp32 array
+pub fn timestamp32_to_year(array: &Timestamp32Array) -> Result<UInt16Array> {
+    Ok(array.values().iter().map(|x| Some(unixtime_to_year(*x as i32))).collect())
 }
 
 /// Extracts the months from Timestamp32 array
-#[inline]
-fn timestamp32_to_quarter(x: &i32) -> Result<Option<u8>> {
-    Ok(Some(month_to_quarter(unixtime_to_ymd(*x).m)))
+pub fn timestamp32_to_month(array: &Timestamp32Array) -> Result<UInt8Array> {
+    Ok(array.values().iter().map(|x| Some(unixtime_to_ymd(*x as i32).m)).collect())
 }
 
-/// Extracts the hours from i32
-#[inline]
-pub fn timestamp32_to_hour(x: &i32) -> Result<Option<u8>> {
-    Ok(Some(unixtime_to_hms(*x).h))
+/// Extracts the days of year from Timestamp32 array
+pub fn timestamp32_to_day_of_year(array: &Timestamp32Array) -> Result<UInt16Array> {
+    Ok(array.values().iter().map(|x| Some(unixtime_to_ordinal(*x as i32))).collect())
 }
 
-/// Extracts the minutes from i32
-#[inline]
-fn timestamp32_to_minute(x: &i32) -> Result<Option<u8>> {
-    Ok(Some(unixtime_to_hms(*x).m))
+/// Extracts the days of month from Timestamp32 array
+pub fn timestamp32_to_day_of_month(array: &Timestamp32Array) -> Result<UInt8Array> {
+    Ok(array.values().iter().map(|x| Some(unixtime_to_ymd(*x as i32).d)).collect())
 }
 
-/// Extracts the seconds from i32
-#[inline]
-fn timestamp32_to_second(x: &i32) -> Result<Option<u8>> {
-    Ok(Some(unixtime_to_second(*x)))
+/// Extracts the days of week from Timestamp32 array
+pub fn timestamp32_to_day_of_week(array: &Timestamp32Array) -> Result<UInt8Array> {
+    Ok(array.values().iter().map(|x| Some(unixtime_to_weekday(*x as i32))).collect())
+}
+
+/// Extracts the months from Timestamp32 array
+pub fn timestamp32_to_quarter(array: &Timestamp32Array) -> Result<UInt8Array> {
+    Ok(array.values().iter().map(|x| Some(month_to_quarter(unixtime_to_ymd(*x as i32).m))).collect())
+}
+
+/// Extracts the hours from Timestamp32 array
+pub fn timestamp32_to_hour(array: &Timestamp32Array) -> Result<UInt8Array> {
+    Ok(array.values().iter().map(|x| Some(unixtime_to_hms(*x as i32).h)).collect())
+}
+
+/// Extracts the minutes from Timestamp32 array
+pub fn timestamp32_to_minute(array: &Timestamp32Array) -> Result<UInt8Array> {
+    Ok(array.values().iter().map(|x| Some(unixtime_to_hms(*x as i32).m)).collect())
+}
+
+/// Extracts the seconds from Timestamp32 array
+pub fn timestamp32_to_second(array: &Timestamp32Array) -> Result<UInt8Array> {
+    Ok(array.values().iter().map(|x| Some(unixtime_to_second(*x as i32))).collect())
 }
 
 /// Extracts the date from i32
 #[inline]
-fn timestamp32_to_date(x: &i32) -> Result<Option<u16>> {
-    Ok(Some(unixtime_to_days(*x) as u16))
-}
-
-/// Extracts the date from string
-#[inline]
-fn large_string_to_date(s: &str) -> Result<Option<u16>> {
-    Ok(Some(string_to_date16(s)?))
+fn timestamp32_to_date(array: &Timestamp32Array) -> Result<Date16Array> {
+    Ok(array.values().iter().map(|x| Some(unixtime_to_days(*x) as u16)).collect())
 }
 
 /// Extracts the date from int64
 #[inline]
-fn int64_to_date(x: &i64) -> Result<Option<u16>> {
-    Ok(Some(unixtime_to_days(*x as i32) as u16))
+fn int64_to_date(array: &Int64Array) -> Result<Date16Array> {
+    Ok(array.values().iter().map(|x| Some(unixtime_to_days(*x as i32) as u16)).collect())
 }
 
+macro_rules! downcast_array_args {
+    ($ARG:expr, $FROM:expr, $TO:ty) => {{
+        $ARG.as_any()
+            .downcast_ref::<$TO>()
+            .ok_or_else(|| {
+                DataFusionError::Internal(format!(
+                    "could not cast {} to {}",
+                    $FROM,
+		    type_name::<$TO>()
+                ))
+            })?
+    }};
+}
 macro_rules! wrap_datetime_fn {
     ( $(
         $(#[$OUTER:meta])* $NAME:literal => fn $FUNC:ident {
@@ -280,8 +270,10 @@ macro_rules! wrap_datetime_fn {
 		ColumnarValue::Scalar(scalar) => {
 		    match scalar {
 			$(
-			    ScalarValue::$SCALAR(a) => {
-				let res: $OUTPUT_TY = a.iter().map(|x| $OP(&x).unwrap_or(None)).collect();
+			    ScalarValue::$SCALAR(_a) => {
+				let array = scalar.to_array();
+				let a = downcast_array_args!(array, array.data_type(), $INPUT_TY);
+				let res: $OUTPUT_TY = $OP(a)?;
 				Ok(ColumnarValue::Array(Arc::new(res)))
 			    },
 			)*
@@ -294,14 +286,10 @@ macro_rules! wrap_datetime_fn {
 		ColumnarValue::Array(array) => {
 		    match array.data_type() {
 			$(
-			    $DATA_TYPE => if let Some(a) = array.as_any().downcast_ref::<$INPUT_TY>() {
-				let res: $OUTPUT_TY = a.iter().map(|x| $OP(&x.unwrap_or_default()).unwrap_or(None)).collect();
+			    $DATA_TYPE => {
+				let a = downcast_array_args!(array, array.data_type(), $INPUT_TY);
+				let res: $OUTPUT_TY = $OP(a)?;
 				Ok(ColumnarValue::Array(Arc::new(res)))
-			    } else {
-				Err(DataFusionError::Internal(format!(
-				    "failed to downcast to {:?}",
-				    array.data_type(),
-				)))
 			    }
 			)*
 			_ => Err(DataFusionError::Internal(format!(
@@ -315,40 +303,10 @@ macro_rules! wrap_datetime_fn {
     }
 }
 
-#[inline]
-fn string_to_date16(s: &str) -> Result<u16> {
-    if s.len() < 8 {
-        return Err(DataFusionError::Execution(format!("'{}' too short", s)));
-    }
-    let s = match s.chars().nth(0).unwrap_or('\u{0}') {
-        '1'..='9' => s,
-        _ => &s[1..], // remove the length size byte
-    };
-    if let Ok(date) = NaiveDate::parse_from_str(s, "%Y-%m-%d") {
-        if date.year() > 2148 {
-            return Err(DataFusionError::Execution(format!(
-                "Date '{}' Error: Year must be lowwer than 2149.",
-                s
-            )));
-        }
-
-        let secs = date.and_hms(0, 0, 0).timestamp();
-
-        let days = (secs / 86_400) as u16;
-        return Ok(days);
-    }
-
-    Err(DataFusionError::Execution(format!(
-        "Error parsing '{}' as date with '%Y-%m-%d' format",
-        s
-    )))
-}
-
 wrap_datetime_fn! {
     /// wrapping to backend to_date logics
     "toDate" => fn expr_to_date {
         (DataType::Timestamp32(_), ScalarValue::Timestamp32) => fn timestamp32_to_date(Timestamp32Array) -> Date16Array,
-	(DataType::LargeUtf8, ScalarValue::LargeUtf8) => fn large_string_to_date(LargeStringArray) -> Date16Array,
 	(DataType::Int64, ScalarValue::Int64) => fn int64_to_date(Int64Array) -> Date16Array,
     }
     /// wrapping to backend to_year logics
