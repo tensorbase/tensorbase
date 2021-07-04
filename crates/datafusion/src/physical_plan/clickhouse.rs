@@ -233,13 +233,13 @@ pub fn timestamp32_to_second(array: &Timestamp32Array) -> Result<UInt8Array> {
     Ok(array.values().iter().map(|x| Some(unixtime_to_second(*x as i32))).collect())
 }
 
-/// Extracts the date from i32
+/// Extracts the date from Timestamp32 array
 #[inline]
 fn timestamp32_to_date(array: &Timestamp32Array) -> Result<Date16Array> {
     Ok(array.values().iter().map(|x| Some(unixtime_to_days(*x) as u16)).collect())
 }
 
-/// Extracts the date from int64
+/// Extracts the date from Int64Array array
 #[inline]
 fn int64_to_date(array: &Int64Array) -> Result<Date16Array> {
     Ok(array.values().iter().map(|x| Some(unixtime_to_days(*x as i32) as u16)).collect())
