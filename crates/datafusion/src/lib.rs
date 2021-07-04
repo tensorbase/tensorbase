@@ -24,6 +24,7 @@
     clippy::type_complexity,
     clippy::upper_case_acronyms
 )]
+#![feature(once_cell)]
 
 //! [DataFusion](https://github.com/apache/arrow-datafusion)
 //! is an extensible query execution framework that uses
