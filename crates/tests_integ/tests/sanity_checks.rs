@@ -871,7 +871,6 @@ async fn tests_integ_date_time_functions() -> errors::Result<()> {
                 let minute_b: u8 = row.value(iter.next().unwrap())?.unwrap();
                 let second_b: u8 = row.value(iter.next().unwrap())?.unwrap();
                 let date1: DateTime<Utc> = row.value(iter.next().unwrap())?.unwrap();
-                let date2: DateTime<Utc> = row.value(iter.next().unwrap())?.unwrap();
                 let date3: DateTime<Utc> = row.value(iter.next().unwrap())?.unwrap();
                 assert_eq!(year_a, years[i]);
                 assert_eq!(year_b, years[i]);
