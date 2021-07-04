@@ -6,6 +6,7 @@ use super::{ColumnarValue, PhysicalExpr};
 use crate::error::{DataFusionError, Result};
 use crate::physical_plan::datetime_expressions;
 use crate::physical_plan::functions::Signature;
+use arrow::array::Int64Array;
 use arrow::{
     array::{
         ArrayRef, BooleanArray, Date16Array, GenericStringArray, PrimitiveArray,
@@ -16,11 +17,7 @@ use arrow::{
 use fmt::{Debug, Formatter};
 use std::{any::type_name, fmt, lazy::SyncOnceCell, str::FromStr, sync::Arc};
 
-use base::datetimes::{
-    days_to_ordinal, days_to_weekday, days_to_year, days_to_ymd, unixtime_to_hms,
-    unixtime_to_ordinal, unixtime_to_second, unixtime_to_weekday, unixtime_to_year,
-    unixtime_to_ymd, BaseTimeZone,
-};
+use base::datetimes::{BaseTimeZone, days_to_ordinal, days_to_weekday, days_to_year, days_to_ymd, unixtime_to_days, unixtime_to_hms, unixtime_to_ordinal, unixtime_to_second, unixtime_to_weekday, unixtime_to_year, unixtime_to_ymd};
 
 /// The default timezone is specified at the server's startup stage.
 pub static DEFAULT_TIMEZONE: SyncOnceCell<BaseTimeZone> = SyncOnceCell::new();
@@ -277,6 +274,14 @@ def_datetime_fn! {
     fn timestamp32_to_second(array: &Timestamp32Array, _tz) -> Result<UInt8Array> {
         |x, _tz| Some(unixtime_to_second(x? as i32))
     }
+    /// Extracts the date from Timestamp32 array
+    fn timestamp32_to_date(array: &Timestamp32Array, tz) -> Result<Date16Array> {
+        |x, tz| Some(unixtime_to_days(x? as i32, tz.offset()) as u16)
+    }
+    // Extracts the date from Timestamp32 array
+    fn int64_to_date(array: &Int64Array) -> Result<Date16Array> {
+        |x| Some(unixtime_to_days(x? as i32, 0) as u16)
+    }
 }
 
 fn month_to_quarter(month: u8) -> u8 {
@@ -320,6 +325,11 @@ macro_rules! wrap_datetime_fn {
 }
 
 wrap_datetime_fn! {
+    // wrapping to backend to_year logics
+    "toDate" => fn expr_to_date {
+        DataType::Int64 => fn int64_to_date(Int64Array) -> Date16Array,
+        DataType::Timestamp32(tz) => fn timestamp32_to_date(Timestamp32Array, tz) -> Date16Array,
+    }
     /// wrapping to backend to_year logics
     "toYear" => fn expr_to_year {
         DataType::Date16 => fn date16_to_year(Date16Array) -> UInt16Array,
