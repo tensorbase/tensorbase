@@ -7,11 +7,12 @@ use crate::error::{DataFusionError, Result};
 use crate::physical_plan::functions::Signature;
 use arrow::{
     array::{
-	Date16Array, Timestamp32Array, UInt16Array,
+	Date16Array, Timestamp32Array, UInt16Array, Int64Array,
 	UInt8Array, BooleanArray, ArrayRef, GenericStringArray,
 	StringOffsetSizeTrait, PrimitiveArray},
-    datatypes::{ArrowPrimitiveType, DataType},
+    datatypes::{ArrowPrimitiveType, DataType, Schema},
 };
+use chrono::{NaiveDate, Datelike};
 use fmt::{Debug, Formatter};
 use std::{any::type_name, fmt, lazy::SyncOnceCell, str::FromStr, sync::Arc};
 
@@ -85,6 +86,24 @@ impl FromStr for BuiltinScalarFunction {
     }
 }
 
+/// Implement like ad-hoc polymorphic function encapsulation
+/// select specific implementation functions based on data type
+/// return Err if it doesn't match
+macro_rules! poly_func_impl {
+    ($ARGS:expr, $SCHEMA:expr, $($DATA_TYPE:pat => $Func:ident$(,)?)*) => {{
+	match $ARGS[0].data_type($SCHEMA) {
+	    $( Ok($DATA_TYPE) => $Func, )*
+	    other => {
+                return Err(DataFusionError::Internal(format!(
+                    "Unsupported data type {:?} for function to_timestamp",
+                    other,
+                )))
+            }
+	}
+    }};
+}
+
+
 impl BuiltinScalarFunction {
     /// an allowlist of functions to take zero arguments, so that they will get special treatment
     /// while executing.
@@ -112,21 +131,29 @@ impl BuiltinScalarFunction {
     /// Returns the implementation of the scalar function
     pub fn func_impl(
         &self,
-        _args: &[Arc<dyn PhysicalExpr>],
-    ) -> fn(&[ColumnarValue]) -> Result<ColumnarValue> {
-        match self {
+        args: &[Arc<dyn PhysicalExpr>],
+        schema: &Schema,
+    ) -> Result<fn(&[ColumnarValue]) -> Result<ColumnarValue>> {
+        let func = match self {
             BuiltinScalarFunction::ToYear => expr_to_year,
             BuiltinScalarFunction::ToMonth => expr_to_month,
             BuiltinScalarFunction::ToDayOfYear => expr_to_day_of_year,
             BuiltinScalarFunction::ToDayOfMonth => expr_to_day_of_month,
             BuiltinScalarFunction::ToDayOfWeek => expr_to_day_of_week,
-            BuiltinScalarFunction::ToDate => expr_to_date,
+            BuiltinScalarFunction::ToDate => poly_func_impl!(
+		args, schema,
+		DataType::LargeUtf8 => expr_str_to_date,
+		DataType::Timestamp32(_) => expr_timestamp32_to_date,
+		DataType::Int64 => expr_int64_to_date
+	    ),
             BuiltinScalarFunction::ToQuarter => expr_to_quarter,
             BuiltinScalarFunction::ToHour => expr_to_hour,
             BuiltinScalarFunction::ToMinute => expr_to_minute,
             BuiltinScalarFunction::ToSecond => expr_to_second,
             BuiltinScalarFunction::EndsWith => expr_ends_with,
-        }
+        };
+
+        Ok(func)
     }
 
     /// Returns the signature of the scalar function
@@ -140,9 +167,14 @@ impl BuiltinScalarFunction {
             | BuiltinScalarFunction::ToQuarter => {
                 Signature::Uniform(1, vec![DataType::Date16, DataType::Timestamp32(None)])
             }
-            BuiltinScalarFunction::ToDate =>
+            BuiltinScalarFunction::ToDate => Signature::OneOf(vec![
+                Signature::Uniform(
+                    1, vec![DataType::Date16, DataType::Int64]),
+                Signature::Uniform(
+                    1, vec![DataType::Date16, DataType::LargeUtf8]),
                 Signature::Uniform(
                     1, vec![DataType::Date16, DataType::Timestamp32(None)]),
+	    ]),
             BuiltinScalarFunction::ToHour
             | BuiltinScalarFunction::ToMinute
             | BuiltinScalarFunction::ToSecond => {
@@ -337,7 +369,19 @@ macro_rules! wrap_datetime_fn {
 
 wrap_datetime_fn! {
     /// wrapping to backend to_date logics
-    "toDate" => fn expr_to_date {
+    "toDate" => fn expr_int64_to_date {
+	DataType::Int64 => fn int64_to_date(Int64Array) -> Date16Array,
+    }
+}
+
+/// Extracts the date from Timestamp32Array
+pub fn int64_to_date(arr: &Int64Array) -> Result<Date16Array> {
+    Ok(arr.iter().map(|x| x.map(|x| if x < 0 { 0 } else { x as u16 })).collect())
+}
+
+wrap_datetime_fn! {
+    /// wrapping to backend to_date logics
+    "toDate" => fn expr_timestamp32_to_date {
         DataType::Timestamp32(tz) => fn timestamp32_to_date(Timestamp32Array, tz) -> Date16Array,
     }
     /// wrapping to backend to_year logics
@@ -397,6 +441,16 @@ pub fn large_utf8_ends_with(args: &[ArrayRef]) -> Result<BooleanArray> {
     ends_with::<i64>(args)
 }
 
+/// Returns Date16Array if large utf string is formatted with '%Y-%m-%d' style.
+pub fn large_utf8_to_date(args: &[ArrayRef]) -> Result<Date16Array> {
+    string_to_date16::<i64>(args)
+}
+
+/// Returns Date16Array if utf8 string is formatted with '%Y-%m-%d' style.
+pub fn utf8_to_date(args: &[ArrayRef]) -> Result<Date16Array> {
+    string_to_date16::<i32>(args)
+}
+
 macro_rules! downcast_string_arg {
     ($ARG:expr, $NAME:expr, $T:ident) => {{
         $ARG.as_any()
@@ -427,6 +481,20 @@ fn ends_with<T: StringOffsetSizeTrait>(args: &[ArrayRef]) -> Result<BooleanArray
         .map(|string| string.map(|string: &str| string.ends_with(suffix)))
         .collect::<BooleanArray>();
     Ok(result)
+}
+
+/// Return Date16Array if the string is formatted with '%Y-%m-%d' date style.
+fn string_to_date16<T: StringOffsetSizeTrait>(args: &[ArrayRef]) -> Result<Date16Array> {
+    if args[0].is_null(0) {
+        return Ok(Date16Array::from(vec![None]));
+    }
+
+    let string_array = downcast_string_arg!(args[0], "string", T);
+    let string_array: Result<Vec<Option<u16>>> = string_array
+        .iter()
+        .map(|string| string.map(|s: &str| str_to_u16(s)).transpose())
+        .collect();
+    Ok(string_array?.into())
 }
 
 macro_rules! wrap_string_fn {
@@ -470,10 +538,47 @@ macro_rules! wrap_string_fn {
     )* }
 }
 
+
+#[inline]
+fn str_to_u16(s: &str) -> Result<u16> {
+    if s.len() < 8 {
+        return Err(DataFusionError::Execution(format!("'{}' too short", s)));
+    }
+
+    let s = match s.chars().nth(0).unwrap_or('\u{0}') {
+	'1'..='9' => s,
+	_ => &s[1..] // skip the length byte
+    };
+
+    if let Ok(date) = NaiveDate::parse_from_str(s, "%Y-%m-%d") {
+        if date.year() > 2148 {
+            return Err(DataFusionError::Execution(format!(
+                "Date '{}' Error: Year must be lowwer than 2149.",
+                s
+            )));
+        }
+
+        let secs = date.and_hms(0, 0, 0).timestamp();
+
+        let days = (secs / 86_400) as u16;
+        return Ok(days);
+    }
+
+    Err(DataFusionError::Execution(format!(
+        "Error parsing '{}' as date with '%Y-%m-%d' format",
+        s
+    )))
+}
+
 wrap_string_fn! {
     /// wrapping to backend endsWith logics
     "endsWith" => fn expr_ends_with {
         DataType::Utf8 => fn utf8_ends_with -> BooleanArray,
         DataType::LargeUtf8 => fn large_utf8_ends_with -> BooleanArray,
+    }
+    /// wrapping to backend toDate logics
+    "toDate" => fn expr_str_to_date {
+        DataType::Utf8 => fn utf8_to_date -> Date16Array,
+        DataType::LargeUtf8 => fn large_utf8_to_date -> Date16Array,
     }
 }
