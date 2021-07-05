@@ -95,7 +95,7 @@ macro_rules! poly_func_impl {
 	    $( Ok($DATA_TYPE) => $Func, )*
 	    other => {
                 return Err(DataFusionError::Internal(format!(
-                    "Unsupported data type {:?} for function to_timestamp",
+                    "Unsupported data type {:?} for function",
                     other,
                 )))
             }
