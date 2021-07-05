@@ -782,7 +782,7 @@ async fn tests_integ_date_time_functions() -> errors::Result<()> {
     conn.execute(format!("DROP TABLE IF EXISTS test_tab_date"))
         .await?;
     conn.execute(format!(
-        "CREATE TABLE test_tab_date(a Date, b DateTime)"
+        "CREATE TABLE test_tab_date(a Date, b DateTime, c String, d Int64)"
     ))
     .await?;
 
@@ -805,7 +805,7 @@ async fn tests_integ_date_time_functions() -> errors::Result<()> {
         NaiveDate::from_ymd(2021, 6, 27).and_hms(17, 44, 32),
     ];
 
-    let data_c = [
+    let data = [
         Utc.ymd(2010, 1, 1).and_hms(0, 0, 0),
         Utc.ymd(2011, 2, 28).and_hms(0, 0, 0),
         Utc.ymd(2012, 2, 29).and_hms(0, 0, 0),
@@ -813,6 +813,17 @@ async fn tests_integ_date_time_functions() -> errors::Result<()> {
         Utc.ymd(2021, 8, 31).and_hms(0, 0, 0),
         Utc.ymd(2021, 6, 27).and_hms(0, 0, 0),
     ];
+
+    let data_c = vec![
+        "2010-1-1",
+        "2011-2-28",
+        "2012-2-29",
+        "2012-3-4",
+        "2021-8-31",
+        "2021-6-27",
+    ];
+
+    let data_d = vec![14610i64, 15033, 15399, 15403, 18870, 18805];
 
     let data_b: Vec<_> = data_b
         .into_iter()
@@ -832,6 +843,8 @@ async fn tests_integ_date_time_functions() -> errors::Result<()> {
         Block::new("test_tab_date")
             .add("a", data_a)
             .add("b", data_b)
+            .add("c", data_c)
+            .add("d", data_d)
     };
 
     let mut insert = conn.insert(&block).await?;
@@ -846,7 +859,8 @@ async fn tests_integ_date_time_functions() -> errors::Result<()> {
             toDayOfMonth(a), toDayOfMonth(b), \
             toDayOfWeek(a), toDayOfWeek(b), \
             toQuarter(a), toQuarter(b), \
-            toHour(b), toMinute(b), toSecond(b), toDate(b) \
+            toHour(b), toMinute(b), toSecond(b), \
+            toDate(b), toDate(c), toDate(d) \
         from test_tab_date";
         let mut query_result = conn.query(sql).await?;
 
@@ -870,6 +884,8 @@ async fn tests_integ_date_time_functions() -> errors::Result<()> {
                 let minute_b: u8 = row.value(iter.next().unwrap())?.unwrap();
                 let second_b: u8 = row.value(iter.next().unwrap())?.unwrap();
                 let date1: DateTime<Utc> = row.value(iter.next().unwrap())?.unwrap();
+                let date2: DateTime<Utc> = row.value(iter.next().unwrap())?.unwrap();
+                let date3: DateTime<Utc> = row.value(iter.next().unwrap())?.unwrap();
                 assert_eq!(year_a, years[i]);
                 assert_eq!(year_b, years[i]);
                 assert_eq!(month_a, months[i]);
@@ -885,7 +901,9 @@ async fn tests_integ_date_time_functions() -> errors::Result<()> {
                 assert_eq!(hour_b, hours[i]);
                 assert_eq!(minute_b, minutes[i]);
                 assert_eq!(second_b, seconds[i]);
-                assert_eq!(date1, data_c[i]);
+                assert_eq!(date1, data[i]);
+                assert_eq!(date2, data[i]);
+                assert_eq!(date3, data[i]);
             }
         }
     }
