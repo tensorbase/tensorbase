@@ -997,7 +997,6 @@ pub fn create_physical_expr(
         // here we return either a cast fn or string timestamp translation based on the expression data type
         // so we don't have to pay a per-array/batch cost.
         BuiltinScalarFunction::ClickHouseBuiltin(fun) => Arc::new(fun.func_impl(args)),
-        BuiltinScalarFunction::ToDate => Arc::new(datetime_expressions::to_date),
         BuiltinScalarFunction::ToTimestamp => {
             Arc::new(match args[0].data_type(input_schema) {
                 Ok(DataType::Int64) | Ok(DataType::Timestamp(_, None)) => {
