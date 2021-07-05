@@ -7,6 +7,34 @@ mod tests {
     use datafusion::physical_plan::clickhouse::*;
 
     #[test]
+    fn test_to_date() {
+        let a: PrimitiveArray<Timestamp32Type> =
+            vec![Some(0), Some(536457600), None, Some(1609459200)].into();
+
+        let b = timestamp32_to_date(&a, &Some(BaseTimeZone::default())).unwrap();
+
+        assert_eq!(0, b.value(0));
+        assert_eq!(6209, b.value(1)); // 1987-01-01
+        assert_eq!(false, b.is_valid(2));
+        assert_eq!(18628, b.value(3)); // 2021-01-01
+    }
+
+    #[test]
+    fn stress_to_date() {
+        let v: Vec<i32> = (0..4096).collect();
+        let a: PrimitiveArray<Timestamp32Type> = v.into();
+
+        let ts = ::std::time::Instant::now();
+        let mut s = 0;
+        for _ in 0..100 {
+            let b = timestamp32_to_date(&a, &Some(BaseTimeZone::default())).unwrap();
+	    s += b.len() as usize;
+	}
+
+        println!("ts: {:?}, s: {}", ts.elapsed(), s);
+    }
+
+    #[test]
     fn test_to_year() {
         let a: PrimitiveArray<Date16Type> = vec![Some(1), None, Some(366)].into();
 
