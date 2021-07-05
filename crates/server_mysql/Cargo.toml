@@ -33,7 +33,7 @@ async-trait = "0.1.40"
 rand = "0.8.3"
 
 [dev-dependencies]
-postgres = "0.15"
+postgres = "0.19"
 mysql = "18"
 mysql_async = "0.20.0"
 slab = "0.4.2"
