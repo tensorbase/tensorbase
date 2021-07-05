@@ -4,13 +4,12 @@
 
 use super::{ColumnarValue, PhysicalExpr};
 use crate::error::{DataFusionError, Result};
-use crate::physical_plan::datetime_expressions;
 use crate::physical_plan::functions::Signature;
 use arrow::{
     array::{
-        ArrayRef, BooleanArray, Date16Array, GenericStringArray, PrimitiveArray,
-        StringOffsetSizeTrait, Timestamp32Array, UInt16Array, UInt8Array,
-    },
+	Date16Array, Timestamp32Array, UInt16Array,
+	UInt8Array, BooleanArray, ArrayRef, GenericStringArray,
+	StringOffsetSizeTrait, PrimitiveArray},
     datatypes::{ArrowPrimitiveType, DataType},
 };
 use fmt::{Debug, Formatter};
@@ -19,7 +18,7 @@ use std::{any::type_name, fmt, lazy::SyncOnceCell, str::FromStr, sync::Arc};
 use base::datetimes::{
     days_to_ordinal, days_to_weekday, days_to_year, days_to_ymd, unixtime_to_hms,
     unixtime_to_ordinal, unixtime_to_second, unixtime_to_weekday, unixtime_to_year,
-    unixtime_to_ymd, BaseTimeZone,
+    unixtime_to_ymd, unixtime_to_days, BaseTimeZone,
 };
 
 /// The default timezone is specified at the server's startup stage.
@@ -121,7 +120,7 @@ impl BuiltinScalarFunction {
             BuiltinScalarFunction::ToDayOfYear => expr_to_day_of_year,
             BuiltinScalarFunction::ToDayOfMonth => expr_to_day_of_month,
             BuiltinScalarFunction::ToDayOfWeek => expr_to_day_of_week,
-            BuiltinScalarFunction::ToDate => datetime_expressions::to_date,
+            BuiltinScalarFunction::ToDate => expr_to_date,
             BuiltinScalarFunction::ToQuarter => expr_to_quarter,
             BuiltinScalarFunction::ToHour => expr_to_hour,
             BuiltinScalarFunction::ToMinute => expr_to_minute,
@@ -141,7 +140,9 @@ impl BuiltinScalarFunction {
             | BuiltinScalarFunction::ToQuarter => {
                 Signature::Uniform(1, vec![DataType::Date16, DataType::Timestamp32(None)])
             }
-            BuiltinScalarFunction::ToDate => Signature::Uniform(1, vec![DataType::Utf8]),
+            BuiltinScalarFunction::ToDate =>
+                Signature::Uniform(
+                    1, vec![DataType::Date16, DataType::Timestamp32(None)]),
             BuiltinScalarFunction::ToHour
             | BuiltinScalarFunction::ToMinute
             | BuiltinScalarFunction::ToSecond => {
@@ -277,10 +278,28 @@ def_datetime_fn! {
     fn timestamp32_to_second(array: &Timestamp32Array, _tz) -> Result<UInt8Array> {
         |x, _tz| Some(unixtime_to_second(x? as i32))
     }
+    /// Extracts the date from Timestamp32Array
+    fn timestamp32_to_date(array: &Timestamp32Array, tz) -> Result<Date16Array> {
+	|x, tz| Some(unixtime_to_days(x? as i32, tz.offset()) as u16)
+    }
 }
 
 fn month_to_quarter(month: u8) -> u8 {
     (month - 1) / 3 + 1
+}
+
+macro_rules! downcast_array_args {
+    ($ARG:expr, $FROM:expr, $TO:ty) => {{
+        $ARG.as_any()
+            .downcast_ref::<$TO>()
+            .ok_or_else(|| {
+                DataFusionError::Internal(format!(
+                    "could not cast {} to {}",
+                    $FROM,
+		    type_name::<$TO>()
+                ))
+            })?
+    }};
 }
 
 macro_rules! wrap_datetime_fn {
@@ -293,33 +312,34 @@ macro_rules! wrap_datetime_fn {
         pub fn $FUNC(args: &[ColumnarValue]) -> $crate::error::Result<ColumnarValue> {
             match args[0].data_type() {
                 $(
-                $DATA_TYPE => if let ColumnarValue::Array(array) = &args[0] {
-                    if let Some(a) = array.as_any().downcast_ref::<$INPUT_TY>() {
-                        let res: $OUTPUT_TY = $OP(a $(, &$TZ)? )?;
-                        Ok(ColumnarValue::Array(Arc::new(res)))
-                    } else {
-                        return Err(DataFusionError::Internal(format!(
-                            "failed to downcast to {:?}",
-                            args[0].data_type(),
-                        )));
-                    }
-                } else {
-                    return Err(DataFusionError::Internal(format!(
-                        "failed to downcast to {:?}",
-                        args[0].data_type(),
-                    )));
-                },
-                )*
-                other => Err(DataFusionError::Internal(format!(
-                    "Unsupported data type {:?} for function {}",
-                    other, $NAME,
-                ))),
-            }
-        }
+                    $DATA_TYPE => match &args[0] {
+			ColumnarValue::Array(array) => {
+			    let a = downcast_array_args!(array, array.data_type(), $INPUT_TY);
+			    let res: $OUTPUT_TY = $OP(a $(, &$TZ)? )?;
+			    Ok(ColumnarValue::Array(Arc::new(res)))
+			},
+			ColumnarValue::Scalar(scalar) => {
+			    let array = scalar.to_array();
+			    let a = downcast_array_args!(array, array.data_type(), $INPUT_TY);
+			    let res: $OUTPUT_TY = $OP(a $(, &$TZ)? )?;
+			    Ok(ColumnarValue::Array(Arc::new(res)))
+			},
+		    }
+		)*,
+		other => Err(DataFusionError::Internal(format!(
+		    "Unsupported data type {:?} for function {}",
+		    other, $NAME,
+		))),
+	    }
+	}
     )* }
 }
 
 wrap_datetime_fn! {
+    /// wrapping to backend to_date logics
+    "toDate" => fn expr_to_date {
+        DataType::Timestamp32(tz) => fn timestamp32_to_date(Timestamp32Array, tz) -> Date16Array,
+    }
     /// wrapping to backend to_year logics
     "toYear" => fn expr_to_year {
         DataType::Date16 => fn date16_to_year(Date16Array) -> UInt16Array,
