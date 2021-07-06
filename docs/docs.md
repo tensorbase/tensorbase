@@ -31,6 +31,6 @@ Feel free to seek more helps from the Base community.
 * Other Language Driver Supports
   + [Rust ClickHouse driver](https://github.com/tensorbase/tensorbase/tree/main/crates/tests_integ/ch_client) (forked and owned by TB team, if you have problem, directly report issues in TensorBase)
   + [C/C++ ClickHouse Driver](https://github.com/ClickHouse/clickhouse-cpp)
-  + Java JDBC driver: N/A (but targeted to be supported in this summer)
+  + Java JDBC driver: N/A (but targeted to be supported in this summer, issue #150)
 
 
