@@ -3,11 +3,11 @@
  *   All rights reserved.
  */
 
-use std::collections::HashSet;
-
 use meta::types::{BqlType, ColumnInfo, EngineType, Table};
 pub use pest::iterators::Pair;
 pub use pest::iterators::Pairs;
+use std::collections::HashSet;
+use std::net::IpAddr;
 
 pub(crate) use pest::Parser;
 use pest_derive::Parser;
@@ -549,13 +549,178 @@ fn seek_to<'a, R: pest::RuleType>(
     None
 }
 
+#[derive(Debug, PartialEq)]
+pub struct RemoteDbInfo {
+    addrs: Vec<RemoteAddr>,
+    username: Option<String>,
+    password: Option<String>,
+    database_name: String,
+    table_name: String,
+}
+
+#[derive(Debug, Default, PartialEq)]
+pub struct RemoteAddr {
+    ip_addr: Option<IpAddr>,
+    host_name: Option<String>,
+    port: Option<u16>,
+}
+
+impl Default for RemoteDbInfo {
+    fn default() -> Self {
+        Self {
+            addrs: vec![],
+            username: None,
+            password: None,
+            database_name: "default".to_string(),
+            table_name: "".to_string(),
+        }
+    }
+}
+
+#[derive(Debug, PartialEq)]
+pub enum QueryFormat {
+    Local,
+    Remote(RemoteDbInfo),
+}
+
+#[derive(Debug)]
+pub struct QueryContext {
+    pub format: QueryFormat,
+}
+
+impl QueryContext {
+    fn mut_remote_info<'a>(&'a mut self) -> Option<&'a mut RemoteDbInfo> {
+        if let QueryFormat::Remote(format) = &mut self.format {
+            Some(format)
+        } else {
+            None
+        }
+    }
+}
+
+pub fn parse_query(pair: Pair<Rule>) -> LangResult<QueryContext> {
+    let mut ctx = QueryContext {
+        format: QueryFormat::Local,
+    };
+    ctx.parse(pair)?;
+    Ok(ctx)
+}
+
+#[inline]
+fn parse_ip(pair: Pair<Rule>) -> LangResult<Option<IpAddr>> {
+    for p in pair.into_inner() {
+        match p.as_rule() {
+            Rule::ipv4_lit | Rule::ipv6_lit => {
+                let ip: IpAddr = p
+                    .as_str()
+                    .parse()
+                    .map_err(|e| LangError::WrappingParseIpAddrError(e))?;
+                return Ok(Some(ip));
+            }
+            _ => {}
+        }
+    }
+    Ok(None)
+}
+
+#[inline]
+fn parse_ip_address(pair: Pair<Rule>) -> LangResult<RemoteAddr> {
+    let mut addr = RemoteAddr::default();
+
+    for p in pair.into_inner() {
+        match p.as_rule() {
+            Rule::ip => {
+                addr.ip_addr = parse_ip(p)?;
+            }
+            Rule::port => {
+                let port: u16 = p
+                    .as_str()
+                    .parse()
+                    .map_err(|e| LangError::WrappingParseIntError(e))?;
+                addr.port = Some(port)
+            }
+            _ => {}
+        }
+    }
+
+    Ok(addr)
+}
+
+#[inline]
+fn parse_host_address(pair: Pair<Rule>) -> RemoteAddr {
+    let s = pair.as_str().trim().to_string();
+    let vs: Vec<&str> = s.split(":").collect();
+    let mut addr = RemoteAddr::default();
+
+    addr.host_name = Some(vs[0].to_owned());
+    if vs.len() == 2 {
+        addr.port = Some(vs[1].parse().unwrap());
+    }
+
+    addr
+}
+
+impl QueryContext {
+    fn parse(&mut self, pair: Pair<Rule>) -> LangResult<()> {
+        let r = pair.as_rule();
+        //pre
+        match r {
+            Rule::remote_func => self.format = QueryFormat::Remote(Default::default()),
+            _ => {}
+        }
+
+        for p in pair.clone().into_inner() {
+            self.parse(p)?;
+        }
+
+        //post
+        match r {
+            Rule::ip_address => {
+                self.mut_remote_info()
+                    .map(|format| match parse_ip_address(pair) {
+                        Ok(addr) => Ok(format.addrs.push(addr)),
+                        Err(e) => Err(e),
+                    })
+                    .transpose()?;
+            }
+            Rule::host_address => {
+                self.mut_remote_info().map(|format| {
+                    format.addrs.push(parse_host_address(pair));
+                });
+            }
+            Rule::remote_database_name => {
+                self.mut_remote_info().map(|format| {
+                    format.database_name = pair.as_str().trim().to_string();
+                });
+            }
+            Rule::remote_table_name => {
+                self.mut_remote_info().map(|format| {
+                    format.table_name = pair.as_str().trim().to_string();
+                });
+            }
+            Rule::username => {
+                self.mut_remote_info().map(|format| {
+                    format.username = Some(pair.as_str().to_string());
+                });
+            }
+            Rule::password => {
+                self.mut_remote_info().map(|format| {
+                    format.password = Some(pair.as_str().to_string());
+                });
+            }
+            _ => {}
+        }
+        Ok(())
+    }
+}
+
 // === tests ===
 
 #[cfg(test)]
 mod unit_tests {
     use crate::{
         errs::{LangError, LangResult},
-        parse::{parse_tables, TablesContext},
+        parse::{parse_query, parse_tables, TablesContext},
     };
 
     //FIXME move to test mod?
@@ -564,7 +729,7 @@ mod unit_tests {
 
     use super::{
         parse_create_database, parse_create_table, pretty_parse_tree, seek_to, BqlParser,
-        Rule,
+        QueryFormat, RemoteAddr, RemoteDbInfo, Rule,
     };
     use meta::types::BqlType;
     use pest::Parser;
@@ -729,6 +894,178 @@ LIMIT 100;
             BqlParser::parse(Rule::query, sql).unwrap_or_else(|e| panic!("{}", e));
         let limit = seek_to(&mut queries, Rule::limit);
         println!("{:?}", queries);
+    }
+
+    #[test]
+    fn test_parse_select_remote() -> LangResult<()> {
+        let pairs = BqlParser::parse(
+            Rule::query,
+            "SELECT * from remote('127.0.0.1', default.test)",
+        )
+        .unwrap_or_else(|e| panic!("{}", e));
+        let r = parse_query(pairs.peek().unwrap())?.format;
+        assert_eq!(
+            r,
+            QueryFormat::Remote(RemoteDbInfo {
+                database_name: "default".into(),
+                table_name: "test".into(),
+                addrs: vec![RemoteAddr {
+                    ip_addr: Some("127.0.0.1".parse().unwrap()),
+                    host_name: None,
+                    port: None
+                }],
+                username: None,
+                password: None
+            })
+        );
+
+        let pairs =
+            BqlParser::parse(Rule::query, "SELECT * from remote('127.0.0.1:9528', test)")
+                .unwrap_or_else(|e| panic!("{}", e));
+
+        let r = parse_query(pairs.peek().unwrap())?.format;
+        assert_eq!(
+            r,
+            QueryFormat::Remote(RemoteDbInfo {
+                database_name: "default".into(),
+                table_name: "test".into(),
+                addrs: vec![RemoteAddr {
+                    ip_addr: Some("127.0.0.1".parse().unwrap()),
+                    host_name: None,
+                    port: Some(9528)
+                }],
+                username: None,
+                password: None
+            })
+        );
+
+        let pairs = BqlParser::parse(
+            Rule::query,
+            "SELECT * from remote('127.0.0.1:9528', test, 'username', 'password')",
+        )
+        .unwrap_or_else(|e| panic!("{}", e));
+
+        let r = parse_query(pairs.peek().unwrap())?.format;
+        assert_eq!(
+            r,
+            QueryFormat::Remote(RemoteDbInfo {
+                database_name: "default".into(),
+                table_name: "test".into(),
+                addrs: vec![RemoteAddr {
+                    ip_addr: Some("127.0.0.1".parse().unwrap()),
+                    host_name: None,
+                    port: Some(9528)
+                }],
+                username: Some("username".into()),
+                password: Some("password".into())
+            })
+        );
+
+        let pairs = BqlParser::parse(
+            Rule::query,
+            "SELECT * from remote('[::1]', test, 'username', 'password')",
+        )
+        .unwrap_or_else(|e| panic!("{}", e));
+
+        let r = parse_query(pairs.peek().unwrap())?.format;
+        assert_eq!(
+            r,
+            QueryFormat::Remote(RemoteDbInfo {
+                database_name: "default".into(),
+                table_name: "test".into(),
+                addrs: vec![RemoteAddr {
+                    ip_addr: Some("::1".parse().unwrap()),
+                    host_name: None,
+                    port: None
+                }],
+                username: Some("username".into()),
+                password: Some("password".into())
+            })
+        );
+
+        let pairs = BqlParser::parse(
+            Rule::query,
+            "SELECT * from remote('[2a02:6b8:0:1111::11]:9528', test)",
+        )
+        .unwrap_or_else(|e| panic!("{}", e));
+
+        let r = parse_query(pairs.peek().unwrap())?.format;
+        assert_eq!(
+            r,
+            QueryFormat::Remote(RemoteDbInfo {
+                database_name: "default".into(),
+                table_name: "test".into(),
+                addrs: vec![RemoteAddr {
+                    ip_addr: Some("2a02:6b8:0:1111::11".parse().unwrap()),
+                    host_name: None,
+                    port: Some(9528)
+                }],
+                username: None,
+                password: None
+            })
+        );
+
+        let pairs = BqlParser::parse(
+            Rule::query,
+            "SELECT * from remote('localhost', default.test, 'username', 'password')",
+        )
+        .unwrap_or_else(|e| panic!("{}", e));
+
+        let r = parse_query(pairs.peek().unwrap())?.format;
+        assert_eq!(
+            r,
+            QueryFormat::Remote(RemoteDbInfo {
+                database_name: "default".into(),
+                table_name: "test".into(),
+                addrs: vec![RemoteAddr {
+                    ip_addr: None,
+                    host_name: Some("localhost".into()),
+                    port: None
+                }],
+                username: Some("username".into()),
+                password: Some("password".into())
+            })
+        );
+
+        let pairs = BqlParser::parse(
+	    Rule::query,
+	    "SELECT * from remote('proxy2.db.tensorbase.io,localhost,test.io,[::1]:123', cloud.test, 'username', 'password')")
+	    .unwrap_or_else(|e| panic!("{}", e));
+
+        let r = parse_query(pairs.peek().unwrap())?.format;
+        assert_eq!(
+            r,
+            QueryFormat::Remote(RemoteDbInfo {
+                database_name: "cloud".into(),
+                table_name: "test".into(),
+                addrs: vec![
+                    RemoteAddr {
+                        ip_addr: None,
+                        host_name: Some("proxy2.db.tensorbase.io".into()),
+                        port: None
+                    },
+                    RemoteAddr {
+                        ip_addr: None,
+                        host_name: Some("localhost".into()),
+                        port: None
+                    },
+                    RemoteAddr {
+                        ip_addr: None,
+                        host_name: Some("test.io".into()),
+                        port: None
+                    },
+                    RemoteAddr {
+                        ip_addr: Some("::1".parse().unwrap()),
+                        host_name: None,
+                        port: Some(123)
+                    },
+                ],
+                username: Some("username".into()),
+                password: Some("password".into())
+            })
+        );
+
+        Ok(())
     }
 
     mod bql {
@@ -1311,6 +1648,38 @@ limit
             let pairs =
                 BqlParser::parse(Rule::with, c).unwrap_or_else(|e| panic!("{}", e));
             println!("{}", pretty_parse_tree(pairs));
+        }
+
+        #[test]
+        fn test_select_with_remote_func() {
+            assert_parse!("SELECT * from remote('127.0.0.1', default.test)", select);
+            assert_parse!(
+                "SELECT * from remote('127.0.0.1:9528', default.test)",
+                select
+            );
+            assert_parse!("SELECT * from remote('127.0.0.1:9528', test)", select);
+            assert_parse!(
+                "SELECT * from remote('127.0.0.1:9528', test, 'username', 'password')",
+                select
+            );
+            assert_parse!(
+                "SELECT * from remote('[::1]', test, 'username', 'password')",
+                select
+            );
+            assert_parse!(
+                "SELECT * from remote('[2a02:6b8:0:1111::11]:9528', test)",
+                select
+            );
+            assert_parse!("SELECT * from remote('[2a02:6b8:0:1111::11]:9528', default.test, 'username', 'password')", select);
+            assert_parse!(
+                "SELECT * from remote('localhost', default.test, 'username', 'password')",
+                select
+            );
+            assert_parse!("SELECT * from remote('tensorbase.io', default.test, 'username', 'password')", select);
+            assert_parse!("SELECT * from remote('db.tensorbase.io', default.test, 'username', 'password')", select);
+            assert_parse!("SELECT * from remote('proxy1.db.tensorbase.io', default.test, 'username', 'password')", select);
+            assert_parse!("SELECT * from remote('proxy2.db.tensorbase.io', default.test, 'username', 'password')", select);
+            assert_parse!("SELECT * from remote('proxy2.db.tensorbase.io,localhost,test.io,[::1]:123', default.test, 'username', 'password')", select);
         }
 
         #[test]
