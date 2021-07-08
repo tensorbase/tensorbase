@@ -578,29 +578,29 @@ impl Default for RemoteDbInfo {
 }
 
 #[derive(Debug, PartialEq)]
-pub enum QueryFormat {
+pub enum TablePlaceKind {
     Local,
     Remote(RemoteDbInfo),
 }
 
 #[derive(Debug)]
-pub struct QueryContext {
-    pub format: QueryFormat,
+pub struct TablePlaceKindContext {
+    pub place_kind: TablePlaceKind,
 }
 
-impl QueryContext {
+impl TablePlaceKindContext {
     fn mut_remote_info<'a>(&'a mut self) -> Option<&'a mut RemoteDbInfo> {
-        if let QueryFormat::Remote(format) = &mut self.format {
-            Some(format)
+        if let TablePlaceKind::Remote(place_kind) = &mut self.place_kind {
+            Some(place_kind)
         } else {
             None
         }
     }
 }
 
-pub fn parse_query(pair: Pair<Rule>) -> LangResult<QueryContext> {
-    let mut ctx = QueryContext {
-        format: QueryFormat::Local,
+pub fn parse_table_place(pair: Pair<Rule>) -> LangResult<TablePlaceKindContext> {
+    let mut ctx = TablePlaceKindContext {
+        place_kind: TablePlaceKind::Local,
     };
     ctx.parse(pair)?;
     Ok(ctx)
@@ -660,12 +660,14 @@ fn parse_host_address(pair: Pair<Rule>) -> RemoteAddr {
     addr
 }
 
-impl QueryContext {
+impl TablePlaceKindContext {
     fn parse(&mut self, pair: Pair<Rule>) -> LangResult<()> {
         let r = pair.as_rule();
         //pre
         match r {
-            Rule::remote_func => self.format = QueryFormat::Remote(Default::default()),
+            Rule::remote_func => {
+                self.place_kind = TablePlaceKind::Remote(Default::default())
+            }
             _ => {}
         }
 
@@ -677,35 +679,35 @@ impl QueryContext {
         match r {
             Rule::ip_address => {
                 self.mut_remote_info()
-                    .map(|format| match parse_ip_address(pair) {
-                        Ok(addr) => Ok(format.addrs.push(addr)),
+                    .map(|place_kind| match parse_ip_address(pair) {
+                        Ok(addr) => Ok(place_kind.addrs.push(addr)),
                         Err(e) => Err(e),
                     })
                     .transpose()?;
             }
             Rule::host_address => {
-                self.mut_remote_info().map(|format| {
-                    format.addrs.push(parse_host_address(pair));
+                self.mut_remote_info().map(|place_kind| {
+                    place_kind.addrs.push(parse_host_address(pair));
                 });
             }
             Rule::remote_database_name => {
-                self.mut_remote_info().map(|format| {
-                    format.database_name = pair.as_str().trim().to_string();
+                self.mut_remote_info().map(|place_kind| {
+                    place_kind.database_name = pair.as_str().trim().to_string();
                 });
             }
             Rule::remote_table_name => {
-                self.mut_remote_info().map(|format| {
-                    format.table_name = pair.as_str().trim().to_string();
+                self.mut_remote_info().map(|place_kind| {
+                    place_kind.table_name = pair.as_str().trim().to_string();
                 });
             }
             Rule::username => {
-                self.mut_remote_info().map(|format| {
-                    format.username = Some(pair.as_str().to_string());
+                self.mut_remote_info().map(|place_kind| {
+                    place_kind.username = Some(pair.as_str().to_string());
                 });
             }
             Rule::password => {
-                self.mut_remote_info().map(|format| {
-                    format.password = Some(pair.as_str().to_string());
+                self.mut_remote_info().map(|place_kind| {
+                    place_kind.password = Some(pair.as_str().to_string());
                 });
             }
             _ => {}
@@ -720,7 +722,7 @@ impl QueryContext {
 mod unit_tests {
     use crate::{
         errs::{LangError, LangResult},
-        parse::{parse_query, parse_tables, TablesContext},
+        parse::{parse_table_place, parse_tables, TablesContext},
     };
 
     //FIXME move to test mod?
@@ -729,7 +731,7 @@ mod unit_tests {
 
     use super::{
         parse_create_database, parse_create_table, pretty_parse_tree, seek_to, BqlParser,
-        QueryFormat, RemoteAddr, RemoteDbInfo, Rule,
+        RemoteAddr, RemoteDbInfo, Rule, TablePlaceKind,
     };
     use meta::types::BqlType;
     use pest::Parser;
@@ -903,10 +905,10 @@ LIMIT 100;
             "SELECT * from remote('127.0.0.1', default.test)",
         )
         .unwrap_or_else(|e| panic!("{}", e));
-        let r = parse_query(pairs.peek().unwrap())?.format;
+        let r = parse_table_place(pairs.peek().unwrap())?.place_kind;
         assert_eq!(
             r,
-            QueryFormat::Remote(RemoteDbInfo {
+            TablePlaceKind::Remote(RemoteDbInfo {
                 database_name: "default".into(),
                 table_name: "test".into(),
                 addrs: vec![RemoteAddr {
@@ -923,10 +925,10 @@ LIMIT 100;
             BqlParser::parse(Rule::query, "SELECT * from remote('127.0.0.1:9528', test)")
                 .unwrap_or_else(|e| panic!("{}", e));
 
-        let r = parse_query(pairs.peek().unwrap())?.format;
+        let r = parse_table_place(pairs.peek().unwrap())?.place_kind;
         assert_eq!(
             r,
-            QueryFormat::Remote(RemoteDbInfo {
+            TablePlaceKind::Remote(RemoteDbInfo {
                 database_name: "default".into(),
                 table_name: "test".into(),
                 addrs: vec![RemoteAddr {
@@ -945,10 +947,10 @@ LIMIT 100;
         )
         .unwrap_or_else(|e| panic!("{}", e));
 
-        let r = parse_query(pairs.peek().unwrap())?.format;
+        let r = parse_table_place(pairs.peek().unwrap())?.place_kind;
         assert_eq!(
             r,
-            QueryFormat::Remote(RemoteDbInfo {
+            TablePlaceKind::Remote(RemoteDbInfo {
                 database_name: "default".into(),
                 table_name: "test".into(),
                 addrs: vec![RemoteAddr {
@@ -967,10 +969,10 @@ LIMIT 100;
         )
         .unwrap_or_else(|e| panic!("{}", e));
 
-        let r = parse_query(pairs.peek().unwrap())?.format;
+        let r = parse_table_place(pairs.peek().unwrap())?.place_kind;
         assert_eq!(
             r,
-            QueryFormat::Remote(RemoteDbInfo {
+            TablePlaceKind::Remote(RemoteDbInfo {
                 database_name: "default".into(),
                 table_name: "test".into(),
                 addrs: vec![RemoteAddr {
@@ -989,10 +991,10 @@ LIMIT 100;
         )
         .unwrap_or_else(|e| panic!("{}", e));
 
-        let r = parse_query(pairs.peek().unwrap())?.format;
+        let r = parse_table_place(pairs.peek().unwrap())?.place_kind;
         assert_eq!(
             r,
-            QueryFormat::Remote(RemoteDbInfo {
+            TablePlaceKind::Remote(RemoteDbInfo {
                 database_name: "default".into(),
                 table_name: "test".into(),
                 addrs: vec![RemoteAddr {
@@ -1011,10 +1013,10 @@ LIMIT 100;
         )
         .unwrap_or_else(|e| panic!("{}", e));
 
-        let r = parse_query(pairs.peek().unwrap())?.format;
+        let r = parse_table_place(pairs.peek().unwrap())?.place_kind;
         assert_eq!(
             r,
-            QueryFormat::Remote(RemoteDbInfo {
+            TablePlaceKind::Remote(RemoteDbInfo {
                 database_name: "default".into(),
                 table_name: "test".into(),
                 addrs: vec![RemoteAddr {
@@ -1032,10 +1034,10 @@ LIMIT 100;
 	    "SELECT * from remote('proxy2.db.tensorbase.io,localhost,test.io,[::1]:123', cloud.test, 'username', 'password')")
 	    .unwrap_or_else(|e| panic!("{}", e));
 
-        let r = parse_query(pairs.peek().unwrap())?.format;
+        let r = parse_table_place(pairs.peek().unwrap())?.place_kind;
         assert_eq!(
             r,
-            QueryFormat::Remote(RemoteDbInfo {
+            TablePlaceKind::Remote(RemoteDbInfo {
                 database_name: "cloud".into(),
                 table_name: "test".into(),
                 addrs: vec![
