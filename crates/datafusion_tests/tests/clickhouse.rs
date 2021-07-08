@@ -13,7 +13,7 @@ mod tests {
         // test to_date(Timestamp32)
         let a: PrimitiveArray<Timestamp32Type> =
             vec![Some(0), Some(536457600), None, Some(1609459200)].into();
-        let b = timestamp32_to_date(&a, &Some(BaseTimeZone::default())).unwrap();
+        let b = timestamp32_to_date(&a, Some(BaseTimeZone::default())).unwrap();
 
         assert_eq!(0, b.value(0));
         assert_eq!(6209, b.value(1)); // 1987-01-01
@@ -76,7 +76,7 @@ mod tests {
         let ts = ::std::time::Instant::now();
         let mut s = 0;
         for _ in 0..100 {
-            let b = timestamp32_to_date(&a, &Some(BaseTimeZone::default())).unwrap();
+            let b = timestamp32_to_date(&a, Some(BaseTimeZone::default())).unwrap();
             s += b.len() as usize;
         }
 
@@ -190,7 +190,7 @@ mod tests {
         let a: PrimitiveArray<Timestamp32Type> =
             vec![Some(0), Some(3601), None, Some(7202)].into();
 
-        let b = timestamp32_to_hour(&a, &Some(BaseTimeZone::default())).unwrap();
+        let b = timestamp32_to_hour(&a, Some(BaseTimeZone::default())).unwrap();
         assert_eq!(0, b.value(0));
         assert_eq!(1, b.value(1));
         assert_eq!(false, b.is_valid(2));
@@ -205,7 +205,7 @@ mod tests {
         let ts = ::std::time::Instant::now();
         let mut s = 0;
         for _ in 0..100 {
-            let b = timestamp32_to_hour(&a, &Some(BaseTimeZone::default())).unwrap();
+            let b = timestamp32_to_hour(&a, Some(BaseTimeZone::default())).unwrap();
             // let b = arrow::compute::kernels::temporal::year(&a).unwrap();
             s += b.len() as usize;
         }
@@ -217,7 +217,7 @@ mod tests {
         let a: PrimitiveArray<Timestamp32Type> =
             vec![Some(0), Some(301), None, Some(7802)].into();
 
-        let b = timestamp32_to_minute(&a, &Some(BaseTimeZone::default())).unwrap();
+        let b = timestamp32_to_minute(&a, Some(BaseTimeZone::default())).unwrap();
         assert_eq!(0, b.value(0));
         assert_eq!(5, b.value(1));
         assert_eq!(false, b.is_valid(2));
@@ -232,7 +232,7 @@ mod tests {
         let ts = ::std::time::Instant::now();
         let mut s = 0;
         for _ in 0..100 {
-            let b = timestamp32_to_minute(&a, &Some(BaseTimeZone::default())).unwrap();
+            let b = timestamp32_to_minute(&a, Some(BaseTimeZone::default())).unwrap();
             // let b = arrow::compute::kernels::temporal::year(&a).unwrap();
             s += b.len() as usize;
         }
@@ -244,7 +244,7 @@ mod tests {
         let a: PrimitiveArray<Timestamp32Type> =
             vec![Some(0), Some(325), None, Some(7849)].into();
 
-        let b = timestamp32_to_second(&a, &Some(BaseTimeZone::default())).unwrap();
+        let b = timestamp32_to_second(&a, Some(BaseTimeZone::default())).unwrap();
         assert_eq!(0, b.value(0));
         assert_eq!(25, b.value(1));
         assert_eq!(false, b.is_valid(2));
@@ -259,7 +259,7 @@ mod tests {
         let ts = ::std::time::Instant::now();
         let mut s = 0;
         for _ in 0..100 {
-            let b = timestamp32_to_second(&a, &Some(BaseTimeZone::default())).unwrap();
+            let b = timestamp32_to_second(&a, Some(BaseTimeZone::default())).unwrap();
             // let b = arrow::compute::kernels::temporal::year(&a).unwrap();
             s += b.len() as usize;
         }

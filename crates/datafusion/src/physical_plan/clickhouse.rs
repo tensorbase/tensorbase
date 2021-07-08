@@ -4,22 +4,22 @@
 
 use super::{ColumnarValue, PhysicalExpr};
 use crate::error::{DataFusionError, Result};
-use crate::physical_plan::functions::Signature;
+use crate::physical_plan::functions::{ScalarFunctionImplementation, Signature};
 use arrow::{
     array::{
-	Date16Array, Timestamp32Array, UInt16Array, Int64Array,
-	UInt8Array, BooleanArray, ArrayRef, GenericStringArray,
-	StringOffsetSizeTrait, PrimitiveArray},
+        ArrayRef, BooleanArray, Date16Array, GenericStringArray, Int64Array,
+        PrimitiveArray, StringOffsetSizeTrait, Timestamp32Array, UInt16Array, UInt8Array,
+    },
     datatypes::{ArrowPrimitiveType, DataType, Schema},
 };
-use chrono::{NaiveDate, Datelike};
+use chrono::{Datelike, NaiveDate};
 use fmt::{Debug, Formatter};
 use std::{any::type_name, fmt, lazy::SyncOnceCell, str::FromStr, sync::Arc};
 
 use base::datetimes::{
-    days_to_ordinal, days_to_weekday, days_to_year, days_to_ymd, unixtime_to_hms,
-    unixtime_to_ordinal, unixtime_to_second, unixtime_to_weekday, unixtime_to_year,
-    unixtime_to_ymd, unixtime_to_days, BaseTimeZone,
+    days_to_ordinal, days_to_weekday, days_to_year, days_to_ymd, unixtime_to_days,
+    unixtime_to_hms, unixtime_to_ordinal, unixtime_to_second, unixtime_to_weekday,
+    unixtime_to_year, unixtime_to_ymd, BaseTimeZone,
 };
 
 /// The default timezone is specified at the server's startup stage.
@@ -86,23 +86,51 @@ impl FromStr for BuiltinScalarFunction {
     }
 }
 
-/// Implement like ad-hoc polymorphic function encapsulation
-/// select specific implementation functions based on data type
-/// return Err if it doesn't match
-macro_rules! poly_func_impl {
-    ($ARGS:expr, $SCHEMA:expr, $($DATA_TYPE:pat => $Func:ident$(,)?)*) => {{
-	match $ARGS[0].data_type($SCHEMA) {
-	    $( Ok($DATA_TYPE) => $Func, )*
-	    other => {
-                return Err(DataFusionError::Internal(format!(
-                    "Unsupported data type {:?} for function",
-                    other,
-                )))
-            }
-	}
+macro_rules! downcast_array_args {
+    ($ARG:expr, $TO:ty) => {{
+        $ARG.as_any().downcast_ref::<$TO>().ok_or_else(|| {
+            DataFusionError::Internal(format!(
+                "could not cast {} to {}",
+                $ARG.data_type(),
+                type_name::<$TO>()
+            ))
+        })?
     }};
 }
 
+/// wrap function calls from primitive array to primitive array
+macro_rules! wrap_datetime_fn {
+    ( fn $OP:ident($INPUT_TY:ty $(, $TZ:ident)? ) -> $OUTPUT_TY:ty ) => {
+        Arc::new(move |args: &[ColumnarValue]| {
+            $( let $TZ = $TZ.clone(); )?
+            match &args[0] {
+                // tz in the outer $DATA_TYPE does not live long enough,
+                // so we have to take it in the inner function.
+                ColumnarValue::Array(array) => {
+                    let a = downcast_array_args!(array, $INPUT_TY);
+                    let res: $OUTPUT_TY = $OP(a $(, $TZ)? )?;
+                    Ok(ColumnarValue::Array(Arc::new(res)))
+                },
+                ColumnarValue::Scalar(scalar) => {
+                    let array = scalar.to_array();
+                    let a = downcast_array_args!(array, $INPUT_TY);
+                    let res: $OUTPUT_TY = $OP(a $(, $TZ)? )?;
+                    Ok(ColumnarValue::Array(Arc::new(res)))
+                },
+            }
+        })
+    }
+}
+
+/// wrap the type error of function `$HAME`
+macro_rules! wrap_type_err {
+    ($OTHER:ident, $NAME:literal) => {
+        return Err(DataFusionError::Internal(format!(
+            "Unsupported data type {:?} for function {}",
+            $OTHER?, $NAME,
+        )))
+    };
+}
 
 impl BuiltinScalarFunction {
     /// an allowlist of functions to take zero arguments, so that they will get special treatment
@@ -133,24 +161,93 @@ impl BuiltinScalarFunction {
         &self,
         args: &[Arc<dyn PhysicalExpr>],
         schema: &Schema,
-    ) -> Result<fn(&[ColumnarValue]) -> Result<ColumnarValue>> {
-        let func = match self {
-            BuiltinScalarFunction::ToYear => expr_to_year,
-            BuiltinScalarFunction::ToMonth => expr_to_month,
-            BuiltinScalarFunction::ToDayOfYear => expr_to_day_of_year,
-            BuiltinScalarFunction::ToDayOfMonth => expr_to_day_of_month,
-            BuiltinScalarFunction::ToDayOfWeek => expr_to_day_of_week,
-            BuiltinScalarFunction::ToDate => poly_func_impl!(
-		args, schema,
-		DataType::LargeUtf8 => expr_str_to_date,
-		DataType::Timestamp32(_) => expr_timestamp32_to_date,
-		DataType::Int64 => expr_int64_to_date
-	    ),
-            BuiltinScalarFunction::ToQuarter => expr_to_quarter,
-            BuiltinScalarFunction::ToHour => expr_to_hour,
-            BuiltinScalarFunction::ToMinute => expr_to_minute,
-            BuiltinScalarFunction::ToSecond => expr_to_second,
-            BuiltinScalarFunction::EndsWith => expr_ends_with,
+    ) -> Result<ScalarFunctionImplementation> {
+        let func: ScalarFunctionImplementation = match self {
+            BuiltinScalarFunction::ToYear => match args[0].data_type(schema) {
+                Ok(DataType::Date16) => {
+                    wrap_datetime_fn!(fn date16_to_year(Date16Array) -> UInt16Array)
+                }
+                Ok(DataType::Timestamp32(tz)) => {
+                    wrap_datetime_fn!(fn timestamp32_to_year(Timestamp32Array, tz) -> UInt16Array)
+                }
+                other => wrap_type_err!(other, "toYear"),
+            },
+            BuiltinScalarFunction::ToMonth => match args[0].data_type(schema) {
+                Ok(DataType::Date16) => {
+                    wrap_datetime_fn!(fn date16_to_month(Date16Array) -> UInt8Array)
+                }
+                Ok(DataType::Timestamp32(tz)) => {
+                    wrap_datetime_fn!(fn timestamp32_to_month(Timestamp32Array, tz) -> UInt8Array)
+                }
+                other => wrap_type_err!(other, "toMonth"),
+            },
+            BuiltinScalarFunction::ToDayOfYear => match args[0].data_type(schema) {
+                Ok(DataType::Date16) => {
+                    wrap_datetime_fn!(fn date16_to_day_of_year(Date16Array) -> UInt16Array)
+                }
+                Ok(DataType::Timestamp32(tz)) => {
+                    wrap_datetime_fn!(fn timestamp32_to_day_of_year(Timestamp32Array, tz) -> UInt16Array)
+                }
+                other => wrap_type_err!(other, "toDayOfYear"),
+            },
+            BuiltinScalarFunction::ToDayOfMonth => match args[0].data_type(schema) {
+                Ok(DataType::Date16) => {
+                    wrap_datetime_fn!(fn date16_to_day_of_month(Date16Array) -> UInt8Array)
+                }
+                Ok(DataType::Timestamp32(tz)) => {
+                    wrap_datetime_fn!(fn timestamp32_to_day_of_month(Timestamp32Array, tz) -> UInt8Array)
+                }
+                other => wrap_type_err!(other, "toDayOfMonth"),
+            },
+            BuiltinScalarFunction::ToDayOfWeek => match args[0].data_type(schema) {
+                Ok(DataType::Date16) => {
+                    wrap_datetime_fn!(fn date16_to_day_of_week(Date16Array) -> UInt8Array)
+                }
+                Ok(DataType::Timestamp32(tz)) => {
+                    wrap_datetime_fn!(fn timestamp32_to_day_of_week(Timestamp32Array, tz) -> UInt8Array)
+                }
+                other => wrap_type_err!(other, "toDayOfWeek"),
+            },
+            BuiltinScalarFunction::ToDate => match args[0].data_type(schema) {
+                Ok(DataType::Utf8) | Ok(DataType::LargeUtf8) => {
+                    Arc::new(expr_str_to_date)
+                }
+                Ok(DataType::Timestamp32(tz)) => {
+                    wrap_datetime_fn!(fn timestamp32_to_date(Timestamp32Array, tz) -> Date16Array)
+                }
+                Ok(DataType::Int64) => {
+                    wrap_datetime_fn!(fn int64_to_date(Int64Array) -> Date16Array)
+                }
+                other => wrap_type_err!(other, "toDate"),
+            },
+            BuiltinScalarFunction::ToQuarter => match args[0].data_type(schema) {
+                Ok(DataType::Date16) => {
+                    wrap_datetime_fn!(fn date16_to_quarter(Date16Array) -> UInt8Array)
+                }
+                Ok(DataType::Timestamp32(tz)) => {
+                    wrap_datetime_fn!(fn timestamp32_to_quarter(Timestamp32Array, tz) -> UInt8Array)
+                }
+                other => wrap_type_err!(other, "toQuarter"),
+            },
+            BuiltinScalarFunction::ToHour => match args[0].data_type(schema) {
+                Ok(DataType::Timestamp32(tz)) => {
+                    wrap_datetime_fn!(fn timestamp32_to_hour(Timestamp32Array, tz) -> UInt8Array)
+                }
+                other => wrap_type_err!(other, "toHour"),
+            },
+            BuiltinScalarFunction::ToMinute => match args[0].data_type(schema) {
+                Ok(DataType::Timestamp32(tz)) => {
+                    wrap_datetime_fn!(fn timestamp32_to_minute(Timestamp32Array, tz) -> UInt8Array)
+                }
+                other => wrap_type_err!(other, "toMinute"),
+            },
+            BuiltinScalarFunction::ToSecond => match args[0].data_type(schema) {
+                Ok(DataType::Timestamp32(tz)) => {
+                    wrap_datetime_fn!(fn timestamp32_to_second(Timestamp32Array, tz) -> UInt8Array)
+                }
+                other => wrap_type_err!(other, "toSecond"),
+            },
+            BuiltinScalarFunction::EndsWith => Arc::new(expr_ends_with),
         };
 
         Ok(func)
@@ -168,13 +265,13 @@ impl BuiltinScalarFunction {
                 Signature::Uniform(1, vec![DataType::Date16, DataType::Timestamp32(None)])
             }
             BuiltinScalarFunction::ToDate => Signature::OneOf(vec![
+                Signature::Uniform(1, vec![DataType::Date16, DataType::Int64]),
+                Signature::Uniform(1, vec![DataType::Date16, DataType::LargeUtf8]),
                 Signature::Uniform(
-                    1, vec![DataType::Date16, DataType::Int64]),
-                Signature::Uniform(
-                    1, vec![DataType::Date16, DataType::LargeUtf8]),
-                Signature::Uniform(
-                    1, vec![DataType::Date16, DataType::Timestamp32(None)]),
-	    ]),
+                    1,
+                    vec![DataType::Date16, DataType::Timestamp32(None)],
+                ),
+            ]),
             BuiltinScalarFunction::ToHour
             | BuiltinScalarFunction::ToMinute
             | BuiltinScalarFunction::ToSecond => {
@@ -196,7 +293,7 @@ where
 
 fn handle_timestamp_fn<T, U, F>(
     array: &PrimitiveArray<T>,
-    tz: &Option<BaseTimeZone>,
+    tz: Option<BaseTimeZone>,
     f: F,
 ) -> Result<PrimitiveArray<U>>
 where
@@ -243,7 +340,7 @@ macro_rules! def_datetime_fn {
             $EXPR:expr
         }
     ) => {
-        $(#[$OUTER])* pub fn $OP($ARRAY: $INPUT_TY, $TZ: &Option<BaseTimeZone> ) -> $OUTPUT_TY {
+        $(#[$OUTER])* pub fn $OP($ARRAY: $INPUT_TY, $TZ: Option<BaseTimeZone> ) -> $OUTPUT_TY {
             handle_timestamp_fn($ARRAY, $TZ, $EXPR)
         }
     };
@@ -312,123 +409,16 @@ def_datetime_fn! {
     }
     /// Extracts the date from Timestamp32Array
     fn timestamp32_to_date(array: &Timestamp32Array, tz) -> Result<Date16Array> {
-	|x, tz| Some(unixtime_to_days(x? as i32, tz.offset()) as u16)
+        |x, tz| Some(unixtime_to_days(x? as i32, tz.offset()) as u16)
+    }
+    /// Extracts the date from Timestamp32Array
+    fn int64_to_date(arr: &Int64Array) -> Result<Date16Array> {
+        |x| x.map(|x| if x < 0 { 0 } else { x as u16 })
     }
 }
 
 fn month_to_quarter(month: u8) -> u8 {
     (month - 1) / 3 + 1
-}
-
-macro_rules! downcast_array_args {
-    ($ARG:expr, $FROM:expr, $TO:ty) => {{
-        $ARG.as_any()
-            .downcast_ref::<$TO>()
-            .ok_or_else(|| {
-                DataFusionError::Internal(format!(
-                    "could not cast {} to {}",
-                    $FROM,
-		    type_name::<$TO>()
-                ))
-            })?
-    }};
-}
-
-macro_rules! wrap_datetime_fn {
-    ( $(
-        $(#[$OUTER:meta])* $NAME:literal => fn $FUNC:ident {
-            $( $DATA_TYPE:pat => fn $OP:ident($INPUT_TY:ty $(, $TZ:ident)? ) -> $OUTPUT_TY:ty, )*
-        }
-    )* ) => { $(
-        $(#[$OUTER])*
-        pub fn $FUNC(args: &[ColumnarValue]) -> $crate::error::Result<ColumnarValue> {
-            match args[0].data_type() {
-                $(
-                    $DATA_TYPE => match &args[0] {
-			ColumnarValue::Array(array) => {
-			    let a = downcast_array_args!(array, array.data_type(), $INPUT_TY);
-			    let res: $OUTPUT_TY = $OP(a $(, &$TZ)? )?;
-			    Ok(ColumnarValue::Array(Arc::new(res)))
-			},
-			ColumnarValue::Scalar(scalar) => {
-			    let array = scalar.to_array();
-			    let a = downcast_array_args!(array, array.data_type(), $INPUT_TY);
-			    let res: $OUTPUT_TY = $OP(a $(, &$TZ)? )?;
-			    Ok(ColumnarValue::Array(Arc::new(res)))
-			},
-		    }
-		)*,
-		other => Err(DataFusionError::Internal(format!(
-		    "Unsupported data type {:?} for function {}",
-		    other, $NAME,
-		))),
-	    }
-	}
-    )* }
-}
-
-wrap_datetime_fn! {
-    /// wrapping to backend to_date logics
-    "toDate" => fn expr_int64_to_date {
-	DataType::Int64 => fn int64_to_date(Int64Array) -> Date16Array,
-    }
-}
-
-/// Extracts the date from Timestamp32Array
-pub fn int64_to_date(arr: &Int64Array) -> Result<Date16Array> {
-    Ok(arr.iter().map(|x| x.map(|x| if x < 0 { 0 } else { x as u16 })).collect())
-}
-
-wrap_datetime_fn! {
-    /// wrapping to backend to_date logics
-    "toDate" => fn expr_timestamp32_to_date {
-        DataType::Timestamp32(tz) => fn timestamp32_to_date(Timestamp32Array, tz) -> Date16Array,
-    }
-    /// wrapping to backend to_year logics
-    "toYear" => fn expr_to_year {
-        DataType::Date16 => fn date16_to_year(Date16Array) -> UInt16Array,
-        DataType::Timestamp32(tz) => fn timestamp32_to_year(Timestamp32Array, tz) -> UInt16Array,
-    }
-    /// wrapping to backend to_quarter logics
-    "toQuarter" => fn expr_to_quarter {
-        DataType::Date16 => fn date16_to_quarter(Date16Array) -> UInt8Array,
-        DataType::Timestamp32(tz) => fn timestamp32_to_quarter(Timestamp32Array, tz) -> UInt8Array,
-    }
-    /// wrapping to backend to_month logics
-    "toMonth" => fn expr_to_month {
-        DataType::Date16 => fn date16_to_month(Date16Array) -> UInt8Array,
-        DataType::Timestamp32(tz) => fn timestamp32_to_month(Timestamp32Array, tz) -> UInt8Array,
-    }
-    /// wrapping to backend to_day_of_year logics
-    "toDayOfYear" => fn expr_to_day_of_year {
-        DataType::Date16 => fn date16_to_day_of_year(Date16Array) -> UInt16Array,
-        DataType::Timestamp32(tz) =>
-            fn timestamp32_to_day_of_year(Timestamp32Array, tz) -> UInt16Array,
-    }
-    /// wrapping to backend to_day_of_month logics
-    "toDayOfMonth" => fn expr_to_day_of_month {
-        DataType::Date16 => fn date16_to_day_of_month(Date16Array) -> UInt8Array,
-        DataType::Timestamp32(tz) =>
-            fn timestamp32_to_day_of_month(Timestamp32Array, tz) -> UInt8Array,
-    }
-    /// wrapping to backend to_day_of_week logics
-    "toDayOfWeek" => fn expr_to_day_of_week {
-        DataType::Date16 => fn date16_to_day_of_week(Date16Array) -> UInt8Array,
-        DataType::Timestamp32(tz) =>
-            fn timestamp32_to_day_of_week(Timestamp32Array, tz) -> UInt8Array,
-    }
-    /// wrapping to backend to_hour logics
-    "toHour" => fn expr_to_hour {
-        DataType::Timestamp32(tz) => fn timestamp32_to_hour(Timestamp32Array, tz) -> UInt8Array,
-    }
-    /// wrapping to backend to_minute logics
-    "toMinute" => fn expr_to_minute {
-        DataType::Timestamp32(tz) => fn timestamp32_to_minute(Timestamp32Array, tz) -> UInt8Array,
-    }
-    /// wrapping to backend to_second logics
-    "toSecond" => fn expr_to_second {
-        DataType::Timestamp32(tz) => fn timestamp32_to_second(Timestamp32Array, tz) -> UInt8Array,
-    }
 }
 
 /// Returns true if string ends with suffix for utf-8.
@@ -538,7 +528,6 @@ macro_rules! wrap_string_fn {
     )* }
 }
 
-
 #[inline]
 fn str_to_u16(s: &str) -> Result<u16> {
     if s.len() < 8 {
@@ -546,8 +535,8 @@ fn str_to_u16(s: &str) -> Result<u16> {
     }
 
     let s = match s.chars().nth(0).unwrap_or('\u{0}') {
-	'1'..='9' => s,
-	_ => &s[1..] // skip the length byte
+        '1'..='9' => s,
+        _ => &s[1..], // skip the length byte
     };
 
     if let Ok(date) = NaiveDate::parse_from_str(s, "%Y-%m-%d") {

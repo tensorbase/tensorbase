@@ -34,8 +34,8 @@ use super::{
     ColumnarValue, PhysicalExpr,
 };
 use crate::execution::context::ExecutionContextState;
-use crate::physical_plan::clickhouse;
 use crate::physical_plan::array_expressions;
+use crate::physical_plan::clickhouse;
 use crate::physical_plan::datetime_expressions;
 use crate::physical_plan::expressions::{
     cast_column, nullif_func, DEFAULT_DATAFUSION_CAST_OPTIONS, SUPPORTED_NULLIF_TYPES,
@@ -99,7 +99,7 @@ pub type ReturnTypeFunction =
 pub enum BuiltinScalarFunction {
     /// TensorBase for ClickHouse builtins
     ClickHouseBuiltin(clickhouse::BuiltinScalarFunction),
-    /// TODO 
+    /// TODO
     ToDate,
 
     // math functions
@@ -236,9 +236,7 @@ impl BuiltinScalarFunction {
     /// while executing.
     fn supports_zero_argument(&self) -> bool {
         match self {
-            BuiltinScalarFunction::ClickHouseBuiltin(fun) => {
-                fun.supports_zero_argument()
-            },
+            BuiltinScalarFunction::ClickHouseBuiltin(fun) => fun.supports_zero_argument(),
             BuiltinScalarFunction::Random | BuiltinScalarFunction::Now => true,
             _ => false,
         }
@@ -250,7 +248,7 @@ impl fmt::Display for BuiltinScalarFunction {
         // lowercase of the debug.
         match self {
             Self::ClickHouseBuiltin(fun) => write!(f, "{}", fun),
-            _ => write!(f, "{}", format!("{:?}", self).to_lowercase())
+            _ => write!(f, "{}", format!("{:?}", self).to_lowercase()),
         }
     }
 }
@@ -342,7 +340,6 @@ impl From<clickhouse::BuiltinScalarFunction> for BuiltinScalarFunction {
     }
 }
 
-
 macro_rules! make_utf8_to_return_type {
     ($FUNC:ident, $largeUtf8Type:expr, $utf8Type:expr) => {
         fn $FUNC(arg_type: &DataType, name: &str) -> Result<DataType> {
@@ -379,9 +376,7 @@ pub fn return_type(
     // the return type of the built in function.
     // Some built-in functions' return type depends on the incoming type.
     match fun {
-        BuiltinScalarFunction::ClickHouseBuiltin(fun) => {
-            fun.return_type(arg_types)
-        }
+        BuiltinScalarFunction::ClickHouseBuiltin(fun) => fun.return_type(arg_types),
         BuiltinScalarFunction::ToDate => Ok(DataType::Date16),
         BuiltinScalarFunction::Array => Ok(DataType::FixedSizeList(
             Box::new(Field::new("item", arg_types[0].clone(), true)),
@@ -996,7 +991,9 @@ pub fn create_physical_expr(
         // Unlike the string functions, which actually figure out the function to use with each array,
         // here we return either a cast fn or string timestamp translation based on the expression data type
         // so we don't have to pay a per-array/batch cost.
-        BuiltinScalarFunction::ClickHouseBuiltin(fun) => Arc::new(fun.func_impl(args, input_schema)?),
+        BuiltinScalarFunction::ClickHouseBuiltin(fun) => {
+            fun.func_impl(args, input_schema)?
+        }
         BuiltinScalarFunction::ToTimestamp => {
             Arc::new(match args[0].data_type(input_schema) {
                 Ok(DataType::Int64) | Ok(DataType::Timestamp(_, None)) => {
@@ -1161,17 +1158,18 @@ fn signature(fun: &BuiltinScalarFunction) -> Signature {
             Signature::Exact(vec![DataType::Utf8, DataType::Int64]),
             Signature::Exact(vec![DataType::LargeUtf8, DataType::Int64]),
         ]),
-        BuiltinScalarFunction::ToTimestamp 
-        | BuiltinScalarFunction::ToDate => Signature::Uniform(
-            1,
-            vec![
-                DataType::Utf8,
-                DataType::Int64,
-                DataType::Timestamp(TimeUnit::Millisecond, None),
-                DataType::Timestamp(TimeUnit::Microsecond, None),
-                DataType::Timestamp(TimeUnit::Second, None),
-            ],
-        ),
+        BuiltinScalarFunction::ToTimestamp | BuiltinScalarFunction::ToDate => {
+            Signature::Uniform(
+                1,
+                vec![
+                    DataType::Utf8,
+                    DataType::Int64,
+                    DataType::Timestamp(TimeUnit::Millisecond, None),
+                    DataType::Timestamp(TimeUnit::Microsecond, None),
+                    DataType::Timestamp(TimeUnit::Second, None),
+                ],
+            )
+        }
         BuiltinScalarFunction::ToTimestampMillis => Signature::Uniform(
             1,
             vec![
@@ -1210,10 +1208,7 @@ fn signature(fun: &BuiltinScalarFunction) -> Signature {
             Signature::Exact(vec![DataType::Utf8, DataType::Date16]),
             Signature::Exact(vec![DataType::Utf8, DataType::Date32]),
             Signature::Exact(vec![DataType::Utf8, DataType::Date64]),
-            Signature::Exact(vec![
-                DataType::Utf8,
-                DataType::Timestamp32(None),
-            ]),
+            Signature::Exact(vec![DataType::Utf8, DataType::Timestamp32(None)]),
             Signature::Exact(vec![
                 DataType::Utf8,
                 DataType::Timestamp(TimeUnit::Second, None),
