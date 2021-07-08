@@ -162,7 +162,7 @@ remote_address = {
 }
 
 port = @{
-    ASCII_DIGIT{1,5}
+  ASCII_DIGIT+
 }
 
 join_tables = {
