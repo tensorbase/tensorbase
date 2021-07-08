@@ -550,7 +550,7 @@ fn seek_to<'a, R: pest::RuleType>(
 }
 
 #[derive(Debug, PartialEq)]
-pub struct RemoteDbInfo {
+pub struct RemoteTableInfo {
     addrs: Vec<RemoteAddr>,
     username: Option<String>,
     password: Option<String>,
@@ -565,7 +565,7 @@ pub struct RemoteAddr {
     port: Option<u16>,
 }
 
-impl Default for RemoteDbInfo {
+impl Default for RemoteTableInfo {
     fn default() -> Self {
         Self {
             addrs: vec![],
@@ -580,7 +580,7 @@ impl Default for RemoteDbInfo {
 #[derive(Debug, PartialEq)]
 pub enum TablePlaceKind {
     Local,
-    Remote(RemoteDbInfo),
+    Remote(RemoteTableInfo),
 }
 
 #[derive(Debug)]
@@ -589,7 +589,7 @@ pub struct TablePlaceKindContext {
 }
 
 impl TablePlaceKindContext {
-    fn mut_remote_info<'a>(&'a mut self) -> Option<&'a mut RemoteDbInfo> {
+    fn mut_remote_info<'a>(&'a mut self) -> Option<&'a mut RemoteTableInfo> {
         if let TablePlaceKind::Remote(place_kind) = &mut self.place_kind {
             Some(place_kind)
         } else {
@@ -731,7 +731,7 @@ mod unit_tests {
 
     use super::{
         parse_create_database, parse_create_table, pretty_parse_tree, seek_to, BqlParser,
-        RemoteAddr, RemoteDbInfo, Rule, TablePlaceKind,
+        RemoteAddr, RemoteTableInfo, Rule, TablePlaceKind,
     };
     use meta::types::BqlType;
     use pest::Parser;
@@ -908,7 +908,7 @@ LIMIT 100;
         let r = parse_table_place(pairs.peek().unwrap())?.place_kind;
         assert_eq!(
             r,
-            TablePlaceKind::Remote(RemoteDbInfo {
+            TablePlaceKind::Remote(RemoteTableInfo {
                 database_name: "default".into(),
                 table_name: "test".into(),
                 addrs: vec![RemoteAddr {
@@ -928,7 +928,7 @@ LIMIT 100;
         let r = parse_table_place(pairs.peek().unwrap())?.place_kind;
         assert_eq!(
             r,
-            TablePlaceKind::Remote(RemoteDbInfo {
+            TablePlaceKind::Remote(RemoteTableInfo {
                 database_name: "default".into(),
                 table_name: "test".into(),
                 addrs: vec![RemoteAddr {
@@ -950,7 +950,7 @@ LIMIT 100;
         let r = parse_table_place(pairs.peek().unwrap())?.place_kind;
         assert_eq!(
             r,
-            TablePlaceKind::Remote(RemoteDbInfo {
+            TablePlaceKind::Remote(RemoteTableInfo {
                 database_name: "default".into(),
                 table_name: "test".into(),
                 addrs: vec![RemoteAddr {
@@ -972,7 +972,7 @@ LIMIT 100;
         let r = parse_table_place(pairs.peek().unwrap())?.place_kind;
         assert_eq!(
             r,
-            TablePlaceKind::Remote(RemoteDbInfo {
+            TablePlaceKind::Remote(RemoteTableInfo {
                 database_name: "default".into(),
                 table_name: "test".into(),
                 addrs: vec![RemoteAddr {
@@ -994,7 +994,7 @@ LIMIT 100;
         let r = parse_table_place(pairs.peek().unwrap())?.place_kind;
         assert_eq!(
             r,
-            TablePlaceKind::Remote(RemoteDbInfo {
+            TablePlaceKind::Remote(RemoteTableInfo {
                 database_name: "default".into(),
                 table_name: "test".into(),
                 addrs: vec![RemoteAddr {
@@ -1016,7 +1016,7 @@ LIMIT 100;
         let r = parse_table_place(pairs.peek().unwrap())?.place_kind;
         assert_eq!(
             r,
-            TablePlaceKind::Remote(RemoteDbInfo {
+            TablePlaceKind::Remote(RemoteTableInfo {
                 database_name: "default".into(),
                 table_name: "test".into(),
                 addrs: vec![RemoteAddr {
@@ -1037,7 +1037,7 @@ LIMIT 100;
         let r = parse_table_place(pairs.peek().unwrap())?.place_kind;
         assert_eq!(
             r,
-            TablePlaceKind::Remote(RemoteDbInfo {
+            TablePlaceKind::Remote(RemoteTableInfo {
                 database_name: "cloud".into(),
                 table_name: "test".into(),
                 addrs: vec![
