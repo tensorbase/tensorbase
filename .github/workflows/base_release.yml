@@ -33,6 +33,6 @@ jobs:
         file: base_linux.zip
         tag: ${{ github.ref }}
         overwrite: true
-        body: "nightly build. Download repacked ClickHouse client: [clickhouse_client_repack_linux.zip](https://github.com/tensorbase/tensorbase/releases/download/v2021.04.24-1/clickhouse_client_repack_linux.zip)."
+        body: "nightly build. Download repacked ClickHouse client: [clickhouse_client_repack_linux.zip](https://github.com/tensorbase/tensorbase/releases/download/v2021.07.05/clickhouse_client_repack_linux.zip)."
 
     
