@@ -121,6 +121,28 @@ macro_rules! wrap_datetime_fn {
         })
     }
 }
+/// wrap string function calls from [`ArrayRef`] to primitive array
+macro_rules! wrap_string_fn {
+    ( fn $OP:ident -> $OUTPUT_TY:ty ) => {
+        Arc::new(|args: &[ColumnarValue]| {
+            let len = args
+                .iter()
+                .fold(Option::<usize>::None, |acc, arg| match arg {
+                    ColumnarValue::Scalar(_) => acc,
+                    ColumnarValue::Array(a) => Some(a.len()),
+                });
+
+            // to array
+            let args = args
+                .iter()
+                .map(|arg| arg.clone().into_array(len.unwrap_or(1)))
+                .collect::<Vec<ArrayRef>>();
+
+            let res = $OP(&args)?;
+            Ok(ColumnarValue::Array(Arc::new(res)))
+        })
+    };
+}
 
 /// wrap the type error of function `$HAME`
 macro_rules! wrap_type_err {
@@ -209,8 +231,9 @@ impl BuiltinScalarFunction {
                 other => wrap_type_err!(other, "toDayOfWeek"),
             },
             BuiltinScalarFunction::ToDate => match args[0].data_type(schema) {
-                Ok(DataType::Utf8) | Ok(DataType::LargeUtf8) => {
-                    Arc::new(expr_str_to_date)
+                Ok(DataType::Utf8) => wrap_string_fn!(fn utf8_to_date -> Date16Array),
+                Ok(DataType::LargeUtf8) => {
+                    wrap_string_fn!(fn large_utf8_to_date -> Date16Array)
                 }
                 Ok(DataType::Timestamp32(tz)) => {
                     wrap_datetime_fn!(fn timestamp32_to_date(Timestamp32Array, tz) -> Date16Array)
@@ -247,7 +270,13 @@ impl BuiltinScalarFunction {
                 }
                 other => wrap_type_err!(other, "toSecond"),
             },
-            BuiltinScalarFunction::EndsWith => Arc::new(expr_ends_with),
+            BuiltinScalarFunction::EndsWith => match args[0].data_type(schema) {
+                Ok(DataType::Utf8) => wrap_string_fn!(fn utf8_ends_with -> BooleanArray),
+                Ok(DataType::LargeUtf8) => {
+                    wrap_string_fn!(fn large_utf8_ends_with -> BooleanArray)
+                }
+                other => wrap_type_err!(other, "endsWith"),
+            },
         };
 
         Ok(func)
@@ -487,47 +516,6 @@ fn string_to_date16<T: StringOffsetSizeTrait>(args: &[ArrayRef]) -> Result<Date1
     Ok(string_array?.into())
 }
 
-macro_rules! wrap_string_fn {
-    ( $(
-        $(#[$OUTER:meta])* $NAME:literal => fn $FUNC:ident {
-            $( $DATA_TYPE:pat => fn $OP:ident -> $OUTPUT_TY:ty, )*
-        }
-    )* ) => { $(
-        $(#[$OUTER])*
-        pub fn $FUNC(args: &[ColumnarValue]) -> $crate::error::Result<ColumnarValue> {
-            match args[0].data_type() {
-                $(
-                _data_type @ $DATA_TYPE => {
-                    let len = args
-                        .iter()
-                        .fold(Option::<usize>::None, |acc, arg| match arg {
-                            ColumnarValue::Scalar(_) => acc,
-                            ColumnarValue::Array(a) => Some(a.len()),
-                        });
-
-                    // to array
-                    let args = if let Some(len) = len {
-                        args.iter()
-                            .map(|arg| arg.clone().into_array(len))
-                            .collect::<Vec<ArrayRef>>()
-                    } else {
-                        args.iter()
-                            .map(|arg| arg.clone().into_array(1))
-                            .collect::<Vec<ArrayRef>>()
-                    };
-
-                    let res = $OP(&args)?;
-                    Ok(ColumnarValue::Array(Arc::new(res)))
-                },)*
-                other => Err(DataFusionError::Internal(format!(
-                    "Unsupported data type {:?} for function {}",
-                    other, $NAME,
-                ))),
-            }
-        }
-    )* }
-}
-
 #[inline]
 fn str_to_u16(s: &str) -> Result<u16> {
     if s.len() < 8 {
@@ -557,17 +545,4 @@ fn str_to_u16(s: &str) -> Result<u16> {
         "Error parsing '{}' as date with '%Y-%m-%d' format",
         s
     )))
-}
-
-wrap_string_fn! {
-    /// wrapping to backend endsWith logics
-    "endsWith" => fn expr_ends_with {
-        DataType::Utf8 => fn utf8_ends_with -> BooleanArray,
-        DataType::LargeUtf8 => fn large_utf8_ends_with -> BooleanArray,
-    }
-    /// wrapping to backend toDate logics
-    "toDate" => fn expr_str_to_date {
-        DataType::Utf8 => fn utf8_to_date -> Date16Array,
-        DataType::LargeUtf8 => fn large_utf8_to_date -> Date16Array,
-    }
 }
