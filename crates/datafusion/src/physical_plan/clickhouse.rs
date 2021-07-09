@@ -102,7 +102,7 @@ macro_rules! downcast_array_args {
 macro_rules! wrap_datetime_fn {
     ( fn $OP:ident($INPUT_TY:ty $(, $TZ:ident)? ) -> $OUTPUT_TY:ty ) => {
         Arc::new(move |args: &[ColumnarValue]| {
-            $( let $TZ = $TZ.clone(); )?
+            $( let $TZ = $TZ.clone().map(|tz| tz.offset()); )?
             match &args[0] {
                 // tz in the outer $DATA_TYPE does not live long enough,
                 // so we have to take it in the inner function.
@@ -322,128 +322,123 @@ where
 
 fn handle_timestamp_fn<T, U, F>(
     array: &PrimitiveArray<T>,
-    tz: Option<BaseTimeZone>,
+    tz: Option<i32>,
     f: F,
 ) -> Result<PrimitiveArray<U>>
 where
     T: ArrowPrimitiveType,
     U: ArrowPrimitiveType,
-    F: Fn(Option<T::Native>, &BaseTimeZone) -> Option<U::Native>,
+    F: Fn(Option<T::Native>, i32) -> Option<U::Native>,
 {
     let tz = tz
-        .as_ref()
-        .or(DEFAULT_TIMEZONE.get())
+        .or_else(|| Some(DEFAULT_TIMEZONE.get()?.offset()))
         .ok_or(DataFusionError::Internal(
             "default time zone not initialized".to_string(),
         ))?;
     Ok(array.iter().map(|x| f(x, tz)).collect())
 }
 
-macro_rules! def_datetime_fn {
-    ( $(
-        $(#[$OUTER:meta])*
-        fn $OP:ident($ARRAY:ident: $INPUT_TY:ty $(, $TZ:ident )? ) -> $OUTPUT_TY:ty {
-            $EXPR:expr
-        }
-    )* ) => { $( def_datetime_fn!{
-        @wrapped $(#[$OUTER])*
-        fn $OP($ARRAY: $INPUT_TY $(, $TZ )? ) -> $OUTPUT_TY {
-            $EXPR
-        }
-    } )* };
-    // wrapped rule for define date functions
-    (
-        @wrapped $(#[$OUTER:meta])*
-        fn $OP:ident($ARRAY:ident: $INPUT_TY:ty ) -> $OUTPUT_TY:ty {
-            $EXPR:expr
-        }
-    ) => {
-        $(#[$OUTER])* pub fn $OP($ARRAY: $INPUT_TY ) -> $OUTPUT_TY {
-            handle_date_fn($ARRAY, $EXPR)
-        }
-    };
-    // wrapped rule for define timestamp functions
-    (
-        @wrapped $(#[$OUTER:meta])*
-        fn $OP:ident($ARRAY:ident: $INPUT_TY:ty, $TZ:ident ) -> $OUTPUT_TY:ty {
-            $EXPR:expr
-        }
-    ) => {
-        $(#[$OUTER])* pub fn $OP($ARRAY: $INPUT_TY, $TZ: Option<BaseTimeZone> ) -> $OUTPUT_TY {
-            handle_timestamp_fn($ARRAY, $TZ, $EXPR)
-        }
-    };
+/// Extracts the years from Date16 array
+pub fn date16_to_year(array: &Date16Array) -> Result<UInt16Array> {
+    handle_date_fn(array, |x| Some(days_to_year(x? as i32)))
 }
-
-def_datetime_fn! {
-    /// Extracts the years from Date16 array
-    fn date16_to_year(array: &Date16Array) -> Result<UInt16Array> {
-        |x| Some(days_to_year(x? as i32))
-    }
-    /// Extracts the months from Date16 array
-    fn date16_to_month(array: &Date16Array) -> Result<UInt8Array> {
-        |x| Some(days_to_ymd(x? as i32).m)
-    }
-    /// Extracts the days of year from Date16 array
-    fn date16_to_day_of_year(array: &Date16Array) -> Result<UInt16Array> {
-        |x| Some(days_to_ordinal(x? as i32))
-    }
-    /// Extracts the days of month from Date16 array
-    fn date16_to_day_of_month(array: &Date16Array) -> Result<UInt8Array> {
-        |x| Some(days_to_ymd(x? as i32).d)
-    }
-    /// Extracts the days of week from Date16 array
-    fn date16_to_day_of_week(array: &Date16Array) -> Result<UInt8Array> {
-        |x| Some(days_to_weekday(x? as i32))
-    }
-    /// Extracts the months from Date16 array
-    fn date16_to_quarter(array: &Date16Array) -> Result<UInt8Array> {
-        |x| Some(month_to_quarter(days_to_ymd(x? as i32).m))
-    }
-    /// Extracts the years from Timestamp32 array
-    fn timestamp32_to_year(array: &Timestamp32Array, tz) -> Result<UInt16Array> {
-        |x, tz| Some(unixtime_to_year(x? as i32, tz.offset()))
-    }
-    /// Extracts the months from Timestamp32 array
-    fn timestamp32_to_month(array: &Timestamp32Array, tz) -> Result<UInt8Array> {
-        |x, tz| Some(unixtime_to_ymd(x? as i32, tz.offset()).m)
-    }
-    /// Extracts the days of year from Timestamp32 array
-    fn timestamp32_to_day_of_year(array: &Timestamp32Array, tz) -> Result<UInt16Array> {
-        |x, tz| Some(unixtime_to_ordinal(x? as i32, tz.offset()))
-    }
-    /// Extracts the days of month from Timestamp32 array
-    fn timestamp32_to_day_of_month(array: &Timestamp32Array, tz) -> Result<UInt8Array> {
-        |x, tz| Some(unixtime_to_ymd(x? as i32, tz.offset()).d)
-    }
-    /// Extracts the days of week from Timestamp32 array
-    fn timestamp32_to_day_of_week(array: &Timestamp32Array, tz) -> Result<UInt8Array> {
-        |x, tz| Some(unixtime_to_weekday(x? as i32, tz.offset()))
-    }
-    /// Extracts the months from Timestamp32 array
-    fn timestamp32_to_quarter(array: &Timestamp32Array, tz) -> Result<UInt8Array> {
-        |x, tz| Some(month_to_quarter(unixtime_to_ymd(x? as i32, tz.offset()).m))
-    }
-    /// Extracts the hours from Timestamp32 array
-    fn timestamp32_to_hour(array: &Timestamp32Array, tz) -> Result<UInt8Array> {
-        |x, tz| Some(unixtime_to_hms(x? as i32, tz.offset()).h)
-    }
-    /// Extracts the minutes from Timestamp32 array
-    fn timestamp32_to_minute(array: &Timestamp32Array, tz) -> Result<UInt8Array> {
-        |x, tz| Some(unixtime_to_hms(x? as i32, tz.offset()).m)
-    }
-    /// Extracts the seconds from Timestamp32 array
-    fn timestamp32_to_second(array: &Timestamp32Array, _tz) -> Result<UInt8Array> {
-        |x, _tz| Some(unixtime_to_second(x? as i32))
-    }
-    /// Extracts the date from Timestamp32Array
-    fn timestamp32_to_date(array: &Timestamp32Array, tz) -> Result<Date16Array> {
-        |x, tz| Some(unixtime_to_days(x? as i32, tz.offset()) as u16)
-    }
-    /// Extracts the date from Timestamp32Array
-    fn int64_to_date(arr: &Int64Array) -> Result<Date16Array> {
-        |x| x.map(|x| if x < 0 { 0 } else { x as u16 })
-    }
+/// Extracts the months from Date16 array
+pub fn date16_to_month(array: &Date16Array) -> Result<UInt8Array> {
+    handle_date_fn(array, |x| Some(days_to_ymd(x? as i32).m))
+}
+/// Extracts the days of year from Date16 array
+pub fn date16_to_day_of_year(array: &Date16Array) -> Result<UInt16Array> {
+    handle_date_fn(array, |x| Some(days_to_ordinal(x? as i32)))
+}
+/// Extracts the days of month from Date16 array
+pub fn date16_to_day_of_month(array: &Date16Array) -> Result<UInt8Array> {
+    handle_date_fn(array, |x| Some(days_to_ymd(x? as i32).d))
+}
+/// Extracts the days of week from Date16 array
+pub fn date16_to_day_of_week(array: &Date16Array) -> Result<UInt8Array> {
+    handle_date_fn(array, |x| Some(days_to_weekday(x? as i32)))
+}
+/// Extracts the months from Date16 array
+pub fn date16_to_quarter(array: &Date16Array) -> Result<UInt8Array> {
+    handle_date_fn(array, |x| Some(month_to_quarter(days_to_ymd(x? as i32).m)))
+}
+/// Extracts the years from Timestamp32 array
+pub fn timestamp32_to_year(
+    array: &Timestamp32Array,
+    tz: Option<i32>,
+) -> Result<UInt16Array> {
+    handle_timestamp_fn(array, tz, |x, tz| Some(unixtime_to_year(x? as i32, tz)))
+}
+/// Extracts the months from Timestamp32 array
+pub fn timestamp32_to_month(
+    array: &Timestamp32Array,
+    tz: Option<i32>,
+) -> Result<UInt8Array> {
+    handle_timestamp_fn(array, tz, |x, tz| Some(unixtime_to_ymd(x? as i32, tz).m))
+}
+/// Extracts the days of year from Timestamp32 array
+pub fn timestamp32_to_day_of_year(
+    array: &Timestamp32Array,
+    tz: Option<i32>,
+) -> Result<UInt16Array> {
+    handle_timestamp_fn(array, tz, |x, tz| Some(unixtime_to_ordinal(x? as i32, tz)))
+}
+/// Extracts the days of month from Timestamp32 array
+pub fn timestamp32_to_day_of_month(
+    array: &Timestamp32Array,
+    tz: Option<i32>,
+) -> Result<UInt8Array> {
+    handle_timestamp_fn(array, tz, |x, tz| Some(unixtime_to_ymd(x? as i32, tz).d))
+}
+/// Extracts the days of week from Timestamp32 array
+pub fn timestamp32_to_day_of_week(
+    array: &Timestamp32Array,
+    tz: Option<i32>,
+) -> Result<UInt8Array> {
+    handle_timestamp_fn(array, tz, |x, tz| Some(unixtime_to_weekday(x? as i32, tz)))
+}
+/// Extracts the months from Timestamp32 array
+pub fn timestamp32_to_quarter(
+    array: &Timestamp32Array,
+    tz: Option<i32>,
+) -> Result<UInt8Array> {
+    handle_timestamp_fn(array, tz, |x, tz| {
+        Some(month_to_quarter(unixtime_to_ymd(x? as i32, tz).m))
+    })
+}
+/// Extracts the hours from Timestamp32 array
+pub fn timestamp32_to_hour(
+    array: &Timestamp32Array,
+    tz: Option<i32>,
+) -> Result<UInt8Array> {
+    handle_timestamp_fn(array, tz, |x, tz| Some(unixtime_to_hms(x? as i32, tz).h))
+}
+/// Extracts the minutes from Timestamp32 array
+pub fn timestamp32_to_minute(
+    array: &Timestamp32Array,
+    tz: Option<i32>,
+) -> Result<UInt8Array> {
+    handle_timestamp_fn(array, tz, |x, tz| Some(unixtime_to_hms(x? as i32, tz).m))
+}
+/// Extracts the seconds from Timestamp32 array
+pub fn timestamp32_to_second(
+    array: &Timestamp32Array,
+    tz: Option<i32>,
+) -> Result<UInt8Array> {
+    handle_timestamp_fn(array, tz, |x, _tz| Some(unixtime_to_second(x? as i32)))
+}
+/// Extracts the date from Timestamp32Array
+pub fn timestamp32_to_date(
+    array: &Timestamp32Array,
+    tz: Option<i32>,
+) -> Result<Date16Array> {
+    handle_timestamp_fn(array, tz, |x, tz| {
+        Some(unixtime_to_days(x? as i32, tz) as u16)
+    })
+}
+/// Extracts the date from Timestamp32Array
+pub fn int64_to_date(array: &Int64Array) -> Result<Date16Array> {
+    handle_date_fn(array, |x| Some(x?.max(0) as u16))
 }
 
 fn month_to_quarter(month: u8) -> u8 {
