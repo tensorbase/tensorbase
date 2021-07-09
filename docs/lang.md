@@ -78,7 +78,7 @@ clickhouse-client --query="INSERT INTO trips_lite FORMAT CSV" < /some_path_here/
 ```
 
 * insert into ... select
-```
+```sql
 insert into tab1 select * from tab2
 ```
 
