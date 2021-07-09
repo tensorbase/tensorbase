@@ -34,7 +34,7 @@ rand = "0.8.3"
 
 [dev-dependencies]
 postgres = "0.15"
-mysql = "18"
+mysql = "21"
 mysql_async = "0.20.0"
 slab = "0.4.2"
 tokio = { version = "1.0", features = ["full"] }
