@@ -41,7 +41,9 @@ use std::sync::Arc;
 use crate::buffer::MutableBuffer;
 use crate::compute::kernels::arithmetic::{divide, multiply};
 use crate::compute::kernels::arity::unary;
-use crate::compute::kernels::cast_utils::{string_to_timestamp32, string_to_timestamp_nanos};
+use crate::compute::kernels::cast_utils::{
+    string_to_timestamp32, string_to_timestamp_nanos,
+};
 use crate::datatypes::*;
 use crate::error::{ArrowError, Result};
 use crate::{array::*, compute::take};
@@ -233,6 +235,7 @@ pub fn can_cast_types(from_type: &DataType, to_type: &DataType) -> bool {
         (Time64(_), Time32(to_unit)) => {
             matches!(to_unit, TimeUnit::Second | TimeUnit::Millisecond)
         }
+        (Timestamp32(_), Timestamp32(None)) => true,
         (Timestamp32(_), Int32) => true,
         (Int32, Timestamp32(_)) => true,
         (Timestamp(_, _), Int64) => true,
@@ -820,6 +823,9 @@ pub fn cast_with_options(
             }
         }
         (Timestamp32(_), Int32) => cast_array_data::<Int32Type>(array, to_type.clone()),
+        (Timestamp32(_), Timestamp32(_)) => {
+            cast_array_data::<Timestamp32Type>(array, to_type.clone())
+        }
         (Timestamp(_, _), Int64) => cast_array_data::<Int64Type>(array, to_type.clone()),
         (Int64, Timestamp(to_unit, _)) => {
             use TimeUnit::*;
