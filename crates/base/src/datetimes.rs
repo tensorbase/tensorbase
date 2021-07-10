@@ -7,14 +7,14 @@ use crate::errs::{BaseError, BaseResult};
 
 use std::{fmt, str::FromStr};
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Eq, PartialEq)]
 pub struct YMD {
     pub y: u16,
     pub m: u8,
     pub d: u8,
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Eq, PartialEq)]
 pub struct HMS {
     pub h: u8,
     pub m: u8,
@@ -101,6 +101,12 @@ pub fn ymdhms_to_unixtime(dt: YMDHMS, tz_offset: i32) -> u32 {
             .timestamp() as i32,
         tz_offset,
     ) as u32
+}
+
+#[inline(always)]
+pub fn ymd_to_days(dt: YMD) -> u16 {
+    (NaiveDate::from_ymd(dt.y as i32, dt.m as u32, dt.d as u32).num_days_from_ce()
+        - 719_163) as u16
 }
 
 #[inline(always)]
@@ -211,6 +217,14 @@ pub fn days_to_weekday(days0: i32) -> u8 {
 }
 
 #[inline]
+fn one_digit(b: u8) -> Result<u64, BaseError> {
+    if b < b'0' || b > b'9' {
+        return Err(BaseError::InvalidDatetimeDigit);
+    }
+    Ok((b - b'0') as u64)
+}
+
+#[inline]
 fn two_digits(b1: u8, b2: u8) -> Result<u64, BaseError> {
     if b1 < b'0' || b2 < b'0' || b1 > b'9' || b2 > b'9' {
         return Err(BaseError::InvalidDatetimeDigit);
@@ -256,6 +270,34 @@ pub fn parse_to_epoch(s: &str, tz_offset: i32) -> BaseResult<u32> {
     ))
 }
 
+pub fn parse_to_days(s: &str) -> BaseResult<u16> {
+    if s.len() < "2018-2-1".len() {
+        return Err(BaseError::InvalidDatetimeFormat);
+    }
+    let b = s.as_bytes(); // for careless slicing
+    if b[4] != b'-' {
+        return Err(BaseError::InvalidDatetimeFormat);
+    }
+    let year = two_digits(b[0], b[1])? * 100 + two_digits(b[2], b[3])?;
+    let (month, day) = match &b[5..] {
+        &[month, b'-', day] => (one_digit(month)?, one_digit(day)?),
+        &[month, b'-', d0, d1] => (one_digit(month)?, two_digits(d0, d1)?),
+        &[m0, m1, b'-', day] => (two_digits(m0, m1)?, one_digit(day)?),
+        &[m0, m1, b'-', d0, d1] => (two_digits(m0, m1)?, two_digits(d0, d1)?),
+        _ => return Err(BaseError::InvalidDatetimeFormat),
+    };
+
+    if year < 1970 {
+        return Err(BaseError::InvalidDatetimeFormat);
+    }
+
+    Ok(ymd_to_days(YMD {
+        y: year as u16,
+        m: month as u8,
+        d: day as u8,
+    }))
+}
+
 #[cfg(test)]
 mod unit_tests {
     use super::*;
@@ -268,20 +310,46 @@ mod unit_tests {
     #[test]
     fn basic_check() -> BaseResult<()> {
         show_option_size!(YMDHMS);
+        show_option_size!(YMD);
+        show_option_size!(HMS);
         let tz_offset = 0;
 
         let ut = ymdhms_to_unixtime(YMDHMS(1970, 1, 1, 0, 0, 0), tz_offset);
         println!("unixtime: {}", ut);
         assert_eq!(ut, 0);
 
+        let d = ymd_to_days(YMD {
+            y: 1970,
+            m: 1,
+            d: 1,
+        });
+        println!("days: {}", d);
+        assert_eq!(d, 0);
+
         let ut = ymdhms_to_unixtime(YMDHMS(2004, 9, 17, 0, 0, 0), tz_offset);
         println!("unixtime: {}", ut);
         assert_eq!(ut, 1095379200);
+
+        let d = ymd_to_days(YMD {
+            y: 2004,
+            m: 9,
+            d: 17,
+        });
+        println!("days: {}", d);
+        assert_eq!(d, 12678);
 
         // 1356388352
         // 1354291200
         let ymd = unixtime_to_ymd(1354291200, tz_offset);
         println!("1356388352 to ymd: {:?}", ymd);
+        assert_eq!(
+            ymd,
+            YMD {
+                y: 2012,
+                m: 11,
+                d: 30
+            }
+        );
 
         let s = "2018-02-14 00:28:07";
         let ut0 = parse_to_epoch("2018-02-14T00:28:07", tz_offset).unwrap();
@@ -291,6 +359,12 @@ mod unit_tests {
         let dt = NaiveDateTime::from_timestamp(ut0 as i64, 0);
         println!("dt: {:?}", dt);
         assert_eq!(s, dt.to_string());
+
+        let s = "2018-02-14";
+        let d0 = parse_to_days("2018-2-14").unwrap();
+        let d1 = parse_to_days(s).unwrap();
+        println!("d: {:?}", d);
+        assert_eq!(d0, d1);
 
         // Create a NaiveDateTime from the timestamp
         // let naive = NaiveDateTime::from_timestamp(ut as i64, 0);
