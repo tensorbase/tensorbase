@@ -1,5 +1,5 @@
 use chrono::{Datelike, Local, NaiveDate, Offset, TimeZone};
-use chrono_tz::{OffsetComponents, OffsetName, Tz, TZ_VARIANTS};
+use chrono_tz::{OffsetComponents, Tz, TZ_VARIANTS};
 use num_integer::Integer;
 use serde_derive::{Deserialize, Serialize};
 
@@ -26,70 +26,133 @@ pub struct YMDHMS(pub i16, pub u8, pub u8, pub u8, pub u8, pub u8);
 /// The time zone is a string indicating the name of a time zone:
 ///
 /// As used in the Olson time zone database (the "tz database" or "tzdata"),
-/// such as "America/New_York"
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+/// such as "America/New_York".
+///
+/// To reduce space usage, `TimeZoneId` is stored instead of the name.
+#[derive(
+    Serialize,
+    Deserialize,
+    Debug,
+    Copy,
+    Clone,
+    PartialEq,
+    Eq,
+    Hash,
+    PartialOrd,
+    Ord,
+    Default,
+)]
 pub struct BaseTimeZone {
-    /// Name of the time zone.
-    name: String,
+    /// Id of the time zone.
+    tz_id: TimeZoneId,
     /// Offset of the time zone in seconds.
     offset: i32,
 }
+
+/// The time zone ID is an `u16` which represents a variety of the `enum` `chrono_tz::Tz`.
+///
+/// There are 594 variants in total, so `u16` here is needed to store the index.
+#[derive(
+    Serialize, Deserialize, Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash,
+)]
+pub struct TimeZoneId(u16);
 
 impl FromStr for BaseTimeZone {
     type Err = BaseError;
 
     fn from_str(tz_name: &str) -> BaseResult<BaseTimeZone> {
-        match Tz::from_str(&tz_name) {
-            Ok(tz) => {
-                let name = tz_name.to_string();
-                let offset = tz
-                    .ymd(1, 1, 1)
-                    .and_hms(0, 0, 0)
-                    .offset()
-                    .base_utc_offset()
-                    .num_seconds() as i32;
-                Ok(BaseTimeZone { name, offset })
-            }
-            Err(_) => Err(BaseError::InvalidTimeZone(tz_name.to_string())),
+        let tz_id = TimeZoneId::from_str(tz_name)?;
+        let offset = tz_id.offset();
+        Ok(BaseTimeZone { tz_id, offset })
+    }
+}
+
+impl FromStr for TimeZoneId {
+    type Err = BaseError;
+
+    fn from_str(tz_name: &str) -> BaseResult<TimeZoneId> {
+        let tz = Tz::from_str(&tz_name)
+            .map_err(|_| BaseError::InvalidTimeZone(tz_name.to_string()))?;
+        Ok(TimeZoneId(tz as u16))
+    }
+}
+
+impl From<Tz> for TimeZoneId {
+    fn from(tz: Tz) -> TimeZoneId {
+        TimeZoneId(tz as u16)
+    }
+}
+
+impl From<TimeZoneId> for BaseTimeZone {
+    fn from(tz_id: TimeZoneId) -> Self {
+        BaseTimeZone {
+            tz_id,
+            offset: tz_id.offset(),
         }
     }
 }
 
-impl Default for BaseTimeZone {
-    fn default() -> BaseTimeZone {
-        BaseTimeZone {
-            name: "UTC".to_string(),
-            offset: 0,
-        }
+impl Default for TimeZoneId {
+    fn default() -> TimeZoneId {
+        TimeZoneId(Tz::UTC as u16)
     }
 }
 
 impl fmt::Display for BaseTimeZone {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.name)
+        write!(f, "{}", self.name())
+    }
+}
+
+impl fmt::Display for TimeZoneId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.name())
     }
 }
 
 impl BaseTimeZone {
     /// Get time zone from the local configuration
     pub fn from_local() -> Option<BaseTimeZone> {
+        Some(TimeZoneId::from_local()?.into())
+    }
+
+    pub fn name(self) -> &'static str {
+        self.tz_id.name()
+    }
+    pub fn offset(self) -> i32 {
+        self.offset
+    }
+}
+
+impl TimeZoneId {
+    /// Get time zone from the local configuration
+    pub fn from_local() -> Option<TimeZoneId> {
         let ctz = Local::now().offset().fix();
         TZ_VARIANTS.iter().find_map(|tz| {
             let some_time = tz.ymd(1, 1, 1).and_hms(0, 0, 0);
             if some_time.offset().fix() == ctz {
-                let name = some_time.offset().tz_id().to_string();
-                let offset = some_time.offset().base_utc_offset().num_seconds() as i32;
-                return Some(BaseTimeZone { name, offset });
+                return Some(TimeZoneId(*tz as u16));
             }
             None
         })
     }
 
-    pub fn name(&self) -> &str {
-        &self.name
+    // SAFETY: the timezone id only comes from a variant of `chrono_tz::Tz`, so it
+    // is always valid
+    fn tz(self) -> Tz {
+        unsafe { std::mem::transmute(self.0) }
     }
-    pub fn offset(&self) -> i32 {
-        self.offset
+
+    pub fn name(self) -> &'static str {
+        self.tz().name()
+    }
+    pub fn offset(self) -> i32 {
+        self.tz()
+            .ymd(1, 1, 1)
+            .and_hms(0, 0, 0)
+            .offset()
+            .base_utc_offset()
+            .num_seconds() as i32
     }
 }
 
