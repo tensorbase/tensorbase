@@ -232,6 +232,24 @@ fn two_digits(b1: u8, b2: u8) -> Result<u64, BaseError> {
     Ok(((b1 - b'0') * 10 + (b2 - b'0')) as u64)
 }
 
+/// Parse date time string to the unixtime epoch.
+///
+/// Only `%Y-%m-%d %H:%M:%S` or `%Y-%m-%dT%H:%M:%S` format is supported,
+/// where `%Y` requires **exactly** 4 digits, and `%m`, `%d`, `%H`, `%M`, `%S` requires
+/// **exactly** 2 digits.
+///
+/// `tz_offset` is the offset of timezone in *seconds*.
+///
+/// # Examples
+/// ```
+/// use base::datetimes::parse_to_epoch;
+/// // parse utc time
+/// assert!(matches!(parse_to_epoch("1970-01-01 00:00:00", 0), Ok(0)));
+/// // parse local time in Etc/GMT-8
+/// assert!(matches!(parse_to_epoch("2021-07-10 12:00:00", 8 * 3600), Ok(1_625_889_600)));
+/// // parse error
+/// assert!(parse_to_epoch("1970-1-1 00:00:00", 0).is_err());
+/// ```
 pub fn parse_to_epoch(s: &str, tz_offset: i32) -> BaseResult<u32> {
     if s.len() < "2018-02-14T00:28:07".len() {
         return Err(BaseError::InvalidDatetimeFormat);
@@ -270,6 +288,20 @@ pub fn parse_to_epoch(s: &str, tz_offset: i32) -> BaseResult<u32> {
     ))
 }
 
+/// Parse date string to the unixtime epoch.
+///
+/// Only `%Y-%m-%d`format is supported, where `%Y` requires **exactly** 4 digits,
+/// and `%m`, `%d` requires 1 or 2 digits.
+///
+/// # Examples
+/// ```
+/// use base::datetimes::parse_to_days;
+/// // parse ok
+/// assert!(matches!(parse_to_days("1970-1-1"), Ok(0)));
+/// assert!(matches!(parse_to_days("2021-07-10"), Ok(18_818)));
+/// // parse error
+/// assert!(parse_to_days("1970-1-1-").is_err());
+/// ```
 pub fn parse_to_days(s: &str) -> BaseResult<u16> {
     if s.len() < "2018-2-1".len() {
         return Err(BaseError::InvalidDatetimeFormat);
