@@ -202,6 +202,7 @@ pub fn can_coerce_from(type_into: &DataType, type_from: &DataType) -> bool {
                 | Float32
                 | Float64
         ),
+        Timestamp32(None) => matches!(type_from, Timestamp32(_)),
         Timestamp(TimeUnit::Nanosecond, None) => matches!(type_from, Timestamp(_, None)),
         Utf8 | LargeUtf8 => true,
         _ => false,
