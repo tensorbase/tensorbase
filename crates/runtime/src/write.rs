@@ -116,7 +116,7 @@ fn gen_parts_by_ptk_names(
                 return Err(BaseRtError::UnsupportedPartitionKeyType);
             }
         },
-        meta::types::BqlType::DateTime => {
+        meta::types::BqlType::DateTime(None) => {
             let cdata_ptk = shape_slice::<u32>(cdata_ptk);
             gen_part_idxs(ptk_expr_fn_ptr as *const u8, ctyp_ptk, cdata_ptk, nr)?
         }
@@ -175,7 +175,7 @@ fn gen_part_idxs<T: 'static + Sized + Copy>(
         HashMap::<u64, Vec<(u32, u32)>, BuildBaseHasher>::with_hasher(BuildBaseHasher); //assumed blk dix < 4G
                                                                                         // let siz_typ_ptk = mem::size_of::<T>();
     let ptk_expr_fn = unsafe { mem::transmute::<_, fn(T) -> u64>(ptk_expr_fn_ptr) };
-    let is_datetime_typ = matches!(ctyp_ptk, BqlType::DateTime);
+    let is_datetime_typ = matches!(ctyp_ptk, BqlType::DateTime(None));
     let tz_ofs = BMS.timezone.offset() as i64;
     for j in 0..nr {
         //FIXME
@@ -506,7 +506,7 @@ mod unit_tests {
                 (
                     "col2".to_string(),
                     ColumnInfo {
-                        data_type: BqlType::DateTime,
+                        data_type: BqlType::DateTime(None),
                         is_primary_key: false,
                         is_nullable: false,
                         ordinal: 0,
@@ -544,14 +544,14 @@ mod unit_tests {
             .meta_store
             .tid_by_qname(qtn)
             .ok_or(BaseRtError::TableNotExist)?;
-        let fn_ptr = BMS.get_ptk_exps_fn_ptr(qtn, tid, BqlType::DateTime)?;
+        let fn_ptr = BMS.get_ptk_exps_fn_ptr(qtn, tid, BqlType::DateTime(None))?;
 
         let toYYYYMMDD = to_fn1(fn_ptr);
 
         // println!("toYYYYMMDD(0): {}", toYYYYMMDD(0));
         assert_eq!(toYYYYMMDD(0), 19700101);
 
-        let fn_ptr2 = BMS.get_ptk_exps_fn_ptr(qtn, tid, BqlType::DateTime)?;
+        let fn_ptr2 = BMS.get_ptk_exps_fn_ptr(qtn, tid, BqlType::DateTime(None))?;
         let toYYYYMMDD2 = to_fn1(fn_ptr2);
         assert_eq!(toYYYYMMDD2(1095379200), 20040917);
 
@@ -571,7 +571,7 @@ mod unit_tests {
             .meta_store
             .tid_by_qname("test_db.test_tab")
             .ok_or(BaseRtError::TableNotExist)?;
-        let fn_ptr = BMS.get_ptk_exps_fn_ptr(qtn, tid, BqlType::DateTime)?;
+        let fn_ptr = BMS.get_ptk_exps_fn_ptr(qtn, tid, BqlType::DateTime(None))?;
 
         let toYYYYMMDD = to_fn1(fn_ptr);
 
@@ -582,7 +582,7 @@ mod unit_tests {
         with_timer_print! {t0,
             for i in 0..40*1024*1024 {
                 // fn_ptr = BMS.get_ptk_exps_fn_ptr(tid)?;
-                let fn_ptr2 = BMS.get_ptk_exps_fn_ptr(qtn, tid, BqlType::DateTime)?;
+                let fn_ptr2 = BMS.get_ptk_exps_fn_ptr(qtn, tid, BqlType::DateTime(None))?;
                 let toYYYYMMDD2 = to_fn1(fn_ptr2);
                 sum += toYYYYMMDD2(i);
             }

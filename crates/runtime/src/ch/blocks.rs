@@ -1,4 +1,4 @@
-use std::{convert::TryFrom, slice};
+use std::{convert::TryFrom, slice, str::FromStr};
 
 use arrow::{array, datatypes::DataType, record_batch::RecordBatch};
 use base::bytes_cat;
@@ -14,6 +14,8 @@ use crate::ch::codecs::{
 };
 use crate::ch::protocol::{ServerCodes, LZ4_COMPRESSION_METHOD};
 use crate::errs::{BaseRtError, BaseRtResult};
+use base::datetimes::TimeZoneId;
+
 /**
  Clickhouse Server protocol
 
@@ -403,7 +405,10 @@ fn arrow_type_to_btype(typ: &DataType) -> BaseRtResult<BqlType> {
         DataType::Float16 => Ok(BqlType::Float(16)),
         DataType::Float32 => Ok(BqlType::Float(32)),
         DataType::Float64 => Ok(BqlType::Float(64)),
-        DataType::Timestamp32(_) => Ok(BqlType::DateTime),
+        DataType::Timestamp32(None) => Ok(BqlType::DateTime(None)),
+        DataType::Timestamp32(Some(tz)) => {
+            Ok(BqlType::DateTime(Some(TimeZoneId::from_str(tz.name())?)))
+        }
         DataType::Date16 => Ok(BqlType::Date),
         DataType::Decimal(p, s) => Ok(BqlType::Decimal(*p as u8, *s as u8)),
         DataType::LargeUtf8 => Ok(BqlType::String),
@@ -766,7 +771,7 @@ mod unit_tests {
         let mut blk: Block = Default::default();
         let headers = vec![
             new_block_header(b"trip_id".to_vec(), BqlType::UInt(32), false),
-            new_block_header(b"pickup_datetime".to_vec(), BqlType::DateTime, false),
+            new_block_header(b"pickup_datetime".to_vec(), BqlType::DateTime(None), false),
         ];
         blk.ncols = headers.len();
         blk.nrows = 0; //for empty data case

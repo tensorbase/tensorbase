@@ -365,6 +365,7 @@ impl CreateTabContext {
                     Some(p)
                         if p.as_rule() == Rule::simple_type
                             || p.as_rule() == Rule::decimal_type
+                            || p.as_rule() == Rule::datetime_type
                             || p.as_rule() == Rule::fixed_string_type =>
                     {
                         let typ = p.as_str().trim();
@@ -733,8 +734,10 @@ mod unit_tests {
         parse_create_database, parse_create_table, pretty_parse_tree, seek_to, BqlParser,
         RemoteAddr, RemoteTableInfo, Rule, TablePlaceKind,
     };
+    use base::datetimes::TimeZoneId;
     use meta::types::BqlType;
     use pest::Parser;
+    use std::str::FromStr;
 
     #[test]
     pub fn test_parse_create_database() -> LangResult<()> {
@@ -855,7 +858,8 @@ mod unit_tests {
         let ddl = r##"CREATE TABLE trips_lite_n10
         (
             trip_id UInt32,
-            pickup_datetime DateTime
+            pickup_datetime DateTime,
+            pickup_datetime_tz DateTime( 'UTC')
         )
         ENGINE = BaseStorage"##;
         let ps = BqlParser::parse(Rule::cmd_list, ddl)
@@ -869,12 +873,19 @@ mod unit_tests {
         println!("{:?}", ct.clone().as_rule());
         let t = parse_create_table(ct)?;
         println!("{:?}", t);
-        assert_eq!(t.0.columns.len(), 2);
+        assert_eq!(t.0.columns.len(), 3);
         assert_eq!(t.0.columns[0].0, "trip_id"); //FIXME remove `` when parsing id
         assert_eq!(t.0.columns[0].1.data_type, BqlType::UInt(32));
-        assert_eq!(t.0.columns[1].1.data_type, BqlType::DateTime);
+        assert_eq!(t.0.columns[1].1.data_type, BqlType::DateTime(None));
+        assert_eq!(
+            t.0.columns[2].1.data_type,
+            BqlType::DateTime(Some(
+                TimeZoneId::from_str("UTC")
+                    .map_err(|_| LangError::CreateTableParsingError)?
+            ))
+        );
 
-        for i in 0u32..2 {
+        for i in 0u32..3 {
             let od = t.0.columns[i as usize].1.ordinal;
             assert_eq!(od, i);
         }
