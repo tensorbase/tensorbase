@@ -293,7 +293,7 @@ impl WriteColumn for DateTime<Utc> {
         let mut timestamp = self.timestamp();
 
         match field.sql_type {
-            SqlType::DateTime => {
+            SqlType::DateTime(..) => {
                 if timestamp < 0 || timestamp > u32::MAX as i64 {
                     return Err(ConversionError::UnsupportedConversion.into());
                 }
@@ -443,7 +443,7 @@ impl_intocolumn_bc!(i64, SqlType::Int64);
 impl_intocolumn_bc!(f64, SqlType::Float64);
 impl_intocolumn_bc!(f32, SqlType::Float32);
 impl_intocolumn_bc!(ValueDate, SqlType::Date);
-impl_intocolumn_bc!(ValueDateTime, SqlType::DateTime);
+// impl_intocolumn_bc!(ValueDateTime, SqlType::DateTime(..));
 
 impl_intocolumn_simple!(Ipv4Addr, |f| f.sql_type == SqlType::Ipv4);
 impl_intocolumn_simple!(Ipv6Addr, |f| f.sql_type == SqlType::Ipv6);
@@ -473,7 +473,7 @@ impl_intocolumn_simple!(Decimal128, |f| {
 
 impl_intocolumn_simple!(DateTime<Utc>, |f| matches!(
     f.sql_type,
-    SqlType::DateTime | SqlType::DateTime64(..)
+    SqlType::DateTime(..) | SqlType::DateTime64(..)
 ));
 
 impl_intocolumn_simple!(Uuid, |f| f.sql_type == SqlType::Uuid);
@@ -495,7 +495,7 @@ impl_intocolumn_simple!(Option<Uuid>, |f| f.sql_type == SqlType::Uuid);
 impl_intocolumn_simple!(Option<Ipv4Addr>, |f| f.sql_type == SqlType::Ipv4);
 impl_intocolumn_simple!(Option<Ipv6Addr>, |f| f.sql_type == SqlType::Ipv6);
 impl_intocolumn_simple!(Option<Date<Utc>>, |f| f.sql_type == SqlType::Date);
-impl_intocolumn_simple!(Option<DateTime<Utc>>, |f| f.sql_type == SqlType::DateTime);
+// impl_intocolumn_simple!(Option<DateTime<Utc>>, |f| f.sql_type == SqlType::DateTime);
 
 impl_intocolumn_simple!(Option<&'b str>, |f| f.sql_type == SqlType::String);
 impl_intocolumn_simple!(Option<String>, |f| f.sql_type == SqlType::String);

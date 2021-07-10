@@ -344,7 +344,7 @@ where
         }
         SqlType::UInt32
         | SqlType::Int32
-        | SqlType::DateTime
+        | SqlType::DateTime(..)
         | SqlType::Float32
         | SqlType::Ipv4 => FixedArrayColumn::<u32>::load_column(reader, rows).await,
         SqlType::UInt64 | SqlType::Int64 | SqlType::DateTime64(..) | SqlType::Float64 => {
@@ -440,7 +440,7 @@ where
             .await?
             .cast::<ValueDateTime64>()
             .set_nulls(nulls),
-        SqlType::DateTime => FixedColumn::<ValueDateTime>::load_column(reader, rows)
+        SqlType::DateTime(..) => FixedColumn::<ValueDateTime>::load_column(reader, rows)
             .await?
             .set_nulls(nulls),
         SqlType::Uuid => FixedColumn::<u128>::load_column(reader, rows)

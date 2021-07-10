@@ -782,7 +782,7 @@ async fn tests_integ_date_time_functions() -> errors::Result<()> {
     conn.execute(format!("DROP TABLE IF EXISTS test_tab_date"))
         .await?;
     conn.execute(format!(
-        "CREATE TABLE test_tab_date(a Date, b DateTime, c String, d Int64)"
+        "CREATE TABLE test_tab_date(a Date, b DateTime, c String, d Int64, e DateTime('Etc/GMT+5'))"
     ))
     .await?;
 
@@ -804,31 +804,35 @@ async fn tests_integ_date_time_functions() -> errors::Result<()> {
         NaiveDate::from_ymd(2021, 8, 31).and_hms(14, 32, 3),
         NaiveDate::from_ymd(2021, 6, 27).and_hms(17, 44, 32),
     ];
+    let data_b: Vec<_> = data_b
+        .into_iter()
+        .map(|b| Utc.from_utc_datetime(&tz.from_local_datetime(&b).unwrap().naive_utc()))
+        .collect();
 
-    let data = [
-        Utc.ymd(2010, 1, 1).and_hms(0, 0, 0),
-        Utc.ymd(2011, 2, 28).and_hms(0, 0, 0),
-        Utc.ymd(2012, 2, 29).and_hms(0, 0, 0),
-        Utc.ymd(2012, 3, 4).and_hms(0, 0, 0),
-        Utc.ymd(2021, 8, 31).and_hms(0, 0, 0),
-        Utc.ymd(2021, 6, 27).and_hms(0, 0, 0),
+    let tz = Tz::Etc__GMTPlus5;
+    let data_e = vec![
+        NaiveDate::from_ymd(2010, 1, 1).and_hms(1, 1, 1),
+        NaiveDate::from_ymd(2011, 2, 28).and_hms(2, 5, 6),
+        NaiveDate::from_ymd(2012, 2, 29).and_hms(23, 59, 59),
+        NaiveDate::from_ymd(2012, 3, 4).and_hms(5, 6, 7),
+        NaiveDate::from_ymd(2021, 8, 31).and_hms(14, 32, 3),
+        NaiveDate::from_ymd(2021, 6, 27).and_hms(17, 44, 32),
     ];
+    let data_e: Vec<_> = data_e
+        .into_iter()
+        .map(|e| Utc.from_utc_datetime(&tz.from_local_datetime(&e).unwrap().naive_utc()))
+        .collect();
 
     let data_c = vec![
         "2010-1-1",
         "2011-2-28",
-        "2012-2-29",
-        "2012-3-4",
+        "2012-02-29",
+        "2012-03-4",
         "2021-8-31",
         "2021-6-27",
     ];
 
     let data_d = vec![14610i64, 15033, 15399, 15403, 18870, 18805];
-
-    let data_b: Vec<_> = data_b
-        .into_iter()
-        .map(|b| Utc.from_utc_datetime(&tz.from_local_datetime(&b).unwrap().naive_utc()))
-        .collect();
 
     let years = vec![2010, 2011, 2012, 2012, 2021, 2021];
     let months = vec![1, 2, 2, 3, 8, 6];
@@ -839,12 +843,22 @@ async fn tests_integ_date_time_functions() -> errors::Result<()> {
     let hours = vec![1, 2, 23, 5, 14, 17];
     let minutes = vec![1, 5, 59, 6, 32, 44];
     let seconds = vec![1, 6, 59, 7, 3, 32];
+    let dates = [
+        Utc.ymd(2010, 1, 1).and_hms(0, 0, 0),
+        Utc.ymd(2011, 2, 28).and_hms(0, 0, 0),
+        Utc.ymd(2012, 2, 29).and_hms(0, 0, 0),
+        Utc.ymd(2012, 3, 4).and_hms(0, 0, 0),
+        Utc.ymd(2021, 8, 31).and_hms(0, 0, 0),
+        Utc.ymd(2021, 6, 27).and_hms(0, 0, 0),
+    ];
+
     let block = {
         Block::new("test_tab_date")
             .add("a", data_a)
             .add("b", data_b)
             .add("c", data_c)
             .add("d", data_d)
+            .add("e", data_e)
     };
 
     let mut insert = conn.insert(&block).await?;
@@ -853,14 +867,15 @@ async fn tests_integ_date_time_functions() -> errors::Result<()> {
     drop(insert);
     {
         let sql = "select \
-            toYear(a), toYear(b), \
-            toMonth(a), toMonth(b), \
-            toDayOfYear(a), toDayOfYear(b), \
-            toDayOfMonth(a), toDayOfMonth(b), \
-            toDayOfWeek(a), toDayOfWeek(b), \
-            toQuarter(a), toQuarter(b), \
+            toYear(a), toYear(b), toYear(e), \
+            toMonth(a), toMonth(b), toMonth(e), \
+            toDayOfYear(a), toDayOfYear(b), toDayOfYear(e), \
+            toDayOfMonth(a), toDayOfMonth(b), toDayOfMonth(e), \
+            toDayOfWeek(a), toDayOfWeek(b), toDayOfWeek(e), \
+            toQuarter(a), toQuarter(b), toQuarter(e), \
             toHour(b), toMinute(b), toSecond(b), \
-            toDate(b), toDate(c), toDate(d) \
+            toHour(e), toMinute(e), toSecond(e), \
+            toDate(b), toDate(c), toDate(d), toDate(e) \
         from test_tab_date";
         let mut query_result = conn.query(sql).await?;
 
@@ -870,40 +885,60 @@ async fn tests_integ_date_time_functions() -> errors::Result<()> {
                 let mut iter = 0..;
                 let year_a: u16 = row.value(iter.next().unwrap())?.unwrap();
                 let year_b: u16 = row.value(iter.next().unwrap())?.unwrap();
+                let year_e: u16 = row.value(iter.next().unwrap())?.unwrap();
                 let month_a: u8 = row.value(iter.next().unwrap())?.unwrap();
                 let month_b: u8 = row.value(iter.next().unwrap())?.unwrap();
+                let month_e: u8 = row.value(iter.next().unwrap())?.unwrap();
                 let day_of_year_a: u16 = row.value(iter.next().unwrap())?.unwrap();
                 let day_of_year_b: u16 = row.value(iter.next().unwrap())?.unwrap();
+                let day_of_year_e: u16 = row.value(iter.next().unwrap())?.unwrap();
                 let day_of_month_a: u8 = row.value(iter.next().unwrap())?.unwrap();
                 let day_of_month_b: u8 = row.value(iter.next().unwrap())?.unwrap();
+                let day_of_month_e: u8 = row.value(iter.next().unwrap())?.unwrap();
                 let day_of_week_a: u8 = row.value(iter.next().unwrap())?.unwrap();
                 let day_of_week_b: u8 = row.value(iter.next().unwrap())?.unwrap();
+                let day_of_week_e: u8 = row.value(iter.next().unwrap())?.unwrap();
                 let quarter_a: u8 = row.value(iter.next().unwrap())?.unwrap();
                 let quarter_b: u8 = row.value(iter.next().unwrap())?.unwrap();
+                let quarter_e: u8 = row.value(iter.next().unwrap())?.unwrap();
                 let hour_b: u8 = row.value(iter.next().unwrap())?.unwrap();
                 let minute_b: u8 = row.value(iter.next().unwrap())?.unwrap();
                 let second_b: u8 = row.value(iter.next().unwrap())?.unwrap();
-                let date1: DateTime<Utc> = row.value(iter.next().unwrap())?.unwrap();
-                let date2: DateTime<Utc> = row.value(iter.next().unwrap())?.unwrap();
-                let date3: DateTime<Utc> = row.value(iter.next().unwrap())?.unwrap();
+                let hour_e: u8 = row.value(iter.next().unwrap())?.unwrap();
+                let minute_e: u8 = row.value(iter.next().unwrap())?.unwrap();
+                let second_e: u8 = row.value(iter.next().unwrap())?.unwrap();
+                let date_b: DateTime<Utc> = row.value(iter.next().unwrap())?.unwrap();
+                let date_c: DateTime<Utc> = row.value(iter.next().unwrap())?.unwrap();
+                let date_d: DateTime<Utc> = row.value(iter.next().unwrap())?.unwrap();
+                let date_e: DateTime<Utc> = row.value(iter.next().unwrap())?.unwrap();
                 assert_eq!(year_a, years[i]);
                 assert_eq!(year_b, years[i]);
+                assert_eq!(year_e, years[i]);
                 assert_eq!(month_a, months[i]);
                 assert_eq!(month_b, months[i]);
+                assert_eq!(month_e, months[i]);
                 assert_eq!(day_of_year_a, day_of_years[i]);
                 assert_eq!(day_of_year_b, day_of_years[i]);
+                assert_eq!(day_of_year_e, day_of_years[i]);
                 assert_eq!(day_of_month_a, day_of_months[i]);
                 assert_eq!(day_of_month_b, day_of_months[i]);
+                assert_eq!(day_of_month_e, day_of_months[i]);
                 assert_eq!(day_of_week_a, day_of_weeks[i]);
                 assert_eq!(day_of_week_b, day_of_weeks[i]);
+                assert_eq!(day_of_week_e, day_of_weeks[i]);
                 assert_eq!(quarter_a, quarters[i]);
                 assert_eq!(quarter_b, quarters[i]);
+                assert_eq!(quarter_e, quarters[i]);
                 assert_eq!(hour_b, hours[i]);
                 assert_eq!(minute_b, minutes[i]);
                 assert_eq!(second_b, seconds[i]);
-                assert_eq!(date1, data[i]);
-                assert_eq!(date2, data[i]);
-                assert_eq!(date3, data[i]);
+                assert_eq!(hour_e, hours[i]);
+                assert_eq!(minute_e, minutes[i]);
+                assert_eq!(second_e, seconds[i]);
+                assert_eq!(date_b, dates[i]);
+                assert_eq!(date_c, dates[i]);
+                assert_eq!(date_d, dates[i]);
+                assert_eq!(date_e, dates[i]);
             }
         }
     }

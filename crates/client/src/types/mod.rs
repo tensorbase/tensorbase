@@ -176,7 +176,7 @@ pub enum SqlType {
     Float32,
     Float64,
     Date,
-    DateTime,
+    DateTime(Option<Tz>),
     DateTime64(u8, Tz),
     Ipv4,
     Ipv6,
@@ -207,9 +207,12 @@ impl fmt::Display for SqlType {
             SqlType::Float32 => "Float32",
             SqlType::Float64 => "Float64",
             SqlType::Date => "Date",
-            SqlType::DateTime => "DateTime",
             SqlType::FixedString(p) => {
                 return f.write_fmt(format_args!("FixedString({})", p));
+            }
+            SqlType::DateTime(None) => "DateTime",
+            SqlType::DateTime(Some(tz)) => {
+                return f.write_fmt(format_args!("DateTime('{}')", tz));
             }
             SqlType::DateTime64(p, _) => {
                 return f.write_fmt(format_args!("DateTime64({})", p));
