@@ -282,6 +282,10 @@ impl BuiltinScalarFunction {
     }
 
     /// Returns the signature of the scalar function
+    ///
+    /// Note: the timezone in `Timestamp32` uses `None` as a placeholder, meaning it is
+    /// allowed to accept timestamps with or without any timezones. No casts during the type
+    /// coercion will happen even if the arguments have a specific timezone.
     pub fn signature(&self) -> Signature {
         match self {
             BuiltinScalarFunction::ToYear
@@ -292,14 +296,15 @@ impl BuiltinScalarFunction {
             | BuiltinScalarFunction::ToQuarter => {
                 Signature::Uniform(1, vec![DataType::Date16, DataType::Timestamp32(None)])
             }
-            BuiltinScalarFunction::ToDate => Signature::OneOf(vec![
-                Signature::Uniform(1, vec![DataType::Date16, DataType::Int64]),
-                Signature::Uniform(1, vec![DataType::Date16, DataType::LargeUtf8]),
-                Signature::Uniform(
-                    1,
-                    vec![DataType::Date16, DataType::Timestamp32(None)],
-                ),
-            ]),
+            BuiltinScalarFunction::ToDate => Signature::Uniform(
+                1,
+                vec![
+                    DataType::Date16,
+                    DataType::Timestamp32(None),
+                    DataType::Int64,
+                    DataType::LargeUtf8,
+                ],
+            ),
             BuiltinScalarFunction::ToHour
             | BuiltinScalarFunction::ToMinute
             | BuiltinScalarFunction::ToSecond => {
