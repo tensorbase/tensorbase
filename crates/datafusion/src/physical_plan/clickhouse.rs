@@ -12,14 +12,13 @@ use arrow::{
     },
     datatypes::{ArrowPrimitiveType, DataType, Schema},
 };
-use chrono::{Datelike, NaiveDate};
 use fmt::{Debug, Formatter};
 use std::{any::type_name, fmt, lazy::SyncOnceCell, str::FromStr, sync::Arc};
 
 use base::datetimes::{
-    days_to_ordinal, days_to_weekday, days_to_year, days_to_ymd, unixtime_to_days,
-    unixtime_to_hms, unixtime_to_ordinal, unixtime_to_second, unixtime_to_weekday,
-    unixtime_to_year, unixtime_to_ymd, BaseTimeZone,
+    days_to_ordinal, days_to_weekday, days_to_year, days_to_ymd, parse_to_days,
+    unixtime_to_days, unixtime_to_hms, unixtime_to_ordinal, unixtime_to_second,
+    unixtime_to_weekday, unixtime_to_year, unixtime_to_ymd, BaseTimeZone,
 };
 
 /// The default timezone is specified at the server's startup stage.
@@ -504,40 +503,29 @@ fn string_to_date16<T: StringOffsetSizeTrait>(args: &[ArrayRef]) -> Result<Date1
     }
 
     let string_array = downcast_string_arg!(args[0], "string", T);
-    let string_array: Result<Vec<Option<u16>>> = string_array
-        .iter()
-        .map(|string| string.map(|s: &str| str_to_u16(s)).transpose())
-        .collect();
-    Ok(string_array?.into())
-}
-
-#[inline]
-fn str_to_u16(s: &str) -> Result<u16> {
-    if s.len() < 8 {
-        return Err(DataFusionError::Execution(format!("'{}' too short", s)));
-    }
-
-    let s = match s.chars().nth(0).unwrap_or('\u{0}') {
-        '1'..='9' => s,
-        _ => &s[1..], // skip the length byte
-    };
-
-    if let Ok(date) = NaiveDate::parse_from_str(s, "%Y-%m-%d") {
-        if date.year() > 2148 {
-            return Err(DataFusionError::Execution(format!(
-                "Date '{}' Error: Year must be lowwer than 2149.",
-                s
-            )));
+    let start_idx = match T::DATA_TYPE {
+        DataType::Utf8 => 0,
+        DataType::LargeUtf8 => 1,
+        _ => {
+            return Err(DataFusionError::Execution(
+                "Invalid string offset size".to_string(),
+            ))
         }
-
-        let secs = date.and_hms(0, 0, 0).timestamp();
-
-        let days = (secs / 86_400) as u16;
-        return Ok(days);
-    }
-
-    Err(DataFusionError::Execution(format!(
-        "Error parsing '{}' as date with '%Y-%m-%d' format",
-        s
-    )))
+    };
+    let date16_array: Result<Vec<Option<u16>>> = string_array
+        .iter()
+        .map(|string| {
+            string
+                .map(|s: &str| {
+                    parse_to_days(&s[start_idx..]).map_err(|_| {
+                        DataFusionError::Execution(format!(
+                            "Error parsing '{}' as date with '%Y-%m-%d' format",
+                            s
+                        ))
+                    })
+                })
+                .transpose()
+        })
+        .collect();
+    Ok(date16_array?.into())
 }
