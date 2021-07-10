@@ -505,7 +505,7 @@ fn string_to_date16<T: StringOffsetSizeTrait>(args: &[ArrayRef]) -> Result<Date1
     let string_array = downcast_string_arg!(args[0], "string", T);
     let start_idx = match T::DATA_TYPE {
         DataType::Utf8 => 0,
-        DataType::LargeUtf8 => 1,
+        DataType::LargeUtf8 => 1,//FIXME for TB string, len header is varied, not 1
         _ => {
             return Err(DataFusionError::Execution(
                 "Invalid string offset size".to_string(),
