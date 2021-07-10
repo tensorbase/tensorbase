@@ -354,6 +354,7 @@ qualified_name = ${ (name ~ ".")? ~ name }
 
 type_name = {
     nullable_type |
+    datetime_type |
     simple_type |
     decimal_type |
     fixed_string_type |
@@ -363,20 +364,25 @@ type_name = {
 simple_type = {
     "UInt8" | "UInt16" | "UInt32" | "UInt64" | "UInt256" | 
     "Int8"  | "Int16"  | "Int32"  | "Int64"  | "Int128" | "Int256" |
-    "Float32" | "Float64" | 
-    "UUID" | "String" | "DateTime64" | "DateTime" | "Date"
+    "Float32" | "Float64" | "UUID" | "String" | "Date"
 }
 fixed_string_type = {
     "FixedString" ~ "(" ~ number ~ ")"
 }
-decimal_type = { 
-    "Decimal" ~ "(" ~ number ~ "," ~ number ~ ")" | 
+datetime_type = {
+    ("DateTime64" | "DateTime") ~ ("(" ~ string_literal ~ ")")?
+}
+decimal_type = {
+    "Decimal" ~ "(" ~ number ~ "," ~ number ~ ")" |
     "Decimal32" ~ "(" ~ number ~ ")" |
     "Decimal64" ~ "(" ~ number ~ ")" |
     "Decimal128" ~ "(" ~ number ~ ")" |
     "Decimal256" ~ "(" ~ number ~ ")"
 }
-nullable_type = { "Nullable" ~ "(" ~ (decimal_type | simple_type) ~ ")" }
+nullable_type = { "Nullable" ~ "(" ~ nullable_types ~ ")" }
+nullable_types = {
+    decimal_type | simple_type | datetime_type
+}
 low_cardinality_string_type = { "LowCardinality" ~ "(" ~ "String" ~ ")" }
 low_cardinality_tinytext_type = { "LowCardinality" ~ "(" ~ "TinyText" ~ ")" }
 

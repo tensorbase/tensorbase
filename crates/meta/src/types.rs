@@ -5,9 +5,11 @@ use std::{
     mem,
     ops::{Deref, DerefMut},
     slice,
+    str::FromStr,
 };
 
 use base::bytes_cat;
+use base::datetimes::TimeZoneId;
 use base::strings::BytesTrim;
 use num_traits::PrimInt;
 
@@ -95,7 +97,7 @@ pub enum BqlType {
     Int(u8),
     Decimal(u8, u8),
     Date,
-    DateTime,
+    DateTime(Option<TimeZoneId>),
     String,
     LowCardinalityString,
     Float(u8),
@@ -118,6 +120,14 @@ impl Default for BqlType {
 //         }
 //     }
 // }
+
+macro_rules! conversion_err {
+    ($ITEM:ident) => {
+        MetaError::UnknownBqlTypeConversionError(
+            unsafe { std::str::from_utf8_unchecked($ITEM) }.to_string(),
+        )
+    };
+}
 impl BqlType {
     /// return the data type size in bytes, Err for dynamically sized type
     pub fn size(self) -> MetaResult<u8> {
@@ -125,7 +135,7 @@ impl BqlType {
             BqlType::Int(siz) => Ok(siz / 8),
             BqlType::UInt(siz) => Ok(siz / 8),
             BqlType::Float(siz) => Ok(siz / 8),
-            BqlType::DateTime => Ok(4),
+            BqlType::DateTime(_) => Ok(4),
             BqlType::Date => Ok(2),
             BqlType::Decimal(p, _s) => {
                 if p < 10 {
@@ -172,7 +182,10 @@ impl BqlType {
                 let ns = itoa::write(&mut bs[..], s)?;
                 Ok(bytes_cat!(b"Decimal(", &bp[..np], b",", &bs[..ns], b")"))
             }
-            BqlType::DateTime => Ok(b"DateTime".to_vec()),
+            BqlType::DateTime(None) => Ok(b"DateTime".to_vec()),
+            BqlType::DateTime(Some(tz)) => {
+                Ok(bytes_cat!(b"DateTime('", tz.name().as_bytes(), b"')"))
+            }
             BqlType::Date => Ok(b"Date".to_vec()),
             BqlType::String => Ok(b"String".to_vec()),
             BqlType::LowCardinalityString | BqlType::LowCardinalityTinyText => {
@@ -203,28 +216,46 @@ impl BqlType {
             b"Float16" => Ok(BqlType::Float(16)),
             b"Float32" => Ok(BqlType::Float(32)),
             b"Float64" => Ok(BqlType::Float(64)),
-            b"DateTime" => Ok(BqlType::DateTime),
             b"Date" => Ok(BqlType::Date),
             b"String" => Ok(BqlType::String),
             b"LowCardinality(String)" => Ok(BqlType::LowCardinalityString),
             b"LowCardinality(TinyText)" => Ok(BqlType::LowCardinalityTinyText),
+            datetime_item if datetime_item.starts_with(b"DateTime") => {
+                Self::_datetime_type(datetime_item)
+            }
             decimal_item if decimal_item.starts_with(b"Decimal") => {
                 Self::_decimal_type(decimal_item)
             }
             fixed_string_item if fixed_string_item.starts_with(b"FixedString") => {
                 match &fixed_string_item[b"FixedString".len()..] {
-                    [b'(', len @ .., b')'] => {
-                        Ok(BqlType::FixedString(Self::_parse_num(len)?))
-                    }
-                    _ => Err(MetaError::UnknownBqlTypeConversionError),
+                    [b'(', len @ .., b')'] => Ok(BqlType::FixedString(
+                        Self::_parse_num(len).ok_or_else(|| conversion_err!(item))?,
+                    )),
+                    _ => Err(conversion_err!(item)),
                 }
             }
-            _ => Err(MetaError::UnknownBqlTypeConversionError),
+            _ => Err(conversion_err!(item)),
         }
     }
 
-    fn _parse_num(bytes: &[u8]) -> MetaResult<u8> {
-        btoi::btou(bytes.trim()).map_err(|_e| MetaError::UnknownBqlTypeConversionError)
+    // SAFETY: Only ASCII content is acceptable.
+    fn _datetime_type(datetime_item: &[u8]) -> MetaResult<Self> {
+        let tz = match &datetime_item[b"DateTime".len()..] {
+            [] => None,
+            [b'(', tz @ .., b')'] => match tz.trim() {
+                [b'\'', tz @ .., b'\''] => {
+                    let tz = unsafe { std::str::from_utf8_unchecked(tz) };
+                    Some(TimeZoneId::from_str(tz.trim())?)
+                }
+                _ => return Err(conversion_err!(datetime_item)),
+            },
+            _ => return Err(conversion_err!(datetime_item)),
+        };
+        Ok(Self::DateTime(tz))
+    }
+
+    fn _parse_num(bytes: &[u8]) -> Option<u8> {
+        btoi::btou(bytes.trim()).ok()
     }
 
     fn _decimal_type(decimal_item: &[u8]) -> MetaResult<Self> {
@@ -234,20 +265,29 @@ impl BqlType {
                 let mut ps_iter = ps.split(|v| *v == b',');
                 let p = ps_iter
                     .next()
-                    .ok_or(MetaError::UnknownBqlTypeConversionError)?;
+                    .ok_or_else(|| conversion_err!(decimal_item))?;
                 let s = ps_iter
                     .next()
-                    .ok_or(MetaError::UnknownBqlTypeConversionError)?;
+                    .ok_or_else(|| conversion_err!(decimal_item))?;
                 if ps_iter.next().is_some() {
-                    return Err(MetaError::UnknownBqlTypeConversionError);
+                    return Err(conversion_err!(decimal_item));
                 }
-                (Self::_parse_num(p)?, Self::_parse_num(s)?)
+                (
+                    Self::_parse_num(p).ok_or_else(|| conversion_err!(decimal_item))?,
+                    Self::_parse_num(s).ok_or_else(|| conversion_err!(decimal_item))?,
+                )
             }
             // Decimal32(s) => Decimal(9, s)
-            [b'3', b'2', b'(', s @ .., b')'] => (9, Self::_parse_num(s)?),
+            [b'3', b'2', b'(', s @ .., b')'] => (
+                9,
+                Self::_parse_num(s).ok_or_else(|| conversion_err!(decimal_item))?,
+            ),
             // Decimal64(s) => Decimal(18, s)
-            [b'6', b'4', b'(', s @ .., b')'] => (18, Self::_parse_num(s)?),
-            _ => return Err(MetaError::UnknownBqlTypeConversionError),
+            [b'6', b'4', b'(', s @ .., b')'] => (
+                18,
+                Self::_parse_num(s).ok_or_else(|| conversion_err!(decimal_item))?,
+            ),
+            _ => return Err(conversion_err!(decimal_item)),
         };
         // Range of precision and scale:
         // - precision in [1, 76],
@@ -483,6 +523,8 @@ mod unit_tests {
 
     use super::*;
 
+    use chrono_tz::Tz;
+
     #[derive(Copy, Clone, Debug, PartialEq)]
     #[repr(C, packed)]
     pub struct Db {
@@ -600,6 +642,24 @@ mod unit_tests {
         assert!(matches!(BqlType::from_str("Decimal64(, 10 )"), Err(_)));
         assert!(matches!(BqlType::from_str("UInt1234"), Err(_)));
 
+        assert_eq!(BqlType::from_str("DateTime")?, BqlType::DateTime(None));
+        assert_eq!(
+            BqlType::from_str("DateTime('UTC')")?,
+            BqlType::DateTime(Some(TimeZoneId::from(Tz::UTC)))
+        );
+        assert_eq!(
+            BqlType::from_str("DateTime( 'Etc/GMT-8' )")?,
+            BqlType::DateTime(Some(TimeZoneId::from(Tz::Etc__GMTMinus8)))
+        );
+        assert_eq!(
+            BqlType::from_str("DateTime( 'America/Los_Angeles')")?,
+            BqlType::DateTime(Some(TimeZoneId::from(Tz::America__Los_Angeles)))
+        );
+        assert!(matches!(
+            BqlType::from_str("DateTime('Invalid timezone')"),
+            Err(_)
+        ));
+
         Ok(())
     }
 
@@ -618,7 +678,20 @@ mod unit_tests {
             b"LowCardinality(String)".to_vec(),
             BqlType::LowCardinalityString.to_vec()?
         );
-        assert_eq!(b"DateTime".to_vec(), BqlType::DateTime.to_vec()?);
+        assert_eq!(b"DateTime".to_vec(), BqlType::DateTime(None).to_vec()?);
+        assert_eq!(
+            b"DateTime('UTC')".to_vec(),
+            BqlType::DateTime(Some(TimeZoneId::from(Tz::UTC))).to_vec()?
+        );
+        assert_eq!(
+            b"DateTime('Etc/GMT-8')".to_vec(),
+            BqlType::DateTime(Some(TimeZoneId::from(Tz::Etc__GMTMinus8))).to_vec()?
+        );
+        assert_eq!(
+            b"DateTime('America/Los_Angeles')".to_vec(),
+            BqlType::DateTime(Some(TimeZoneId::from(Tz::America__Los_Angeles)))
+                .to_vec()?
+        );
         assert_eq!(b"Date".to_vec(), BqlType::Date.to_vec()?);
         assert_eq!(
             b"FixedString(193)".to_vec(),

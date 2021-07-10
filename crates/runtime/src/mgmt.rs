@@ -42,6 +42,7 @@ use crate::{
     },
     errs::{BaseRtError, BaseRtResult},
 };
+use base::datetimes::TimeZoneId;
 use datafusion::physical_plan::clickhouse::DEFAULT_TIMEZONE;
 
 pub static READ: SyncOnceCell<
@@ -977,8 +978,8 @@ fn parse_literal_as_bytes(lit: &str, btyp: BqlType) -> BaseRtResult<Vec<u8>> {
             }
             _ => return Err(BaseRtError::UnsupportedValueConversion),
         },
-        BqlType::DateTime => {
-            let tz_offset = BMS.timezone.offset();
+        BqlType::DateTime(tz) => {
+            let tz_offset = tz.map(TimeZoneId::offset).unwrap_or(BMS.timezone.offset());
             let ut = parse_to_epoch(lit, tz_offset)?;
             let v = ut.to_le_bytes();
             rt.extend(&v);
