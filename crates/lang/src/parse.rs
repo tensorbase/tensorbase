@@ -1888,5 +1888,20 @@ limit
             *
             */
         }
+
+        #[test]
+        fn test_func_call_as_value() {
+            let c = "SELECT
+            id,
+            nick_name
+          FROM
+            person
+          WHERE
+            endsWith(nick_name, 'name')
+";
+            let pairs =
+                BqlParser::parse(Rule::cmd_list, c).unwrap_or_else(|e| panic!("{}", e));
+            println!("{}", pretty_parse_tree(pairs));
+        }
     }
 }
