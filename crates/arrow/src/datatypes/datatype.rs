@@ -17,7 +17,7 @@
 
 use std::{fmt, str::FromStr};
 
-use base::datetimes::BaseTimeZone;
+use base::datetimes::TimeZoneId;
 use serde_derive::{Deserialize, Serialize};
 use serde_json::{json, Value, Value::String as VString};
 
@@ -91,7 +91,7 @@ pub enum DataType {
     /// * As used in the Olson time zone database (the "tz database" or
     ///   "tzdata"), such as "America/New_York"
     /// * An absolute time zone offset of the form +XX:XX or -XX:XX, such as +07:30
-    Timestamp32(Option<BaseTimeZone>),
+    Timestamp32(Option<TimeZoneId>),
     /// A 16-bit date representing the elapsed time since UNIX epoch (1970-01-01)
     /// in days (16 bits unsigned).
     Date16,
@@ -246,7 +246,7 @@ impl DataType {
                     let tz = match map.get("timezone") {
                         None => Ok(None),
                         Some(VString(tz)) => Ok(Some(
-                            BaseTimeZone::from_str(tz)
+                            TimeZoneId::from_str(tz)
                                 .map_err(|e| ArrowError::ParseError(e.to_string()))?,
                         )),
                         _ => Err(ArrowError::ParseError(
