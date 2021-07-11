@@ -97,12 +97,14 @@ pub enum BqlType {
     Int(u8),
     Decimal(u8, u8),
     Date,
-    DateTime(Option<TimeZoneId>),
+    DateTime,
     String,
     LowCardinalityString,
     Float(u8),
     FixedString(u8),
     LowCardinalityTinyText,
+    /// For backward compatibility, DateTime with timezone is appended here
+    DateTimeTz(TimeZoneId),
 }
 
 impl Default for BqlType {
@@ -135,7 +137,7 @@ impl BqlType {
             BqlType::Int(siz) => Ok(siz / 8),
             BqlType::UInt(siz) => Ok(siz / 8),
             BqlType::Float(siz) => Ok(siz / 8),
-            BqlType::DateTime(_) => Ok(4),
+            BqlType::DateTime | BqlType::DateTimeTz(_) => Ok(4),
             BqlType::Date => Ok(2),
             BqlType::Decimal(p, _s) => {
                 if p < 10 {
@@ -182,8 +184,8 @@ impl BqlType {
                 let ns = itoa::write(&mut bs[..], s)?;
                 Ok(bytes_cat!(b"Decimal(", &bp[..np], b",", &bs[..ns], b")"))
             }
-            BqlType::DateTime(None) => Ok(b"DateTime".to_vec()),
-            BqlType::DateTime(Some(tz)) => {
+            BqlType::DateTime => Ok(b"DateTime".to_vec()),
+            BqlType::DateTimeTz(tz) => {
                 Ok(bytes_cat!(b"DateTime('", tz.name().as_bytes(), b"')"))
             }
             BqlType::Date => Ok(b"Date".to_vec()),
@@ -240,18 +242,17 @@ impl BqlType {
 
     // SAFETY: Only ASCII content is acceptable.
     fn _datetime_type(datetime_item: &[u8]) -> MetaResult<Self> {
-        let tz = match &datetime_item[b"DateTime".len()..] {
-            [] => None,
+        match &datetime_item[b"DateTime".len()..] {
+            [] => Ok(Self::DateTime),
             [b'(', tz @ .., b')'] => match tz.trim() {
                 [b'\'', tz @ .., b'\''] => {
                     let tz = unsafe { std::str::from_utf8_unchecked(tz) };
-                    Some(TimeZoneId::from_str(tz.trim())?)
+                    Ok(Self::DateTimeTz(TimeZoneId::from_str(tz.trim())?))
                 }
-                _ => return Err(conversion_err!(datetime_item)),
+                _ => Err(conversion_err!(datetime_item)),
             },
-            _ => return Err(conversion_err!(datetime_item)),
-        };
-        Ok(Self::DateTime(tz))
+            _ => Err(conversion_err!(datetime_item)),
+        }
     }
 
     fn _parse_num(bytes: &[u8]) -> Option<u8> {
@@ -523,8 +524,6 @@ mod unit_tests {
 
     use super::*;
 
-    use chrono_tz::Tz;
-
     #[derive(Copy, Clone, Debug, PartialEq)]
     #[repr(C, packed)]
     pub struct Db {
@@ -642,18 +641,18 @@ mod unit_tests {
         assert!(matches!(BqlType::from_str("Decimal64(, 10 )"), Err(_)));
         assert!(matches!(BqlType::from_str("UInt1234"), Err(_)));
 
-        assert_eq!(BqlType::from_str("DateTime")?, BqlType::DateTime(None));
+        assert_eq!(BqlType::from_str("DateTime")?, BqlType::DateTime);
         assert_eq!(
             BqlType::from_str("DateTime('UTC')")?,
-            BqlType::DateTime(Some(TimeZoneId::from(Tz::UTC)))
+            BqlType::DateTimeTz(TimeZoneId::from_str("UTC")?)
         );
         assert_eq!(
             BqlType::from_str("DateTime( 'Etc/GMT-8' )")?,
-            BqlType::DateTime(Some(TimeZoneId::from(Tz::Etc__GMTMinus8)))
+            BqlType::DateTimeTz(TimeZoneId::from_str("Etc/GMT-8")?)
         );
         assert_eq!(
             BqlType::from_str("DateTime( 'America/Los_Angeles')")?,
-            BqlType::DateTime(Some(TimeZoneId::from(Tz::America__Los_Angeles)))
+            BqlType::DateTimeTz(TimeZoneId::from_str("America/Los_Angeles")?)
         );
         assert!(matches!(
             BqlType::from_str("DateTime('Invalid timezone')"),
@@ -678,20 +677,20 @@ mod unit_tests {
             b"LowCardinality(String)".to_vec(),
             BqlType::LowCardinalityString.to_vec()?
         );
-        assert_eq!(b"DateTime".to_vec(), BqlType::DateTime(None).to_vec()?);
+        assert_eq!(b"DateTime".to_vec(), BqlType::DateTime.to_vec()?);
         assert_eq!(
-            b"DateTime('UTC')".to_vec(),
-            BqlType::DateTime(Some(TimeZoneId::from(Tz::UTC))).to_vec()?
+            b"DateTime('+00:00')".to_vec(),
+            BqlType::DateTimeTz(TimeZoneId::from_str("UTC")?).to_vec()?
         );
         assert_eq!(
-            b"DateTime('Etc/GMT-8')".to_vec(),
-            BqlType::DateTime(Some(TimeZoneId::from(Tz::Etc__GMTMinus8))).to_vec()?
+            b"DateTime('+08:00')".to_vec(),
+            BqlType::DateTimeTz(TimeZoneId::from_str("Etc/GMT-8")?).to_vec()?
         );
-        assert_eq!(
-            b"DateTime('America/Los_Angeles')".to_vec(),
-            BqlType::DateTime(Some(TimeZoneId::from(Tz::America__Los_Angeles)))
-                .to_vec()?
-        );
+        // FIXME: do not support timezone with DST
+        // assert_eq!(
+        //     b"DateTime('-07:00')".to_vec(),
+        //     BqlType::DateTimeTz(TimeZoneId::from_str("America/Los_Angeles")?).to_vec()?
+        // );
         assert_eq!(b"Date".to_vec(), BqlType::Date.to_vec()?);
         assert_eq!(
             b"FixedString(193)".to_vec(),
