@@ -1,6 +1,6 @@
 use base::{
     codec::encode_ascii_bytes_vec_short,
-    datetimes::{parse_to_epoch, BaseTimeZone},
+    datetimes::{parse_to_epoch, TimeZoneId},
     mem::SyncPointer,
     strings::s,
 };
@@ -42,7 +42,6 @@ use crate::{
     },
     errs::{BaseRtError, BaseRtResult},
 };
-use base::datetimes::TimeZoneId;
 use datafusion::physical_plan::clickhouse::DEFAULT_TIMEZONE;
 
 pub static READ: SyncOnceCell<
@@ -191,7 +190,7 @@ pub struct BaseMgmtSys<'a> {
     pub meta_store: MetaStore,
     pub part_store: PartStore<'a>,
     pub ptk_exprs_reg: DashMap<Id, SyncPointer<u8>, BuildPtkExprsHasher>,
-    pub timezone: BaseTimeZone,
+    pub timezone: TimeZoneId,
 }
 
 impl<'a> BaseMgmtSys<'a> {
@@ -201,8 +200,8 @@ impl<'a> BaseMgmtSys<'a> {
             MetaStore::new(ms_path).map_err(|e| BaseRtError::WrappingMetaError(e))?;
         let part_store = PartStore::new(ms_path, &conf.system.data_dirs)?;
         let timezone = match &conf.server.timezone {
-            Some(tz_name) => BaseTimeZone::from_str(&tz_name)?,
-            _ => BaseTimeZone::from_local().unwrap_or_default(),
+            Some(tz_name) => TimeZoneId::from_str(&tz_name)?,
+            _ => TimeZoneId::from_local().unwrap_or_default(),
         };
         DEFAULT_TIMEZONE.get_or_init(|| timezone.clone());
         log::info!("current timezone sets to {}", timezone);
@@ -978,8 +977,14 @@ fn parse_literal_as_bytes(lit: &str, btyp: BqlType) -> BaseRtResult<Vec<u8>> {
             }
             _ => return Err(BaseRtError::UnsupportedValueConversion),
         },
-        BqlType::DateTime(tz) => {
-            let tz_offset = tz.map(TimeZoneId::offset).unwrap_or(BMS.timezone.offset());
+        BqlType::DateTimeTz(tz) => {
+            let tz_offset = tz.offset();
+            let ut = parse_to_epoch(lit, tz_offset)?;
+            let v = ut.to_le_bytes();
+            rt.extend(&v);
+        }
+        BqlType::DateTime => {
+            let tz_offset = BMS.timezone.offset();
             let ut = parse_to_epoch(lit, tz_offset)?;
             let v = ut.to_le_bytes();
             rt.extend(&v);

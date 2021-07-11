@@ -876,13 +876,13 @@ mod unit_tests {
         assert_eq!(t.0.columns.len(), 3);
         assert_eq!(t.0.columns[0].0, "trip_id"); //FIXME remove `` when parsing id
         assert_eq!(t.0.columns[0].1.data_type, BqlType::UInt(32));
-        assert_eq!(t.0.columns[1].1.data_type, BqlType::DateTime(None));
+        assert_eq!(t.0.columns[1].1.data_type, BqlType::DateTime);
         assert_eq!(
             t.0.columns[2].1.data_type,
-            BqlType::DateTime(Some(
+            BqlType::DateTimeTz(
                 TimeZoneId::from_str("UTC")
                     .map_err(|_| LangError::CreateTableParsingError)?
-            ))
+            )
         );
 
         for i in 0u32..3 {
