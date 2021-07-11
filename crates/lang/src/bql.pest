@@ -271,6 +271,7 @@ comp_expr = {
     comp_expr_is_null |
     comp_expr_is_not_null |
     comp_expr_cmp |
+    func_call_expr |
     qualified_name
 }
 
