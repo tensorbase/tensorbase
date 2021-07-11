@@ -18,11 +18,11 @@ use std::{any::type_name, fmt, lazy::SyncOnceCell, str::FromStr, sync::Arc};
 use base::datetimes::{
     days_to_ordinal, days_to_weekday, days_to_year, days_to_ymd, parse_to_days,
     unixtime_to_days, unixtime_to_hms, unixtime_to_ordinal, unixtime_to_second,
-    unixtime_to_weekday, unixtime_to_year, unixtime_to_ymd, BaseTimeZone,
+    unixtime_to_weekday, unixtime_to_year, unixtime_to_ymd, TimeZoneId,
 };
 
 /// The default timezone is specified at the server's startup stage.
-pub static DEFAULT_TIMEZONE: SyncOnceCell<BaseTimeZone> = SyncOnceCell::new();
+pub static DEFAULT_TIMEZONE: SyncOnceCell<TimeZoneId> = SyncOnceCell::new();
 
 /// Enum of clickhouse built-in scalar functions
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -510,7 +510,7 @@ fn string_to_date16<T: StringOffsetSizeTrait>(args: &[ArrayRef]) -> Result<Date1
     let string_array = downcast_string_arg!(args[0], "string", T);
     let start_idx = match T::DATA_TYPE {
         DataType::Utf8 => 0,
-        DataType::LargeUtf8 => 1,//FIXME for TB string, len header is varied, not 1
+        DataType::LargeUtf8 => 1, //FIXME for TB string, len header is varied, not 1
         _ => {
             return Err(DataFusionError::Execution(
                 "Invalid string offset size".to_string(),
