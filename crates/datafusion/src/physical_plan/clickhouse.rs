@@ -681,24 +681,6 @@ macro_rules! downcast_string_arg {
     }};
 }
 
-/// Returns true if string ends with prefix.
-/// endsWith('alphabet', 'alph') = 't'
-fn ends_with<T: StringOffsetSizeTrait>(args: &[ArrayRef]) -> Result<BooleanArray> {
-    if args[0].is_null(0) || args[1].is_null(1) {
-        return Ok(BooleanArray::from(vec![None]));
-    }
-
-    let string_array = downcast_string_arg!(args[0], "string", T);
-    let suffix_array = downcast_string_arg!(args[1], "suffix", T);
-    let suffix = suffix_array.value(0);
-
-    let result = string_array
-        .iter()
-        .map(|string| string.map(|string: &str| string.ends_with(suffix)))
-        .collect::<BooleanArray>();
-    Ok(result)
-}
-
 macro_rules! wrap_string_fn {
     ( $(
         $(#[$OUTER:meta])* $NAME:literal => fn $FUNC:ident {
@@ -738,12 +720,4 @@ macro_rules! wrap_string_fn {
             }
         }
     )* }
-}
-
-wrap_string_fn! {
-    /// wrapping to backend endsWith logics
-    "endsWith" => fn expr_ends_with {
-        DataType::Utf8 => fn utf8_ends_with -> BooleanArray,
-        DataType::LargeUtf8 => fn large_utf8_ends_with -> BooleanArray,
-    }
 }
