@@ -307,11 +307,8 @@ impl BuiltinScalarFunction {
             ),
             BuiltinScalarFunction::ToHour
             | BuiltinScalarFunction::ToMinute
-            | BuiltinScalarFunction::ToSecond => {
-                Signature::Uniform(1, vec![DataType::Timestamp32(None)])
-            }
+            | BuiltinScalarFunction::ToSecond => Signature::Uniform(1, vec![DataType::Timestamp32(None)]),
             BuiltinScalarFunction::EndsWith => Signature::Any(2),
-            BuiltinScalarFunction::ToSecond => Signature::Uniform(1, vec![DataType::Timestamp32(None)]),
         }
     }
 }
@@ -446,8 +443,8 @@ pub fn int64_to_date(array: &Int64Array) -> Result<Date16Array> {
     handle_date_fn(array, |x| Some(x?.max(0) as u16))
 }
 
-fn month_to_quarter(month: u8) -> u8 {
-    (month - 1) / 3 + 1
+pub fn month_to_quarter(month: u8) -> u8 {
+    (month -1) / 3 + 1
 }
 
 macro_rules! wrap_datetime_fn {
@@ -486,16 +483,6 @@ macro_rules! wrap_datetime_fn {
     )* }
 }
 
-/// Returns true if string ends with suffix for utf-8.
-pub fn utf8_ends_with(args: &[ArrayRef]) -> Result<BooleanArray> {
-    ends_with::<i32>(args)
-}
-
-/// Returns true if string ends with suffix for large utf-8.
-pub fn large_utf8_ends_with(args: &[ArrayRef]) -> Result<BooleanArray> {
-    ends_with::<i64>(args)
-}
-
 /// Returns Date16Array if large utf string is formatted with '%Y-%m-%d' style.
 pub fn large_utf8_to_date(args: &[ArrayRef]) -> Result<Date16Array> {
     string_to_date16::<i64>(args)
@@ -528,14 +515,123 @@ fn ends_with<T: StringOffsetSizeTrait>(args: &[ArrayRef]) -> Result<BooleanArray
     }
 
     let string_array = downcast_string_arg!(args[0], "string", T);
-    let suffix_array = downcast_string_arg!(args[1], "suffix", T);
-    let suffix = suffix_array.value(0);
+    let prefix_array = downcast_string_arg!(args[1], "suffix", T);
+    let prefix = prefix_array.value(0);
 
     let result = string_array
         .iter()
-        .map(|string| string.map(|string: &str| string.ends_with(suffix)))
+        .map(|string|  string.map(convert_str).map(|string: String| string.starts_with(prefix)))
         .collect::<BooleanArray>();
     Ok(result)
+}
+
+
+/// Returns true if string ends with suffix for utf-8.
+pub fn utf8_ends_with(args: &[ArrayRef]) -> Result<BooleanArray> {
+    ends_with::<i32>(args)
+}
+
+/// Returns true if string ends with suffix for large utf-8.
+pub fn large_utf8_ends_with(args: &[ArrayRef]) -> Result<BooleanArray> {
+    ends_with::<i64>(args)
+}
+
+macro_rules! downcast_string_arg {
+    ($ARG:expr, $NAME:expr, $T:ident) => {{
+        $ARG.as_any()
+            .downcast_ref::<GenericStringArray<T>>()
+            .ok_or_else(|| {
+                DataFusionError::Internal(format!(
+                    "could not cast {} to {}",
+                    $NAME,
+                    type_name::<GenericStringArray<T>>()
+                ))
+            })?
+    }};
+}
+
+macro_rules! wrap_string_fn {
+    ( $(
+        $(#[$OUTER:meta])* $NAME:literal => fn $FUNC:ident {
+            $( $DATA_TYPE:pat => fn $OP:ident -> $OUTPUT_TY:ty, )*
+        }
+    )* ) => { $(
+        $(#[$OUTER])*
+        pub fn $FUNC(args: &[ColumnarValue]) -> $crate::error::Result<ColumnarValue> {
+            match args[0].data_type() {
+                $(
+                _data_type @ $DATA_TYPE => {
+                    let len = args
+                        .iter()
+                        .fold(Option::<usize>::None, |acc, arg| match arg {
+                            ColumnarValue::Scalar(_) => acc,
+                            ColumnarValue::Array(a) => Some(a.len()),
+                        });
+                    
+                    // to array
+                    let args = if let Some(len) = len {
+                        args.iter()
+                            .map(|arg| arg.clone().into_array(len))
+                            .collect::<Vec<ArrayRef>>()
+                    } else {
+                        args.iter()
+                            .map(|arg| arg.clone().into_array(1))
+                            .collect::<Vec<ArrayRef>>()
+                    };
+                
+                    let res = $OP(&args)?;
+                    Ok(ColumnarValue::Array(Arc::new(res)))
+                },)*
+                other => Err(DataFusionError::Internal(format!(
+                    "Unsupported data type {:?} for function {}",
+                    other, $NAME,
+                ))),
+            }
+        }
+    )* }
+}
+
+fn convert_str(src: &str) -> String {
+    let bin = src.as_bytes();
+    let len = bin.len();
+    let str_len = get_len(bin) as usize;
+    if str_len < 1 {
+        src.to_string()
+    }else {
+        unsafe {
+            String::from_utf8_unchecked(bin[len - str_len .. len].to_vec())
+        }
+    }
+}
+
+fn get_len(bytes: &[u8]) -> u64 {
+    if bytes.len() == 0 {
+        return 0;
+    }
+    if bytes[0] < 0x80 {
+        return bytes[0] as u64;
+    } else {
+        if bytes.len() <= 1 {
+           return  0_u64;
+        }
+        if bytes[1] < 0x80 {
+            return (bytes[0] & 0x7f) as u64 | (bytes[1] as u64) << 7;
+        } else {
+            let mut r: u64 = 0;
+            let mut i = 0;
+            loop {
+                if i == 10 {
+                    return 0_u64;
+                }
+                let b = bytes[i];
+                r = r | (((b & 0x7f) as u64) << (i * 7));
+                i += 1;
+                if b < 0x80 {
+                    return r;
+                }
+            }
+        }
+    }
 }
 
 /// Return Date16Array if the string is formatted with '%Y-%m-%d' date style.
