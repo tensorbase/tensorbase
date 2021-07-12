@@ -666,3 +666,84 @@ fn string_to_date16<T: StringOffsetSizeTrait>(args: &[ArrayRef]) -> Result<Date1
         .collect();
     Ok(date16_array?.into())
 }
+
+macro_rules! downcast_string_arg {
+    ($ARG:expr, $NAME:expr, $T:ident) => {{
+        $ARG.as_any()
+            .downcast_ref::<GenericStringArray<T>>()
+            .ok_or_else(|| {
+                DataFusionError::Internal(format!(
+                    "could not cast {} to {}",
+                    $NAME,
+                    type_name::<GenericStringArray<T>>()
+                ))
+            })?
+    }};
+}
+
+/// Returns true if string ends with prefix.
+/// endsWith('alphabet', 'alph') = 't'
+fn ends_with<T: StringOffsetSizeTrait>(args: &[ArrayRef]) -> Result<BooleanArray> {
+    if args[0].is_null(0) || args[1].is_null(1) {
+        return Ok(BooleanArray::from(vec![None]));
+    }
+
+    let string_array = downcast_string_arg!(args[0], "string", T);
+    let suffix_array = downcast_string_arg!(args[1], "suffix", T);
+    let suffix = suffix_array.value(0);
+
+    let result = string_array
+        .iter()
+        .map(|string| string.map(|string: &str| string.ends_with(suffix)))
+        .collect::<BooleanArray>();
+    Ok(result)
+}
+
+macro_rules! wrap_string_fn {
+    ( $(
+        $(#[$OUTER:meta])* $NAME:literal => fn $FUNC:ident {
+            $( $DATA_TYPE:pat => fn $OP:ident -> $OUTPUT_TY:ty, )*
+        }
+    )* ) => { $(
+        $(#[$OUTER])*
+        pub fn $FUNC(args: &[ColumnarValue]) -> $crate::error::Result<ColumnarValue> {
+            match args[0].data_type() {
+                $(
+                _data_type @ $DATA_TYPE => {
+                    let len = args
+                        .iter()
+                        .fold(Option::<usize>::None, |acc, arg| match arg {
+                            ColumnarValue::Scalar(_) => acc,
+                            ColumnarValue::Array(a) => Some(a.len()),
+                        });
+                    
+                    // to array
+                    let args = if let Some(len) = len {
+                        args.iter()
+                            .map(|arg| arg.clone().into_array(len))
+                            .collect::<Vec<ArrayRef>>()
+                    } else {
+                        args.iter()
+                            .map(|arg| arg.clone().into_array(1))
+                            .collect::<Vec<ArrayRef>>()
+                    };
+                
+                    let res = $OP(&args)?;
+                    Ok(ColumnarValue::Array(Arc::new(res)))
+                },)*
+                other => Err(DataFusionError::Internal(format!(
+                    "Unsupported data type {:?} for function {}",
+                    other, $NAME,
+                ))),
+            }
+        }
+    )* }
+}
+
+wrap_string_fn! {
+    /// wrapping to backend endsWith logics
+    "endsWith" => fn expr_ends_with {
+        DataType::Utf8 => fn utf8_ends_with -> BooleanArray,
+        DataType::LargeUtf8 => fn large_utf8_ends_with -> BooleanArray,
+    }
+}
