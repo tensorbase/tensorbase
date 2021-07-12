@@ -64,7 +64,7 @@ impl FromStr for TimeZoneId {
                 (minute * 60 + hour * 3600) * sign
             }
             _ => Self::calc_offset_of_tz(
-                Tz::from_str(&tz_name)
+                Tz::from_str(tz_name)
                     .map_err(|_| BaseError::InvalidTimeZone(tz_name.to_string()))?,
             ),
         };
@@ -128,7 +128,7 @@ impl TimeZoneId {
         });
         match ctzn_opt {
             Some(name) => name,
-            None => panic!("Can not find a valid timezone name?")
+            None => panic!("Can not find a valid timezone name?"),
         }
     }
 
@@ -548,7 +548,7 @@ mod unit_tests {
         let time = "2021-07-03 15:03:28";
         let epoch = 1625324608;
         for tz in timezones {
-            let epoch_with_tz = parse_to_epoch(&time, tz.offset()).unwrap() as i32;
+            let epoch_with_tz = parse_to_epoch(time, tz.offset()).unwrap() as i32;
             println!(
                 "epoch_with_tz - epoch = {}, offset = {}",
                 epoch_with_tz - epoch,

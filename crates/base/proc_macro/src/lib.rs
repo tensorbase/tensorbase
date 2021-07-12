@@ -186,8 +186,7 @@ pub fn async_test(
     );
     let afn_name = format!("{}", afn.sig.ident);
     let id_afn_name: TokenStream = afn_name.parse().unwrap();
-    let id_patched_afn_name: TokenStream =
-        (afn_name.to_string() + "_async_").parse().unwrap();
+    let id_patched_afn_name: TokenStream = (afn_name + "_async_").parse().unwrap();
     afn.sig.ident = syn::parse2(id_patched_afn_name.clone()).unwrap();
 
     let rt = quote! {
