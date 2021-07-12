@@ -520,7 +520,7 @@ fn ends_with<T: StringOffsetSizeTrait>(args: &[ArrayRef]) -> Result<BooleanArray
 
     let result = string_array
         .iter()
-        .map(|string|  string.map(convert_str).map(|string: String| string.starts_with(prefix)))
+        .map(|string| string.map(convert_str).map(|string: String| string.ends_with(suffix)))
         .collect::<BooleanArray>();
     Ok(result)
 }
@@ -666,4 +666,47 @@ fn string_to_date16<T: StringOffsetSizeTrait>(args: &[ArrayRef]) -> Result<Date1
         })
         .collect();
     Ok(date16_array?.into())
+}
+
+fn convert_str(src: &str) -> String {
+    let bin = src.as_bytes();
+    let len = bin.len();
+    let str_len = get_len(bin) as usize;
+    if str_len < 1 {
+        src.to_string()
+    }else {
+        unsafe {
+            String::from_utf8_unchecked(bin[len - str_len .. len].to_vec())
+        }
+    }
+}
+
+fn get_len(bytes: &[u8]) -> u64 {
+    if bytes.len() == 0 {
+        return 0;
+    }
+    if bytes[0] < 0x80 {
+        return bytes[0] as u64;
+    } else {
+        if bytes.len() <= 1 {
+           return  0_u64;
+        }
+        if bytes[1] < 0x80 {
+            return (bytes[0] & 0x7f) as u64 | (bytes[1] as u64) << 7;
+        } else {
+            let mut r: u64 = 0;
+            let mut i = 0;
+            loop {
+                if i == 10 {
+                    return 0_u64;
+                }
+                let b = bytes[i];
+                r = r | (((b & 0x7f) as u64) << (i * 7));
+                i += 1;
+                if b < 0x80 {
+                    return r;
+                }
+            }
+        }
+    }
 }
