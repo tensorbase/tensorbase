@@ -15,7 +15,7 @@ use crate::errs::{BaseRtError, BaseRtResult};
 const DBMS_NAME: &'static str = "TensorBase";
 //FIXME to include from path
 const DBMS_VERSION_MAJOR: u64 = 2021;
-const DBMS_VERSION_MINOR: u64 = 5;
+const DBMS_VERSION_MINOR: u64 = 7;
 const REVISION: u64 = 54405; //54441?
 const DBMS_VERSION_PATCH: u64 = 0;
 
@@ -260,7 +260,7 @@ fn response_hello(
     wb.write_varint(DBMS_VERSION_MAJOR);
     wb.write_varint(DBMS_VERSION_MINOR);
     wb.write_varint(REVISION);
-    wb.write_str(&BMS.timezone_sys);
+    wb.write_str(&BMS.timezone_name);
     wb.write_str(DBMS_NAME);
     wb.write_varint(DBMS_VERSION_PATCH);
 

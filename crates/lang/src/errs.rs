@@ -1,3 +1,4 @@
+use std::net::AddrParseError;
 use std::num::ParseIntError;
 
 use thiserror::Error;
@@ -26,6 +27,9 @@ pub enum LangError {
 
     #[error(transparent)]
     WrappingParseIntError(#[from] ParseIntError),
+
+    #[error(transparent)]
+    WrappingParseIpAddrError(#[from] AddrParseError),
 
     #[error("Unsupported system.numbers table naming format value")]
     UnsupportedSystemNumbersNamingFormatError,

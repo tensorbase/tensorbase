@@ -45,6 +45,7 @@ fn btype_to_arrow_type(typ: BqlType) -> EngineResult<DataType> {
         BqlType::Float(bits) if bits == 32 => Ok(DataType::Float32),
         BqlType::Float(bits) if bits == 64 => Ok(DataType::Float64),
         BqlType::DateTime => Ok(DataType::Timestamp32(None)),
+        BqlType::DateTimeTz(tz) => Ok(DataType::Timestamp32(Some(tz))),
         BqlType::Date => Ok(DataType::Date16),
         BqlType::Decimal(p, s) => Ok(DataType::Decimal(p as usize, s as usize)),
         BqlType::String => Ok(DataType::LargeUtf8),
@@ -75,7 +76,7 @@ pub(crate) fn run(
         // *cid, ci.data_type
         let mut cis = Vec::new();
         let mut fields = Vec::new();
-        if cols.len() != 0 {
+        if cols.len() != 0 && !tctx.has_select_all {
             for cn in &cols {
                 let qcn = if cn.contains('.') {
                     // ms.cid_by_qname(&cn).ok_or(EngineError::ColumnNotExist)?

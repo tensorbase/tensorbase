@@ -50,8 +50,8 @@ pub enum MetaError {
     #[error("Database has not existed")]
     DbNotExistedError,
 
-    #[error("Error when converting str into BqlType enum")]
-    UnknownBqlTypeConversionError,
+    #[error("Error when converting {0} into BqlType")]
+    UnknownBqlTypeConversionError(String),
 
     #[error(
         "Invalid precision [{0}] (should be in [1, 76]) \

@@ -194,12 +194,14 @@ pub enum DateTimeParser {
 
 impl DateTimeParser {
     pub(crate) fn parse_str(type_str: &str) -> Result<Field> {
-        let rest = if type_str.eq("Date") {
+        let (is_datetime64, rest) = if type_str.eq("Date") {
             return field!(SqlType::Date);
         } else if type_str.eq("DateTime") {
-            return field!(SqlType::DateTime);
+            return field!(SqlType::DateTime(None));
+        } else if type_str.starts_with("DateTime(") {
+            (false, &type_str["DateTime(".len()..])
         } else if type_str.starts_with("DateTime64(") {
-            &type_str[11..]
+            (true, &type_str[11..])
         } else {
             return Err(
                 errors::ConversionError::UnknownColumnType(type_str.to_owned()).into(),
@@ -222,7 +224,11 @@ impl DateTimeParser {
                         if *s == 0 {
                             break;
                         }
-                        return field!(SqlType::DateTime64(*s, Tz::UTC));
+                        return if is_datetime64 {
+                            field!(SqlType::DateTime64(*s, Tz::UTC))
+                        } else {
+                            field!(SqlType::DateTime(Some(Tz::UTC)))
+                        };
                     }
                 }
                 DateTimeParser::Tz(ref s, ref mut pos) => {
@@ -240,12 +246,18 @@ impl DateTimeParser {
                 DateTimeParser::Fin(s, tz) => {
                     if c == ')' {
                         if s > 9 {
-                            return Err(DriverError::UnsupportedType(
-                                SqlType::DateTime64(s, tz),
-                            )
+                            return Err(DriverError::UnsupportedType(if is_datetime64 {
+                                SqlType::DateTime64(s, tz)
+                            } else {
+                                SqlType::DateTime(Some(tz))
+                            })
                             .into());
                         }
-                        return field!(SqlType::DateTime64(s, tz));
+                        return if is_datetime64 {
+                            field!(SqlType::DateTime64(s, tz))
+                        } else {
+                            field!(SqlType::DateTime(Some(tz)))
+                        };
                     }
                 }
             }
@@ -447,7 +459,19 @@ mod test {
 
         let type_decimal: &str = "DateTime";
         assert_eq!(
-            SqlType::DateTime,
+            SqlType::DateTime(None),
+            DateTimeParser::parse_str(type_decimal).unwrap().sql_type
+        );
+
+        let type_decimal: &str = "DateTime('UTC')";
+        assert_eq!(
+            SqlType::DateTime(Some(Tz::UTC)),
+            DateTimeParser::parse_str(type_decimal).unwrap().sql_type
+        );
+
+        let type_decimal: &str = "DateTime( 'Europe/Moscow' )";
+        assert_eq!(
+            SqlType::DateTime(Some(Moscow)),
             DateTimeParser::parse_str(type_decimal).unwrap().sql_type
         );
 

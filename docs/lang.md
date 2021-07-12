@@ -15,7 +15,7 @@ In the future, more protocols/dialects may be compatible(e.g. MySQL).
   * You can use Decimal(P,S) format for further Decimal type customization.
 * String
 * Date
-* FixedString (WIP)
+* FixedString
 * LowCardinality (String) (WIP)
 
 ### Statements
@@ -76,6 +76,12 @@ You can use this FORMAT CSV in headless client commands to import the csv data i
 ```bash
 clickhouse-client --query="INSERT INTO trips_lite FORMAT CSV" < /some_path_here/trips_lite.csv
 ```
+
+* insert into ... select
+```sql
+insert into tab1 select * from tab2
+```
+
 * use
 ```sql
 USE db

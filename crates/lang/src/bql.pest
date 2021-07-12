@@ -119,7 +119,52 @@ as_qualif = {
     name
 }
 
-from = { ^"from" ~ ( join_tables | compound_select ) }
+host_subname = { ASCII_ALPHANUMERIC ~ ( ( ASCII_ALPHANUMERIC ~ HYPHEN ~ ASCII_ALPHANUMERIC ) | ASCII_ALPHANUMERIC )* }
+domain = { ASCII_ALPHA_LOWER+ }
+host_name = { (host_subname ~ ".")* ~ domain }
+
+ipv4_lit = @{ ASCII_DIGIT{1,3} ~ ( "." ~ ASCII_DIGIT{1,3} ){3} }
+ipv6_lit = @{
+    ( ":" | ASCII_ALPHANUMERIC{1,4} ) ~ ":" ~ ( ipv4_lit | ASCII_ALPHANUMERIC{1,4} | ":" )*
+}
+
+from = { ^"from" ~ ( remote_func | join_tables | compound_select ) }
+
+remote_func = {
+    ^"remote" ~ "(" ~ remote_addresses ~ "," ~ remote_table ~ ("," ~ username_lit ~ "," ~ password_lit)? ~ ")"
+}
+
+remote_table = ${
+  (remote_database_name ~ ".")? ~ remote_table_name
+}
+
+remote_database_name = @{ name }
+remote_table_name = @{ name }
+username = @{ ASCII_ALPHANUMERIC* }
+password = @{ ASCII_ALPHANUMERIC* }
+
+username_lit = {"'" ~ username ~ "'"}
+password_lit = {"'" ~ password ~ "'"}
+
+ip = {
+   ipv4_lit | ("[" ~ ipv6_lit ~ "]")
+}
+
+remote_addresses = {
+   "'" ~ remote_address ~ ("," ~ remote_address)* ~ "'"
+ }
+
+ip_address = { ip ~ (":" ~ port)? }
+host_address = { host_name ~ (":" ~ port)? }
+
+remote_address = {
+  ip_address | host_address
+}
+
+port = @{
+  ASCII_DIGIT+
+}
+
 join_tables = {
     join_table ~ (join_op ~ join_table ~ join_cond?)*
 }
@@ -226,6 +271,7 @@ comp_expr = {
     comp_expr_is_null |
     comp_expr_is_not_null |
     comp_expr_cmp |
+    func_call_expr |
     qualified_name
 }
 
@@ -309,6 +355,7 @@ qualified_name = ${ (name ~ ".")? ~ name }
 
 type_name = {
     nullable_type |
+    datetime_type |
     simple_type |
     decimal_type |
     fixed_string_type |
@@ -318,20 +365,25 @@ type_name = {
 simple_type = {
     "UInt8" | "UInt16" | "UInt32" | "UInt64" | "UInt256" | 
     "Int8"  | "Int16"  | "Int32"  | "Int64"  | "Int128" | "Int256" |
-    "Float32" | "Float64" | 
-    "UUID" | "String" | "DateTime64" | "DateTime" | "Date"
+    "Float32" | "Float64" | "UUID" | "String" | "Date"
 }
 fixed_string_type = {
     "FixedString" ~ "(" ~ number ~ ")"
 }
-decimal_type = { 
-    "Decimal" ~ "(" ~ number ~ "," ~ number ~ ")" | 
+datetime_type = {
+    ("DateTime64" | "DateTime") ~ ("(" ~ string_literal ~ ")")?
+}
+decimal_type = {
+    "Decimal" ~ "(" ~ number ~ "," ~ number ~ ")" |
     "Decimal32" ~ "(" ~ number ~ ")" |
     "Decimal64" ~ "(" ~ number ~ ")" |
     "Decimal128" ~ "(" ~ number ~ ")" |
     "Decimal256" ~ "(" ~ number ~ ")"
 }
-nullable_type = { "Nullable" ~ "(" ~ (decimal_type | simple_type) ~ ")" }
+nullable_type = { "Nullable" ~ "(" ~ nullable_types ~ ")" }
+nullable_types = {
+    decimal_type | simple_type | datetime_type
+}
 low_cardinality_string_type = { "LowCardinality" ~ "(" ~ "String" ~ ")" }
 low_cardinality_tinytext_type = { "LowCardinality" ~ "(" ~ "TinyText" ~ ")" }
 

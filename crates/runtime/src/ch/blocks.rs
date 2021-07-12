@@ -14,6 +14,7 @@ use crate::ch::codecs::{
 };
 use crate::ch::protocol::{ServerCodes, LZ4_COMPRESSION_METHOD};
 use crate::errs::{BaseRtError, BaseRtResult};
+
 /**
  Clickhouse Server protocol
 
@@ -403,7 +404,8 @@ fn arrow_type_to_btype(typ: &DataType) -> BaseRtResult<BqlType> {
         DataType::Float16 => Ok(BqlType::Float(16)),
         DataType::Float32 => Ok(BqlType::Float(32)),
         DataType::Float64 => Ok(BqlType::Float(64)),
-        DataType::Timestamp32(_) => Ok(BqlType::DateTime),
+        DataType::Timestamp32(None) => Ok(BqlType::DateTime),
+        DataType::Timestamp32(Some(tz)) => Ok(BqlType::DateTimeTz(*tz)),
         DataType::Date16 => Ok(BqlType::Date),
         DataType::Decimal(p, s) => Ok(BqlType::Decimal(*p as u8, *s as u8)),
         DataType::LargeUtf8 => Ok(BqlType::String),

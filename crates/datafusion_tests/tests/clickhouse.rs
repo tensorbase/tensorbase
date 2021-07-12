@@ -1,9 +1,93 @@
 #[cfg(test)]
 mod tests {
-    use arrow::array::Array;
-    use arrow::datatypes::Timestamp32Type;
-    use arrow::{array::PrimitiveArray, datatypes::Date16Type};
+    use arrow::{
+        array::{Array, LargeStringArray, PrimitiveArray, StringArray},
+        datatypes::{Date16Type, Int64Type, Timestamp32Type},
+    };
     use datafusion::physical_plan::clickhouse::*;
+    use std::sync::Arc;
+
+    #[test]
+    fn test_to_date() {
+        // test to_date(Timestamp32)
+        let a: PrimitiveArray<Timestamp32Type> =
+            vec![Some(0), Some(536457600), None, Some(1609459200)].into();
+        let b = timestamp32_to_date(&a, Some(0)).unwrap();
+
+        assert_eq!(0, b.value(0));
+        assert_eq!(6209, b.value(1)); // 1987-01-01
+        assert_eq!(false, b.is_valid(2));
+        assert_eq!(18628, b.value(3)); // 2021-01-01
+
+        // test to_date(Int64)
+        let a: PrimitiveArray<Int64Type> =
+            vec![Some(0), Some(6209), None, Some(18628), Some(-1)].into();
+        let b = int64_to_date(&a).unwrap();
+        assert_eq!(0, b.value(0));
+        assert_eq!(6209, b.value(1)); // 1987-01-01
+        assert_eq!(false, b.is_valid(2));
+        assert_eq!(18628, b.value(3)); // 2021-01-01
+        assert_eq!(0, b.value(4)); // 2021-01-01
+
+        // test to_date(Utf8)
+        let a: StringArray =
+            vec![Some("1970-1-1"), Some("1987-01-01"), Some("2021-01-01")].into();
+        let a = Arc::new(a);
+        let b = utf8_to_date(&[a]).unwrap();
+
+        assert_eq!(0, b.value(0));
+        assert_eq!(6209, b.value(1));
+        assert_eq!(18628, b.value(2));
+
+        let a: StringArray =
+            vec![Some("err"), Some("1987-01-01"), Some("2021-01-01")].into();
+        let a = Arc::new(a);
+        assert!(utf8_to_date(&[a]).is_err());
+
+        // test to_date(LargeUtf8)
+        let a: LargeStringArray =
+            vec![Some("\u{10}1987-01-01"), Some("\u{10}2021-01-01")].into();
+        let a = Arc::new(a);
+        let b = large_utf8_to_date(&[a]).unwrap();
+        assert_eq!(6209, b.value(0));
+        assert_eq!(18628, b.value(1));
+
+        let a: LargeStringArray = vec![
+            Some("\u{3}err"),
+            Some("\u{10}1987-01-01"),
+            Some("\u{10}2021-01-01"),
+        ]
+        .into();
+        let a = Arc::new(a);
+        assert!(large_utf8_to_date(&[a]).is_err());
+
+        let a: LargeStringArray = vec![
+            Some("\u{8}1970-1-1"),
+            Some("\u{10}1987-01-01"),
+            Some("\u{10}2021-01-01"),
+        ]
+        .into();
+        let a = Arc::new(a);
+        let b = large_utf8_to_date(&[a]).unwrap();
+        assert_eq!(0, b.value(0));
+        assert_eq!(6209, b.value(1));
+        assert_eq!(18628, b.value(2));
+    }
+
+    #[test]
+    fn stress_to_date() {
+        let v: Vec<i32> = (0..4096).collect();
+        let a: PrimitiveArray<Timestamp32Type> = v.into();
+
+        let ts = ::std::time::Instant::now();
+        let mut s = 0;
+        for _ in 0..100 {
+            let b = timestamp32_to_date(&a, Some(0)).unwrap();
+            s += b.len() as usize;
+        }
+
+        println!("ts: {:?}, s: {}", ts.elapsed(), s);
+    }
 
     #[test]
     fn test_to_year() {
@@ -112,7 +196,7 @@ mod tests {
         let a: PrimitiveArray<Timestamp32Type> =
             vec![Some(0), Some(3601), None, Some(7202)].into();
 
-        let b = timestamp32_to_hour(&a).unwrap();
+        let b = timestamp32_to_hour(&a, Some(0)).unwrap();
         assert_eq!(0, b.value(0));
         assert_eq!(1, b.value(1));
         assert_eq!(false, b.is_valid(2));
@@ -127,7 +211,7 @@ mod tests {
         let ts = ::std::time::Instant::now();
         let mut s = 0;
         for _ in 0..100 {
-            let b = timestamp32_to_hour(&a).unwrap();
+            let b = timestamp32_to_hour(&a, Some(0)).unwrap();
             // let b = arrow::compute::kernels::temporal::year(&a).unwrap();
             s += b.len() as usize;
         }
@@ -139,7 +223,7 @@ mod tests {
         let a: PrimitiveArray<Timestamp32Type> =
             vec![Some(0), Some(301), None, Some(7802)].into();
 
-        let b = timestamp32_to_minute(&a).unwrap();
+        let b = timestamp32_to_minute(&a, Some(0)).unwrap();
         assert_eq!(0, b.value(0));
         assert_eq!(5, b.value(1));
         assert_eq!(false, b.is_valid(2));
@@ -154,7 +238,7 @@ mod tests {
         let ts = ::std::time::Instant::now();
         let mut s = 0;
         for _ in 0..100 {
-            let b = timestamp32_to_minute(&a).unwrap();
+            let b = timestamp32_to_minute(&a, Some(0)).unwrap();
             // let b = arrow::compute::kernels::temporal::year(&a).unwrap();
             s += b.len() as usize;
         }
@@ -166,7 +250,7 @@ mod tests {
         let a: PrimitiveArray<Timestamp32Type> =
             vec![Some(0), Some(325), None, Some(7849)].into();
 
-        let b = timestamp32_to_second(&a).unwrap();
+        let b = timestamp32_to_second(&a, Some(0)).unwrap();
         assert_eq!(0, b.value(0));
         assert_eq!(25, b.value(1));
         assert_eq!(false, b.is_valid(2));
@@ -181,7 +265,7 @@ mod tests {
         let ts = ::std::time::Instant::now();
         let mut s = 0;
         for _ in 0..100 {
-            let b = timestamp32_to_second(&a).unwrap();
+            let b = timestamp32_to_second(&a, Some(0)).unwrap();
             // let b = arrow::compute::kernels::temporal::year(&a).unwrap();
             s += b.len() as usize;
         }
