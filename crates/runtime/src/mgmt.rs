@@ -191,6 +191,7 @@ pub struct BaseMgmtSys<'a> {
     pub part_store: PartStore<'a>,
     pub ptk_exprs_reg: DashMap<Id, SyncPointer<u8>, BuildPtkExprsHasher>,
     pub timezone: TimeZoneId,
+    pub timezone_name: String,
 }
 
 impl<'a> BaseMgmtSys<'a> {
@@ -203,8 +204,9 @@ impl<'a> BaseMgmtSys<'a> {
             Some(tz_name) => TimeZoneId::from_str(&tz_name)?,
             _ => TimeZoneId::from_local().unwrap_or_default(),
         };
-        DEFAULT_TIMEZONE.get_or_init(|| timezone.clone());
-        log::info!("current timezone sets to {}", timezone);
+        DEFAULT_TIMEZONE.get_or_init(|| timezone );
+        let timezone_name = timezone.name_ch();
+        log::info!("current timezone sets to {}", timezone_name);
 
         //prepare two system level databases
         let res = meta_store.new_db("system");
@@ -254,6 +256,7 @@ impl<'a> BaseMgmtSys<'a> {
             part_store,
             ptk_exprs_reg,
             timezone,
+            timezone_name,
         })
     }
 

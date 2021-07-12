@@ -113,6 +113,25 @@ impl TimeZoneId {
         &NAMES[idx]
     }
 
+    /// Return the name of timezone, formatted as ClickHouse compatible form "region/city"
+    pub fn name_ch(self) -> String {
+        use chrono_tz::OffsetName;
+        let ctzn_opt = TZ_VARIANTS.iter().find_map(|tz| {
+            let some_time = tz.ymd(1, 1, 1).and_hms(0, 0, 0);
+            let tz_offset = some_time.offset().base_utc_offset().num_seconds() as i32;
+            if self.0 == tz_offset {
+                let name = some_time.offset().tz_id().to_string();
+                Some(name)
+            } else {
+                None
+            }
+        });
+        match ctzn_opt {
+            Some(name) => name,
+            None => panic!("Can not find a valid timezone name?")
+        }
+    }
+
     /// Return the offset of timezone.
     pub fn offset(self) -> i32 {
         self.0
