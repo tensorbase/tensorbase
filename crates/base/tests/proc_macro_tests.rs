@@ -1,6 +1,6 @@
 // #![recursion_limit="512"] //macros bang?
 use base::strings::{bs, bytes_to_cstring, s};
-use base::{debug, with_timer, with_timer_print};
+use base::{with_timer, with_timer_print};
 use std::{ffi::CString, thread, time};
 
 #[test]

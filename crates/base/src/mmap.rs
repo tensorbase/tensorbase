@@ -8,7 +8,7 @@ use crate::errs::{BaseError, BaseResult};
 pub fn mm_anon(size: usize) -> BaseResult<MemAddr> {
     let addr = unsafe {
         libc::mmap(
-            0 as *mut libc::c_void,
+            std::ptr::null_mut(),
             size,
             libc::PROT_READ | libc::PROT_WRITE,
             libc::MAP_ANON | libc::MAP_PRIVATE,
@@ -37,7 +37,7 @@ pub fn mm_mremap(addr: MemAddr, old_size: usize, new_size: usize) -> BaseResult<
 pub fn mm_file_ro(fd: u32, size: usize) -> BaseResult<MemAddr> {
     let addr = unsafe {
         libc::mmap(
-            0 as *mut libc::c_void,
+            std::ptr::null_mut(),
             size,
             libc::PROT_READ,
             libc::MAP_PRIVATE | libc::MAP_NORESERVE,
@@ -77,50 +77,24 @@ pub fn mm_unmap(addr: MemAddr, size: usize) -> BaseResult<()> {
 // ====== Tests ======
 #[cfg(test)]
 mod unit_tests {
-    use libc::c_void;
-    use std::{env, ffi::CString, fs, io::Error};
-
     use super::*;
-
-    pub fn open(path: &str) -> std::io::Result<u32> {
-        unsafe {
-            let p = CString::new(path).expect("CString::new failed");
-            let mode = libc::S_IRUSR | libc::S_IWUSR | libc::S_IRGRP | libc::S_IROTH;
-            let fd = libc::open(
-                p.as_ptr(),
-                libc::O_CREAT | libc::O_RDWR | libc::O_NOATIME,
-                mode,
-            );
-            if fd < 0 {
-                Err(Error::last_os_error())
-            } else {
-                Ok(fd as u32)
-            }
-        }
-        // let mut f = OpenOptions::new().mode(mode).open(path);
-        // Ok(f.as_raw_fd() as u32)
-    }
 
     #[test]
     fn test_mm_file_ro() {
-        let siz = 20_000usize;
-        let buf1 = vec![1u8; siz];
-        let buf2 = vec![2u8; siz];
-        let mut tmpfile = env::temp_dir();
-        tmpfile.push("foo.txt");
+        let siz = 20_000_usize;
+        let buf1 = vec![1_u8; siz];
+        let buf2 = vec![2_u8; siz];
 
-        if tmpfile.exists() {
-            fs::remove_file(&tmpfile).unwrap();
-        }
+        let temp_file = unsafe { libc::tmpfile() };
+        assert!(!temp_file.is_null());
+        let fd = unsafe { libc::fileno(temp_file) };
 
-        let fd = open(tmpfile.to_str().unwrap()).unwrap();
-
-        let addr = mm_file_ro(fd, 1024 * 1024).unwrap();
+        let addr = mm_file_ro(fd as u32, 1024 * 1024).unwrap();
         unsafe {
-            libc::pwrite(fd as i32, buf1.as_ptr() as *const c_void, siz, 0);
-            assert_eq!(*(addr.offset((siz / 2) as isize) as *const u8), 1u8);
-            libc::pwrite(fd as i32, buf2.as_ptr() as *const c_void, siz, siz as i64);
-            assert_eq!(*(addr.offset((siz + siz / 2) as isize) as *const u8), 2u8);
+            libc::pwrite(fd as i32, buf1.as_ptr().cast(), siz, 0);
+            assert_eq!(*(addr.add(siz / 2) as *const u8), 1_u8);
+            libc::pwrite(fd as i32, buf2.as_ptr().cast(), siz, siz as i64);
+            assert_eq!(*(addr.add(siz + siz / 2) as *const u8), 2_u8);
         }
     }
 
@@ -129,7 +103,7 @@ mod unit_tests {
         let siz = 1024 * 1024;
         let addr = mm_anon(siz).unwrap();
         unsafe {
-            assert_eq!(*(addr.offset((siz - 1) as isize) as *const u8), 0u8);
+            assert_eq!(*(addr.add(siz - 1) as *const u8), 0_u8);
         }
     }
 }

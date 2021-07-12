@@ -116,19 +116,19 @@ impl PutIntoBytes for Vec<u8> {
 
 impl PutIntoBytes for &Vec<u8> {
     fn put_into_bytes(self, sbuf: &mut Vec<u8>) {
-        sbuf.extend_from_slice(&self);
+        sbuf.extend_from_slice(self);
     }
 }
 
 impl PutIntoBytes for &mut Vec<u8> {
     fn put_into_bytes(self, sbuf: &mut Vec<u8>) {
-        sbuf.extend_from_slice(&self);
+        sbuf.extend_from_slice(self);
     }
 }
 
 impl PutIntoBytes for &[u8] {
     fn put_into_bytes(self, sbuf: &mut Vec<u8>) {
-        sbuf.extend_from_slice(&self);
+        sbuf.extend_from_slice(self);
     }
 }
 
@@ -236,6 +236,6 @@ mod unit_tests {
     fn test_bytes_to_cstring() {
         let cs = super::bytes_to_cstring(b"abc".to_vec());
         crate::debug!(&cs);
-        assert_eq!(cs, CString::new("abc").unwrap())
+        assert_eq!(cs, CString::new("abc").unwrap());
     }
 }

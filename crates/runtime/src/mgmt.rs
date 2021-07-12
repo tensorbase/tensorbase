@@ -204,7 +204,7 @@ impl<'a> BaseMgmtSys<'a> {
             Some(tz_name) => TimeZoneId::from_str(&tz_name)?,
             _ => TimeZoneId::from_local().unwrap_or_default(),
         };
-        DEFAULT_TIMEZONE.get_or_init(|| timezone );
+        DEFAULT_TIMEZONE.get_or_init(|| timezone);
         let timezone_name = timezone.name_ch();
         log::info!("current timezone sets to {}", timezone_name);
 
