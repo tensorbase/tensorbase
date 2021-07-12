@@ -15,7 +15,7 @@ use crate::errs::{BaseRtError, BaseRtResult};
 const DBMS_NAME: &'static str = "TensorBase";
 //FIXME to include from path
 const DBMS_VERSION_MAJOR: u64 = 2021;
-const DBMS_VERSION_MINOR: u64 = 5;
+const DBMS_VERSION_MINOR: u64 = 7;
 const REVISION: u64 = 54405; //54441?
 const DBMS_VERSION_PATCH: u64 = 0;
 
