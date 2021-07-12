@@ -8,7 +8,7 @@ use crate::physical_plan::functions::{ScalarFunctionImplementation, Signature};
 use arrow::{
     array::{
         ArrayRef, BooleanArray, Date16Array, GenericStringArray, Int64Array,
-        PrimitiveArray, StringOffsetSizeTrait, Timestamp32Array, UInt16Array, UInt8Array,
+        PrimitiveArray, StringOffsetSizeTrait, Timestamp32Array, UInt16Array, UInt8Array, Array,
     },
     datatypes::{ArrowPrimitiveType, DataType, Schema},
 };
@@ -311,6 +311,7 @@ impl BuiltinScalarFunction {
                 Signature::Uniform(1, vec![DataType::Timestamp32(None)])
             }
             BuiltinScalarFunction::EndsWith => Signature::Any(2),
+            BuiltinScalarFunction::ToSecond => Signature::Uniform(1, vec![DataType::Timestamp32(None)]),
         }
     }
 }
@@ -447,6 +448,42 @@ pub fn int64_to_date(array: &Int64Array) -> Result<Date16Array> {
 
 fn month_to_quarter(month: u8) -> u8 {
     (month - 1) / 3 + 1
+}
+
+macro_rules! wrap_datetime_fn {
+    ( $(
+        $(#[$OUTER:meta])* $NAME:literal => fn $FUNC:ident {
+            $( $DATA_TYPE:pat => fn $OP:ident($INPUT_TY:ty) -> $OUTPUT_TY:ty, )*
+        }
+    )* ) => { $(
+        $(#[$OUTER])*
+        pub fn $FUNC(args: &[ColumnarValue]) -> $crate::error::Result<ColumnarValue> {
+            match args[0].data_type() {
+                $(
+                data_type @ $DATA_TYPE => if let ColumnarValue::Array(array) = &args[0] {
+                    if let Some(a) = array.as_any().downcast_ref::<$INPUT_TY>() {
+                        let res: $OUTPUT_TY = $OP(a)?;
+                        Ok(ColumnarValue::Array(Arc::new(res)))
+                    } else {
+                        return Err(DataFusionError::Internal(format!(
+                            "failed to downcast to {:?}",
+                            data_type,
+                        )));
+                    }
+                } else {
+                    return Err(DataFusionError::Internal(format!(
+                        "failed to downcast to {:?}",
+                        data_type,
+                    )));
+                },
+                )*
+                other => Err(DataFusionError::Internal(format!(
+                    "Unsupported data type {:?} for function {}",
+                    other, $NAME,
+                ))),
+            }
+        }
+    )* }
 }
 
 /// Returns true if string ends with suffix for utf-8.
