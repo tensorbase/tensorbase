@@ -74,7 +74,6 @@ impl FromStr for BuiltinScalarFunction {
             "toMinute" => BuiltinScalarFunction::ToMinute,
             "toSecond" => BuiltinScalarFunction::ToSecond,
             "endsWith" => BuiltinScalarFunction::EndsWith,
-
             _ => {
                 return Err(DataFusionError::Plan(format!(
                     "There is no built-in clickhouse function named {}",
