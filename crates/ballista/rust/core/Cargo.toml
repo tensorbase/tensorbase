@@ -34,7 +34,7 @@ ahash = "0.7"
 async-trait = "0.1.36"
 futures = "0.3"
 log = "0.4"
-prost = "0.7"
+prost = "0.8"
 serde = {version = "1", features = ["derive"]}
 sqlparser = "0.9.0"
 tokio = "1.0"
