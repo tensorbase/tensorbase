@@ -671,6 +671,7 @@ mod test {
     use std::pin::Pin;
     use std::task::{Context, Poll};
     use tokio::io::AsyncRead;
+    use tokio::io::ReadBuf;
 
     struct AsyncChunk<'a> {
         buf: &'a [u8],
@@ -694,11 +695,12 @@ mod test {
         fn poll_read(
             self: Pin<&mut Self>,
             cx: &mut Context<'_>,
-            buf: &mut [u8],
-        ) -> Poll<io::Result<usize>> {
-            let size = cmp::min(self.cs as usize, buf.len());
+            buf: &mut ReadBuf<'_>,
+        ) -> Poll<io::Result<()>> {
+            let size = cmp::min(self.cs as usize, buf.remaining());
+
             if size == 0 {
-                return Poll::Ready(Ok(0));
+                return Poll::Ready(Ok(()));
             };
 
             let me = self.get_mut();
@@ -711,8 +713,10 @@ mod test {
                     return Poll::Pending;
                 }
             }
-            let size = io::Read::read(&mut me.buf, &mut buf[0..size])?;
-            Ok(size).into()
+            buf.put_slice(&me.buf[0..size]);
+            me.buf = &me.buf[size..];
+
+            Ok(()).into()
         }
     }
 

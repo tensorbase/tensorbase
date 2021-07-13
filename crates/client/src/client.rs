@@ -1,6 +1,5 @@
 use std::fmt;
 use std::io;
-use std::net::Shutdown;
 use std::time::Duration;
 
 use crate::protocol::block::{Block, ServerBlock};
@@ -186,7 +185,7 @@ impl Inner {
                     (revision as u32, tz)
                 }
                 _ => {
-                    socket.shutdown(Shutdown::Both)?;
+                    socket.shutdown().await?;
                     return Err(DriverError::ConnectionTimeout.into());
                 }
             };
@@ -203,7 +202,7 @@ impl Inner {
 
     #[inline]
     fn setup_stream(socket: &TcpStream, options: &Options) -> io::Result<()> {
-        socket.set_keepalive(options.keepalive)?;
+        socket.set_linger(options.keepalive)?;
         socket.set_nodelay(true)
     }
 
@@ -294,10 +293,10 @@ impl Connection {
     }
 
     /// Disconnects this connection from server.
-    pub(super) fn disconnect(mut self) -> Result<()> {
-        if let Some(socket) = self.inner.socket.take() {
+    pub(super) async fn disconnect(mut self) -> Result<()> {
+        if let Some(mut socket) = self.inner.socket.take() {
             debug!("disconnect method. shutdown connection");
-            socket.shutdown(Shutdown::Both)?;
+            socket.shutdown().await?;
         }
         Ok(())
     }
@@ -319,7 +318,7 @@ impl Connection {
     /// associated with the connection
     pub async fn close(mut self) -> Result<()> {
         self.inner.cleanup().await?;
-        self.disconnect()
+        self.disconnect().await
     }
 
     /// Ping-pong connection verification
