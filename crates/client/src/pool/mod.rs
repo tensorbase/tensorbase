@@ -13,7 +13,7 @@ use crossbeam::queue;
 pub use options::CompressionMethod;
 pub use options::Options;
 use parking_lot::Mutex;
-use tokio::time::delay_for;
+use tokio::time::sleep;
 use util::*;
 
 use crate::{
@@ -227,6 +227,7 @@ impl Pool {
                 },
             }
             .await;
+
             if !ok {
                 continue;
             }
@@ -249,7 +250,7 @@ impl Pool {
                             break;
                         }
 
-                        delay_for(inner.options.retry_timeout).await;
+                        sleep(inner.options.retry_timeout).await;
                         c -= 1;
                     }
 

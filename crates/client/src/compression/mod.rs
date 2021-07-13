@@ -5,6 +5,7 @@ use std::task::{Context, Poll};
 use byteorder::WriteBytesExt;
 use byteorder::{LittleEndian, ReadBytesExt};
 use futures::ready;
+use tokio::io::ReadBuf;
 use tokio::io::{AsyncBufRead, AsyncRead};
 
 use clickhouse_driver_cthrs::city_hash_128;
@@ -234,8 +235,10 @@ impl<R: AsyncBufRead + Unpin + Send> LZ4ReadAdapter<R> {
                 CompressionState::Compressed => {
                     let raw_size = self.raw_size;
                     // Read from underlying reader. Bypass buffering
-                    let n = ready!(Pin::new(&mut self.inner)
-                        .poll_read(cx, &mut self.data[self.p..])?);
+                    let mut read_buf = ReadBuf::new(&mut self.data[self.p..]);
+                    let mut n = read_buf.filled().len();
+                    ready!(Pin::new(&mut self.inner).poll_read(cx, &mut read_buf)?);
+                    n = read_buf.filled().len() - n;
                     self.p += n;
                     // Got to the end. Decompress and return raw buffer
                     if self.p >= self.data.len() {
@@ -323,8 +326,8 @@ impl<R: AsyncBufRead + Unpin + Send> AsyncRead for LZ4ReadAdapter<R> {
     fn poll_read(
         self: Pin<&mut Self>,
         cx: &mut Context<'_>,
-        buf: &mut [u8],
-    ) -> Poll<Result<usize, io::Error>> {
+        buf: &mut ReadBuf<'_>,
+    ) -> Poll<Result<(), io::Error>> {
         let me = self.get_mut();
 
         // println!("req read {} bytes from {}",
@@ -337,17 +340,17 @@ impl<R: AsyncBufRead + Unpin + Send> AsyncRead for LZ4ReadAdapter<R> {
 
         let data = ready!(me.fill(cx)?);
         let ready_to_read = data.len();
-        let toread = std::cmp::min(buf.len(), ready_to_read);
+        let toread = std::cmp::min(buf.remaining(), ready_to_read);
         //let cz = io::copy(inner, buf)?;
         // log::info!("{:?}", data);
 
         if toread == 0 {
-            return Poll::Ready(Ok(0));
+            return Poll::Ready(Ok(()));
         };
-        buf[0..toread].copy_from_slice(&data[0..toread]);
+        buf.put_slice(&data[..toread]);
 
         me.inner_consume(toread);
-        Poll::Ready(Ok(toread))
+        Poll::Ready(Ok(()))
     }
 }
 

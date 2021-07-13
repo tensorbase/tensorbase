@@ -12,17 +12,7 @@ bytes = "0.6"
 thiserror = "1.0"
 log = "0.4.8"
 url = "^2"
-tokio = { version = "0.2", features = [
-    "rt-core",
-    "sync",
-    "tcp",
-    "time",
-    "dns",
-    "stream",
-    "test-util",
-    "io-util",
-    "macros",
-] }
+tokio = { version = "1.0", features = ["macros", "rt", "rt-multi-thread", "sync", "io-util", "time", "net"] }
 tokio-native-tls = { version = "0.3.0", optional = true }
 pin-project-lite = "^0.2"
 futures = "0.3.7"
