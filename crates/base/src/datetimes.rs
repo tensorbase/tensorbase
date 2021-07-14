@@ -47,7 +47,7 @@ pub struct YMDHMS(pub i16, pub u8, pub u8, pub u8, pub u8, pub u8);
     Hash,
     Default,
 )]
-pub struct TimeZoneId(i32);
+pub struct TimeZoneId(pub i32);
 
 impl FromStr for TimeZoneId {
     type Err = BaseError;
@@ -91,7 +91,7 @@ impl TimeZoneId {
         })
     }
 
-    fn calc_offset_of_tz(tz: Tz) -> i32 {
+    pub fn calc_offset_of_tz(tz: Tz) -> i32 {
         tz.ymd(1, 1, 1)
             .and_hms(0, 0, 0)
             .offset()

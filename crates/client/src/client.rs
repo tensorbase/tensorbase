@@ -201,8 +201,12 @@ impl Inner {
     }
 
     #[inline]
-    fn setup_stream(socket: &TcpStream, options: &Options) -> io::Result<()> {
-        socket.set_linger(options.keepalive)?;
+    fn setup_stream(socket: &TcpStream, _options: &Options) -> io::Result<()> {
+        // TODO: wait for the support in the std
+        // https://github.com/rust-lang/rust/issues/69774
+        // https://github.com/tokio-rs/tokio/pull/3146
+        // https://github.com/async-rs/async-std/issues/718
+        // socket.set_keepalive(options.keepalive)?;
         socket.set_nodelay(true)
     }
 

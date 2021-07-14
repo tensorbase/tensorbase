@@ -71,6 +71,13 @@ pub struct ValueRef<'a> {
     // TODO: remove one level of indirection. Combine ValueRef and ValueRefEnum into single struct
     inner: Option<ValueRefEnum<'a>>,
 }
+
+impl<'a> ValueRef<'a> {
+    pub fn into_inner(self) -> Option<ValueRefEnum<'a>> {
+        self.inner
+    }
+}
+
 /// Implement SqlType::DateTime,SqlType::DateTime64-> chrono::DateTime<Utc> data conversion
 impl<'a> Value<'a, DateTime<Utc>> for ValueRef<'a> {
     fn get(&'a self, field: &'a Field) -> Result<Option<DateTime<Utc>>> {

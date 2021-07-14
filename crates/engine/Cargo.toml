@@ -8,6 +8,7 @@ edition = "2018"
 base = { path = "../base" }
 lang = { path = "../lang" }
 meta = { path = "../meta" }
+client = { path = "../client" }
 typed-arena = "2.0"
 thiserror = "1.0"
 indexmap = "1.6"

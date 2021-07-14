@@ -5,7 +5,9 @@ use base::{
     strings::s,
 };
 use bytes::BytesMut;
+use client::prelude::Pool;
 use dashmap::DashMap;
+use lang::parse::RemoteAddr;
 use lang::parse::{
     parse_command, parse_create_database, parse_create_table, parse_desc_table,
     parse_drop_database, parse_drop_table, parse_insert_into, parse_optimize_table,
@@ -43,6 +45,7 @@ use crate::{
     errs::{BaseRtError, BaseRtResult},
 };
 use datafusion::physical_plan::clickhouse::DEFAULT_TIMEZONE;
+use lang::parse::RemoteTableInfo;
 
 pub static READ: SyncOnceCell<
     fn(
@@ -56,6 +59,10 @@ pub static READ: SyncOnceCell<
 
 pub static WRITE: SyncOnceCell<
     fn(blk: &mut Block, tab_ins: &str, tid_ins: Id) -> BaseRtResult<()>,
+> = SyncOnceCell::new();
+
+pub static REMOTE_READ: SyncOnceCell<
+    fn(remote_tb_info: RemoteTableInfo, raw_query: &str) -> BaseRtResult<Vec<Block>>,
 > = SyncOnceCell::new();
 
 pub struct BaseHasher {
@@ -189,6 +196,7 @@ pub struct BaseMgmtSys<'a> {
     pub conf: Pin<&'a Conf>,
     pub meta_store: MetaStore,
     pub part_store: PartStore<'a>,
+    pub remote_db_pool: DashMap<RemoteAddr, Pool>,
     pub ptk_exprs_reg: DashMap<Id, SyncPointer<u8>, BuildPtkExprsHasher>,
     pub timezone: TimeZoneId,
     pub timezone_name: String,
@@ -254,6 +262,7 @@ impl<'a> BaseMgmtSys<'a> {
             conf: Pin::new(conf),
             meta_store,
             part_store,
+            remote_db_pool: DashMap::new(),
             ptk_exprs_reg,
             timezone,
             timezone_name,
@@ -779,9 +788,12 @@ impl<'a> BaseMgmtSys<'a> {
                     read(&self.meta_store, &self.part_store, query_id, current_db, p)?;
                 Ok(BaseCommandKind::Query(blks))
             }
-            TablePlaceKind::Remote(remote_db_info) => {
-                log::debug!("successfully parsed remote query to {:?} ", remote_db_info);
-                unimplemented!()
+            TablePlaceKind::Remote(remote_tb_info) => {
+                log::debug!("successfully parsed remote query to {:?} ", remote_tb_info);
+                let remote_read = REMOTE_READ.get().unwrap();
+                let blks = remote_read(remote_tb_info, p.as_str())?;
+
+                Ok(BaseCommandKind::Query(blks))
             }
         }
     }

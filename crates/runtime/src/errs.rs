@@ -151,6 +151,9 @@ pub enum BaseRtError {
 
     #[error(transparent)]
     WrappingArrowError(#[from] arrow::error::ArrowError),
+
+    #[error(transparent)]
+    WrappingClientError(#[from] client::prelude::errors::Error),
 }
 
 impl BaseRtError {
@@ -166,6 +169,7 @@ impl BaseRtError {
             BaseRtError::WrappingEngineError(_) => 7,
             BaseRtError::WrappingBaseError(_) => 8,
             BaseRtError::WrappingArrowError(_) => 9,
+            BaseRtError::WrappingClientError(_) => 10,
 
             BaseRtError::UnsupportedClientMessage => 21,
             BaseRtError::UnsupportedClientVersion => 22,

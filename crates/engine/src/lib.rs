@@ -8,6 +8,7 @@ use types::QueryState;
 
 pub mod datafusions;
 pub mod errs;
+pub mod remote;
 pub mod types;
 
 pub fn run(
