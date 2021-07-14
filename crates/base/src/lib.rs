@@ -32,5 +32,6 @@ pub mod mem;
 pub mod mmap;
 pub mod strings;
 pub mod utils;
+pub mod contract;
 
 pub use base_proc_macro::async_test;

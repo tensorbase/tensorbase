@@ -32,13 +32,6 @@ macro_rules! with_timer_print {
 }
 
 #[macro_export]
-macro_rules! contract {
-    ($x:expr) => {
-        assert!($x)
-    };
-}
-
-#[macro_export]
 #[cfg(debug_assertions)]
 macro_rules! debug {
     ($x:expr) => {
