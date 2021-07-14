@@ -9,8 +9,8 @@ use baselog::{ConfigBuilder, LevelFilter, TermLogger, TerminalMode};
 use bytes::BytesMut;
 use log::info;
 use runtime::{
-    mgmt::{BMS, READ, WRITE},
-    read::query,
+    mgmt::{BMS, READ, REMOTE_READ, WRITE},
+    read::{query, remote_query},
     write::write_block,
 };
 use server::BaseSrvConn;
@@ -56,6 +56,7 @@ async fn main() -> io::Result<()> {
     //init
     READ.get_or_init(|| query);
     WRITE.get_or_init(|| write_block);
+    REMOTE_READ.get_or_init(|| remote_query);
 
     // start http server
     Server::build()

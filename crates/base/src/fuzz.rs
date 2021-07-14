@@ -73,7 +73,7 @@ pub trait BoundedFuzzableVec<T: BoundedFuzzable> {
         Self::fuzz_bound_len_range(range, 0..32)
     }
     fn fuzz_bound_len(range: Range<T>, len: usize) -> Vec<T> {
-        Self::fuzz_bound_len_range(range, len..(len+1))
+        Self::fuzz_bound_len_range(range, len..(len + 1))
     }
     fn fuzz_bound_len_range(range: Range<T>, len_bound: Range<usize>) -> Vec<T>;
 }

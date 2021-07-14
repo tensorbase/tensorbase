@@ -552,18 +552,18 @@ fn seek_to<'a, R: pest::RuleType>(
 
 #[derive(Debug, PartialEq)]
 pub struct RemoteTableInfo {
-    addrs: Vec<RemoteAddr>,
-    username: Option<String>,
-    password: Option<String>,
-    database_name: String,
-    table_name: String,
+    pub addrs: Vec<RemoteAddr>,
+    pub username: Option<String>,
+    pub password: Option<String>,
+    pub database_name: Option<String>,
+    pub table_name: String,
 }
 
-#[derive(Debug, Default, PartialEq)]
+#[derive(Debug, Default, PartialEq, Hash, Eq, Clone)]
 pub struct RemoteAddr {
-    ip_addr: Option<IpAddr>,
-    host_name: Option<String>,
-    port: Option<u16>,
+    pub ip_addr: Option<IpAddr>,
+    pub host_name: Option<String>,
+    pub port: Option<u16>,
 }
 
 impl Default for RemoteTableInfo {
@@ -572,9 +572,35 @@ impl Default for RemoteTableInfo {
             addrs: vec![],
             username: None,
             password: None,
-            database_name: "default".to_string(),
+            database_name: None,
             table_name: "".to_string(),
         }
+    }
+}
+
+impl RemoteTableInfo {
+    #[inline]
+    pub fn to_local_query_str(&self, raw_query: &str) -> Option<String> {
+        raw_query
+            .find("remote")
+            .map(|i| {
+                raw_query.find(")").map(|j| {
+                    format!(
+                        "{} {} {}",
+                        &raw_query[..i],
+                        format!(
+                            "{}{}",
+                            self.database_name
+                                .as_ref()
+                                .map(|n| format!("{}.", n))
+                                .unwrap_or("".into()),
+                            self.table_name
+                        ),
+                        &raw_query[j + 1..]
+                    )
+                })
+            })
+            .flatten()
     }
 }
 
@@ -693,7 +719,7 @@ impl TablePlaceKindContext {
             }
             Rule::remote_database_name => {
                 self.mut_remote_info().map(|place_kind| {
-                    place_kind.database_name = pair.as_str().trim().to_string();
+                    place_kind.database_name = Some(pair.as_str().trim().to_string());
                 });
             }
             Rule::remote_table_name => {
@@ -920,7 +946,7 @@ LIMIT 100;
         assert_eq!(
             r,
             TablePlaceKind::Remote(RemoteTableInfo {
-                database_name: "default".into(),
+                database_name: Some("default".into()),
                 table_name: "test".into(),
                 addrs: vec![RemoteAddr {
                     ip_addr: Some("127.0.0.1".parse().unwrap()),
@@ -940,7 +966,7 @@ LIMIT 100;
         assert_eq!(
             r,
             TablePlaceKind::Remote(RemoteTableInfo {
-                database_name: "default".into(),
+                database_name: None,
                 table_name: "test".into(),
                 addrs: vec![RemoteAddr {
                     ip_addr: Some("127.0.0.1".parse().unwrap()),
@@ -962,7 +988,7 @@ LIMIT 100;
         assert_eq!(
             r,
             TablePlaceKind::Remote(RemoteTableInfo {
-                database_name: "default".into(),
+                database_name: None,
                 table_name: "test".into(),
                 addrs: vec![RemoteAddr {
                     ip_addr: Some("127.0.0.1".parse().unwrap()),
@@ -984,7 +1010,7 @@ LIMIT 100;
         assert_eq!(
             r,
             TablePlaceKind::Remote(RemoteTableInfo {
-                database_name: "default".into(),
+                database_name: None,
                 table_name: "test".into(),
                 addrs: vec![RemoteAddr {
                     ip_addr: Some("::1".parse().unwrap()),
@@ -1006,7 +1032,7 @@ LIMIT 100;
         assert_eq!(
             r,
             TablePlaceKind::Remote(RemoteTableInfo {
-                database_name: "default".into(),
+                database_name: None,
                 table_name: "test".into(),
                 addrs: vec![RemoteAddr {
                     ip_addr: Some("2a02:6b8:0:1111::11".parse().unwrap()),
@@ -1028,7 +1054,7 @@ LIMIT 100;
         assert_eq!(
             r,
             TablePlaceKind::Remote(RemoteTableInfo {
-                database_name: "default".into(),
+                database_name: Some("default".into()),
                 table_name: "test".into(),
                 addrs: vec![RemoteAddr {
                     ip_addr: None,
@@ -1049,7 +1075,7 @@ LIMIT 100;
         assert_eq!(
             r,
             TablePlaceKind::Remote(RemoteTableInfo {
-                database_name: "cloud".into(),
+                database_name: Some("cloud".into()),
                 table_name: "test".into(),
                 addrs: vec![
                     RemoteAddr {
@@ -1079,6 +1105,36 @@ LIMIT 100;
         );
 
         Ok(())
+    }
+
+    #[test]
+    fn test_remote_to_local_query() {
+        let addrs = vec![RemoteAddr {
+            ip_addr: Some("127.0.0.1".parse().unwrap()),
+            host_name: None,
+            port: Some(9000),
+        }];
+        let info = RemoteTableInfo {
+            addrs,
+            username: None,
+            password: None,
+            database_name: None,
+            table_name: "test_remote_to_local".into(),
+        };
+
+        let sql = "select * from remote('127.0.0.1', test_remote_to_local) limit 10";
+
+        assert_eq!(
+            &info.to_local_query_str(sql).unwrap(),
+            "select * from  test_remote_to_local  limit 10"
+        );
+
+        let sql = "select a, b from remote('127.0.0.1', test_remote_to_local) group by a";
+
+        assert_eq!(
+            &info.to_local_query_str(sql).unwrap(),
+            "select a, b from  test_remote_to_local  group by a"
+        );
     }
 
     mod bql {

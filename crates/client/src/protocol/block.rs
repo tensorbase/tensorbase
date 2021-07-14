@@ -191,8 +191,8 @@ impl<'b> Block<'b> {
 /// driver should validate the Block against server table structure
 /// before it been sent to server.
 pub struct BlockColumnHeader {
-    pub(crate) field: Field,
-    pub(crate) name: String,
+    pub field: Field,
+    pub name: String,
 }
 
 impl fmt::Debug for BlockColumnHeader {
@@ -206,12 +206,12 @@ impl fmt::Debug for BlockColumnHeader {
 
 /// input Block column data.
 pub struct BlockColumn {
-    pub(crate) header: BlockColumnHeader,
-    pub(crate) data: Box<dyn AsInColumn>,
+    pub header: BlockColumnHeader,
+    pub data: Box<dyn AsInColumn>,
 }
 
 impl BlockColumn {
-    pub(crate) fn into_header(self) -> BlockColumnHeader {
+    pub fn into_header(self) -> BlockColumnHeader {
         self.header
     }
 
@@ -231,9 +231,9 @@ impl std::fmt::Debug for BlockColumn {
 
 #[derive(Debug)]
 pub struct ServerBlock {
-    pub(crate) columns: Vec<BlockColumn>,
-    pub(crate) rows: u64,
-    pub(crate) timezone: Tz,
+    pub columns: Vec<BlockColumn>,
+    pub rows: u64,
+    pub timezone: Tz,
 }
 
 impl ServerBlock {

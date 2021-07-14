@@ -63,7 +63,7 @@ pub const FIELD_LOWCARDINALITY: u8 = 0x02;
 pub const FIELD_ARRAY: u8 = 0x04;
 
 pub struct Field {
-    pub(crate) sql_type: SqlType,
+    pub sql_type: SqlType,
     pub(crate) flag: u8,
     pub(crate) depth: u8,
     meta: Option<FieldMeta>,

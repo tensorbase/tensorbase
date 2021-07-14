@@ -771,6 +771,101 @@ async fn tests_integ_date_cast() -> errors::Result<()> {
 }
 
 #[tokio::test]
+async fn tests_integ_select_remote_function() -> errors::Result<()> {
+    let pool = get_pool();
+    let mut conn = pool.connection().await?;
+
+    conn.execute(format!("DROP TABLE IF EXISTS test_remote_func"))
+        .await?;
+    conn.execute(format!(
+        "CREATE TABLE test_remote_func( \
+            a UInt8, \
+            b UInt16, \
+            c UInt32, \
+            d UInt64, \
+            e Int8, \
+            f Int16, \
+            g Int32, \
+            h Int64, \
+            i String, \
+            j DateTime \
+        )"
+    ))
+    .await?;
+
+    let data_a = vec![1u8, 2, 3];
+    let data_b = vec![1u16, 2, 3];
+    let data_c = vec![1u32, 2, 3];
+    let data_d = vec![1u64, 2, 3];
+    let data_i = vec!["abc", "efg", "hello world"];
+    let data_naive = vec![
+        NaiveDate::from_ymd(2010, 1, 1).and_hms(1, 1, 1),
+        NaiveDate::from_ymd(2011, 2, 28).and_hms(2, 5, 6),
+        NaiveDate::from_ymd(2012, 2, 29).and_hms(23, 59, 59),
+    ];
+    let data_j = apply_offset(&data_naive, FixedOffset::west(11 * 3600 + 45 * 60));
+
+    let block = {
+        Block::new("test_remote_func")
+            .add("a", data_a)
+            .add("b", data_b)
+            .add("c", data_c)
+            .add("d", data_d)
+            .add("i", data_i)
+            .add("j", data_j)
+    };
+
+    let mut insert = conn.insert(&block).await?;
+    insert.commit().await?;
+
+    drop(insert);
+    let dates = [
+        Utc.ymd(2010, 1, 1).and_hms(0, 0, 0),
+        Utc.ymd(2011, 2, 28).and_hms(0, 0, 0),
+        Utc.ymd(2012, 2, 29).and_hms(0, 0, 0),
+    ];
+    let data = vec![1, 2, 3];
+    let data_i = vec!["abc", "efg", "hello world"];
+
+    {
+        let sql =
+            "select a,b,c,d,e,f,h,i,j from remote('127.0.0.1:9528', test_remote_func)";
+        let mut query_result = conn.query(sql).await?;
+
+        while let Some(block) = query_result.next().await? {
+            for (k, row) in block.iter_rows().enumerate() {
+                println!("k={:?} row={:?}", k, row);
+                let mut iter = 0..;
+                let a: u8 = row.value(iter.next().unwrap())?.unwrap();
+                let b: u16 = row.value(iter.next().unwrap())?.unwrap();
+                let c: u32 = row.value(iter.next().unwrap())?.unwrap();
+                let d: u64 = row.value(iter.next().unwrap())?.unwrap();
+                let i: &str = row.value(iter.next().unwrap())?.unwrap();
+                let j: DateTime<Utc> = row.value(iter.next().unwrap())?.unwrap();
+                assert_eq!(a, data[k] as u8);
+                assert_eq!(b, data[k] as u16);
+                assert_eq!(c, data[k] as u32);
+                assert_eq!(d, data[k] as u64);
+                assert_eq!(i, data_i[k]);
+                assert_eq!(j, dates[k]);
+            }
+        }
+    }
+
+    Ok(())
+}
+
+fn apply_offset(
+    data_naive: &Vec<NaiveDateTime>,
+    tz: impl TimeZone,
+) -> Vec<DateTime<Utc>> {
+    data_naive
+        .iter()
+        .map(|b| Utc.from_utc_datetime(&tz.from_local_datetime(b).unwrap().naive_utc()))
+        .collect()
+}
+
+#[tokio::test]
 async fn tests_integ_date_time_functions() -> errors::Result<()> {
     let pool = get_pool();
     let mut conn = pool.connection().await?;
@@ -810,18 +905,6 @@ async fn tests_integ_date_time_functions() -> errors::Result<()> {
         NaiveDate::from_ymd(2021, 8, 31).and_hms(14, 32, 3),
         NaiveDate::from_ymd(2021, 6, 27).and_hms(17, 44, 32),
     ];
-
-    fn apply_offset(
-        data_naive: &Vec<NaiveDateTime>,
-        tz: impl TimeZone,
-    ) -> Vec<DateTime<Utc>> {
-        data_naive
-            .iter()
-            .map(|b| {
-                Utc.from_utc_datetime(&tz.from_local_datetime(b).unwrap().naive_utc())
-            })
-            .collect()
-    }
 
     let data_b = apply_offset(&data_naive, Tz::Etc__GMTMinus8);
     let data_e = apply_offset(&data_naive, Tz::Etc__GMTPlus5);

@@ -39,4 +39,7 @@ pub enum EngineError {
 
     #[error(transparent)]
     WrappingIOError(#[from] std::io::Error),
+
+    #[error(transparent)]
+    WrappingClientError(#[from] client::prelude::errors::Error),
 }

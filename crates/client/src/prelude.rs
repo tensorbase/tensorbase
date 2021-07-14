@@ -6,14 +6,17 @@ pub use crate::{
     protocol::{
         block::{Block, ServerBlock},
         column::{Deserialize, Row},
+        Value, ValueRefEnum,
     },
 };
+
 pub mod types {
     pub use crate::protocol::value::{
         ValueDateTime, ValueDateTime64, ValueDecimal32, ValueDecimal64, ValueUuid,
     };
     #[cfg(feature = "int128")]
     pub use crate::types::Decimal128;
+    pub use crate::types::SqlType;
     pub use crate::types::{Decimal, Decimal32, Decimal64, DecimalBits};
 }
 pub mod errors {

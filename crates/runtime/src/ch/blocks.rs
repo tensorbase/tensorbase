@@ -1,12 +1,13 @@
 use std::{convert::TryFrom, slice};
 
 use arrow::{array, datatypes::DataType, record_batch::RecordBatch};
-use base::bytes_cat;
+use base::{bytes_cat, datetimes::TimeZoneId};
 use bytes::{Buf, BufMut, BytesMut};
 use clickhouse_rs_cityhash_sys::city_hash_128;
 use lzzzz::lz4;
 
-use meta::types::{BaseChunk, BqlType};
+use client::prelude::{types::SqlType, ServerBlock, ValueRefEnum};
+use meta::types::{AsBytes, BaseChunk, BqlType};
 
 use crate::ch::codecs::{
     new_mut_slice_at, BytesDecoder, BytesEncoder, BytesExt, CHMsgReadAware,
@@ -143,6 +144,133 @@ impl Default for Block {
             nrows: 0,
             columns: vec![],
         }
+    }
+}
+
+// TODO FIXME: The best approach is to unify the server and client block definitions
+// to avoid conversions
+#[inline]
+fn value_ref_to_bytes<'a>(value_ref: &'a ValueRefEnum<'a>) -> &'a [u8] {
+    match value_ref {
+        ValueRefEnum::String(bytes) => bytes,
+        ValueRefEnum::UInt8(u) => u.as_bytes(),
+        ValueRefEnum::UInt16(u) => u.as_bytes(),
+        ValueRefEnum::UInt32(u) => u.as_bytes(),
+        ValueRefEnum::UInt64(u) => u.as_bytes(),
+        ValueRefEnum::Int8(i) => i.as_bytes(),
+        ValueRefEnum::Int16(i) => i.as_bytes(),
+        ValueRefEnum::Int32(i) => i.as_bytes(),
+        ValueRefEnum::Int64(i) => i.as_bytes(),
+        ValueRefEnum::Date(d) => &d.0,
+        ValueRefEnum::DateTime(dt) => &dt.0,
+        ValueRefEnum::DateTime64(dt64) => dt64.0.as_bytes(),
+        ValueRefEnum::Array8(_)
+        | ValueRefEnum::Array16(_)
+        | ValueRefEnum::Array32(_)
+        | ValueRefEnum::Array64(_)
+        | ValueRefEnum::Array128(_)
+        | ValueRefEnum::Float32(_)
+        | ValueRefEnum::Float64(_)
+        | ValueRefEnum::Enum(_)
+        | ValueRefEnum::Ip4(_)
+        | ValueRefEnum::Ip6(_)
+        | ValueRefEnum::Uuid(_)
+        | ValueRefEnum::Decimal32(_)
+        | ValueRefEnum::Decimal64(_) => unimplemented!(),
+    }
+}
+
+// TODO FIXME: The best approach is to unify the server and client block definitions
+// to avoid conversions
+#[inline]
+fn sqltype_to_bqltype(sqltype: SqlType) -> BqlType {
+    match sqltype {
+        SqlType::UInt8 => BqlType::UInt(8),
+        SqlType::UInt16 => BqlType::UInt(16),
+        SqlType::UInt32 => BqlType::UInt(32),
+        SqlType::UInt64 => BqlType::UInt(64),
+        SqlType::Int8 => BqlType::Int(8),
+        SqlType::Int16 => BqlType::Int(16),
+        SqlType::Int32 => BqlType::Int(32),
+        SqlType::Int64 => BqlType::Int(64),
+        SqlType::String => BqlType::String,
+        SqlType::FixedString(i) => BqlType::FixedString(i as u8),
+        SqlType::Float32 => BqlType::Float(32),
+        SqlType::Float64 => BqlType::Float(64),
+        SqlType::Date => BqlType::Date,
+        SqlType::DateTime(tz) => match tz {
+            Some(tz) => {
+                BqlType::DateTimeTz(TimeZoneId(TimeZoneId::calc_offset_of_tz(tz)))
+            }
+            None => BqlType::DateTime,
+        },
+        SqlType::DateTime64(id, tz) => {
+            BqlType::DateTimeTz(TimeZoneId(TimeZoneId::calc_offset_of_tz(tz)))
+        }
+        SqlType::Decimal(x, y) => BqlType::Decimal(x, y),
+        SqlType::LowCardinality => BqlType::LowCardinalityTinyText,
+        SqlType::Ipv4
+        | SqlType::Ipv6
+        | SqlType::Uuid
+        | SqlType::Enum8
+        | SqlType::Enum16
+        | SqlType::Array => unimplemented!(),
+    }
+}
+
+// TODO FIXME: The best approach is to unify the server and client block definitions
+// to avoid conversions
+impl From<ServerBlock> for Block {
+    fn from(b: ServerBlock) -> Self {
+        let mut new_blk = Block::default();
+        let nrows = b.rows as usize;
+
+        new_blk.ncols = b.columns.len();
+        new_blk.nrows = nrows;
+
+        for c in b.columns {
+            let btype = sqltype_to_bqltype(c.header.field.get_sqltype());
+            let mut data = Vec::with_capacity(4 * 1024);
+
+            for i in 0..nrows {
+                // TODO: support NULL
+                if let Some(value) = unsafe { c.data.get_at(i as u64) }.into_inner() {
+                    let val = value_ref_to_bytes(&value);
+                    let val_len = val.len();
+
+                    if btype == BqlType::String {
+                        let mut buf = BytesMut::new();
+                        buf.write_varint(val_len as u64);
+                        data.append(&mut buf.to_vec());
+                    }
+
+                    data.reserve(val_len);
+
+                    let len = data.len();
+                    let new_len = len + val_len;
+                    unsafe {
+                        data.set_len(new_len);
+                    }
+
+                    data[len..new_len].copy_from_slice(val);
+                }
+            }
+            let chunk = BaseChunk {
+                btype,
+                size: nrows,
+                data,
+                null_map: None,
+                offset_map: None,
+                lc_dict_data: None,
+            };
+            let column = Column {
+                name: c.header.name.as_bytes().to_vec(),
+                data: chunk,
+            };
+
+            new_blk.columns.push(column);
+        }
+        new_blk
     }
 }
 
