@@ -21,7 +21,8 @@
     llvm_asm,
     vec_into_raw_parts,
     core_intrinsics,
-    once_cell
+    once_cell,
+    associated_type_defaults,
 )]
 pub mod codec;
 pub mod datetimes;
@@ -33,5 +34,6 @@ pub mod mmap;
 pub mod strings;
 pub mod utils;
 pub mod contract;
+pub mod fuzz;
 
 pub use base_proc_macro::async_test;
