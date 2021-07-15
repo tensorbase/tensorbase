@@ -20,6 +20,7 @@ This document outlines some key points about development workflow, commit, forma
     - [Code review](#code-review)
     - [Code Style](#code-style)
     - [Convention of the Commit Message](#convention-of-the-commit-message)
+    - [Design By Contract](#design-by-contract)
 
 <!-- /TOC -->
 
@@ -106,3 +107,7 @@ Here are some examples of commit messages:
 - `DOCS: update the commit conventions`
 - `CHORE(server): update the server's version`
 - `TEST(integ): add sanity checks`
+
+## Design By Contract
+
+TensorBase recommends all contributors to follow the DBC(Design By Contract) programming methodological guidelines in your engineering implementation. That is, it is hoped that you make a thought and specify the pre-conditions and post-conditions of your method implementation. There is an mini-RFC for your reference.
