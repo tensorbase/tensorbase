@@ -110,4 +110,4 @@ Here are some examples of commit messages:
 
 ## Design By Contract
 
-TensorBase recommends all contributors to follow the DBC(Design By Contract) programming methodological guidelines in your engineering implementation. That is, it is hoped that you make a thought and specify the pre-conditions and post-conditions of your method implementation. There is an mini-RFC for your reference.
+TensorBase recommends all contributors to follow the DBC(Design By Contract) programming methodological guidelines in your engineering implementation. That is, it is hoped that you make a thought and specify the pre-conditions and post-conditions of your method implementation. There is an [mini-RFC](https://github.com/tensorbase/tensorbase/issues/198) for your reference.
