@@ -8,7 +8,10 @@ macro_rules! contract {
 #[cfg(test)]
 mod unit_tests {
     fn test_fn_01(x: i32, y: i64) -> i64 {
-        contract!(x < 0 && x > -100, "x should be negative integer and larger that -100");
+        contract!(
+            x < 0 && x > -100,
+            "x should be negative integer and larger that -100"
+        );
         contract!(y > 100, "y should postive integer");
 
         let r = x as i64 + y;
@@ -28,5 +31,14 @@ mod unit_tests {
     #[cfg(not(debug_assertions))]
     fn basic_check_release() {
         test_fn_01(1, 99);
+    }
+
+    #[test]
+    fn basic_check_debug_2() {
+        use crate::fuzz::*;
+        Vec::<i32>::fuzz_bound(-99..0)
+            .into_iter()
+            .zip(Vec::<i64>::fuzz_bound(100..1000))
+            .for_each(|(x, y)| { test_fn_01(x, y);} );
     }
 }
