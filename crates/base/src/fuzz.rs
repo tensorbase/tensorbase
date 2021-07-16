@@ -69,13 +69,19 @@ impl<T: Fuzzable> Fuzzable for Vec<T> {
 }
 
 pub trait BoundedFuzzableVec<T: BoundedFuzzable> {
-    fn fuzz_bound(range: Range<T>) -> Vec<T>;
+    fn fuzz_bound(range: Range<T>) -> Vec<T> {
+        Self::fuzz_bound_len_range(range, 0..32)
+    }
+    fn fuzz_bound_len(range: Range<T>, len: usize) -> Vec<T> {
+        Self::fuzz_bound_len_range(range, len..(len+1))
+    }
+    fn fuzz_bound_len_range(range: Range<T>, len_bound: Range<usize>) -> Vec<T>;
 }
 
 impl<T: BoundedFuzzable + SampleUniform> BoundedFuzzableVec<T> for Vec<T> {
-    fn fuzz_bound(range: Range<T>) -> Vec<T> {
+    fn fuzz_bound_len_range(range: Range<T>, len_bound: Range<usize>) -> Vec<T> {
         let mut rng = rand::thread_rng();
-        let len = usize::fuzz_bound(0..32);
+        let len = usize::fuzz_bound(len_bound);
         let r = Uniform::new(range.start, range.end);
         let mut vec = Vec::with_capacity(len);
         for _ in 0..len {
@@ -126,6 +132,9 @@ mod unit_tests {
         if v.len() > 0 {
             assert!(v[0].1.len() < 32);
         }
+        let v = Vec::<u64>::fuzz_bound_len(99..100, 16);
+        assert!(&v == &[99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99]);
+        // println!("{:?}", v);
         // println!("{:?}", u64::fuzz_bound(0..100));
         // println!("{:?}", Option::<String>::fuzz());
         // println!("{:?}", Vec::<(u16, String)>::fuzz());
