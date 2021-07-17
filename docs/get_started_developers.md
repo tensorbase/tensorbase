@@ -47,7 +47,7 @@ The development of TensorBase is same to the idiom of Rust engineering.
         create table employees (id UInt64, salary UInt64) ENGINE = BaseStorage
         insert into employees values (0, 1000), (1, 1500)
         select count(id) from employees
-        select avg(salary) from employeese
+        select avg(salary) from employees
 
 7. more supported statements could be seen [here](/docs/lang.md).
 
