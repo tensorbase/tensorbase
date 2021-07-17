@@ -7,15 +7,18 @@
  */
 cmd_list = { SOI ~ cmd+ ~ (";" ~ cmd)* ~ EOI }
 cmd = {
-    ^"explain"? ~ query ~ (";")* |
+    one_cmd ~ (";")*
+}
+one_cmd = {
+    ^"explain"? ~ query |
     create_database |
-    create_table ~ (";")* |
+    create_table|
     show_databases |
     show_tables |
     show_create_table |
     desc_table |
     drop_database |
-    drop_table ~ (";")* |
+    drop_table |
     truncate_table |
     optimize_table |
     insert_into |

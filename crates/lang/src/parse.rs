@@ -1959,5 +1959,13 @@ limit
                 BqlParser::parse(Rule::cmd_list, c).unwrap_or_else(|e| panic!("{}", e));
             println!("{}", pretty_parse_tree(pairs));
         }
+
+        #[test]
+        fn test_trailing_semicolon_in_sql_stmt() {
+            let c = "show tables;";
+            let pairs =
+                BqlParser::parse(Rule::cmd_list, c).unwrap_or_else(|e| panic!("{}", e));
+            println!("{}", pretty_parse_tree(pairs));
+        }
     }
 }
