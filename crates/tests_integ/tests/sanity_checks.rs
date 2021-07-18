@@ -1,7 +1,7 @@
 use client::prelude::*;
 use client::{prelude::errors, types::SqlType};
 mod common;
-use chrono::{DateTime, FixedOffset, NaiveDate, NaiveDateTime, TimeZone, Utc};
+use chrono::{Date, DateTime, FixedOffset, NaiveDate, NaiveDateTime, TimeZone, Utc};
 use chrono_tz::Tz;
 use client::prelude::types::Decimal;
 use common::get_pool;
@@ -881,7 +881,9 @@ async fn tests_integ_date_time_functions() -> errors::Result<()> {
             a Date, \
             b DateTime, \
             c String, \
+            ct String, \
             d Int64, \
+            dt Int64, \
             e DateTime('Etc/GMT+5'), \
             f DateTime('-11:45') \
         )"
@@ -896,6 +898,16 @@ async fn tests_integ_date_time_functions() -> errors::Result<()> {
         Utc.ymd(2021, 8, 31),
         Utc.ymd(2021, 6, 27),
     ];
+
+    let data_a_datetime: Vec<_> = data_a
+        .iter()
+        .map(|date| {
+            Tz::Etc__GMTMinus8
+                .from_local_date(&date.naive_utc())
+                .unwrap()
+                .and_hms(0, 0, 0)
+        })
+        .collect();
 
     let data_naive = vec![
         NaiveDate::from_ymd(2010, 1, 1).and_hms(1, 1, 1),
@@ -919,7 +931,17 @@ async fn tests_integ_date_time_functions() -> errors::Result<()> {
         "2021-6-27",
     ];
 
-    let data_d = vec![14610i64, 15033, 15399, 15403, 18870, 18805];
+    let data_ct = vec![
+        "2010-01-01 01:01:01",
+        "2011-02-28 02:05:06",
+        "2012-02-29 23:59:59",
+        "2012-03-04 05:06:07",
+        "2021-08-31 14:32:03",
+        "2021-06-27 17:44:32",
+    ];
+
+    let data_d = vec![14610_i64, 15033, 15399, 15403, 18870, 18805];
+    let data_dt = data_b.iter().map(DateTime::timestamp).collect();
 
     let years = vec![2010, 2011, 2012, 2012, 2021, 2021];
     let months = vec![1, 2, 2, 3, 8, 6];
@@ -930,23 +952,17 @@ async fn tests_integ_date_time_functions() -> errors::Result<()> {
     let hours = vec![1, 2, 23, 5, 14, 17];
     let minutes = vec![1, 5, 59, 6, 32, 44];
     let seconds = vec![1, 6, 59, 7, 3, 32];
-    let dates = [
-        Utc.ymd(2010, 1, 1).and_hms(0, 0, 0),
-        Utc.ymd(2011, 2, 28).and_hms(0, 0, 0),
-        Utc.ymd(2012, 2, 29).and_hms(0, 0, 0),
-        Utc.ymd(2012, 3, 4).and_hms(0, 0, 0),
-        Utc.ymd(2021, 8, 31).and_hms(0, 0, 0),
-        Utc.ymd(2021, 6, 27).and_hms(0, 0, 0),
-    ];
 
     let block = {
         Block::new("test_tab_date")
-            .add("a", data_a)
-            .add("b", data_b)
+            .add("a", data_a.clone())
+            .add("b", data_b.clone())
             .add("c", data_c)
+            .add("ct", data_ct)
             .add("d", data_d)
-            .add("e", data_e)
-            .add("f", data_f)
+            .add("dt", data_dt)
+            .add("e", data_e.clone())
+            .add("f", data_f.clone())
     };
 
     let mut insert = conn.insert(&block).await?;
@@ -964,7 +980,9 @@ async fn tests_integ_date_time_functions() -> errors::Result<()> {
             toHour(b), toMinute(b), toSecond(b), \
             toHour(e), toMinute(e), toSecond(e), \
             toHour(f), toMinute(f), toSecond(f), \
-            toDate(b), toDate(c), toDate(d), toDate(e), toDate(f) \
+            toDate(a), toDate(b), toDate(c), toDate(d), toDate(e), toDate(f), \
+            toDateTime(a), toDateTime(b), toDateTime(ct), \
+            toDateTime(dt), toDateTime(e), toDateTime(f) \
         from test_tab_date";
         let mut query_result = conn.query(sql).await?;
 
@@ -1005,11 +1023,18 @@ async fn tests_integ_date_time_functions() -> errors::Result<()> {
                 let hour_f: u8 = row.value(iter.next().unwrap())?.unwrap();
                 let minute_f: u8 = row.value(iter.next().unwrap())?.unwrap();
                 let second_f: u8 = row.value(iter.next().unwrap())?.unwrap();
-                let date_b: DateTime<Utc> = row.value(iter.next().unwrap())?.unwrap();
-                let date_c: DateTime<Utc> = row.value(iter.next().unwrap())?.unwrap();
-                let date_d: DateTime<Utc> = row.value(iter.next().unwrap())?.unwrap();
-                let date_e: DateTime<Utc> = row.value(iter.next().unwrap())?.unwrap();
-                let date_f: DateTime<Utc> = row.value(iter.next().unwrap())?.unwrap();
+                let to_date_a: Date<Utc> = row.value(iter.next().unwrap())?.unwrap();
+                let to_date_b: Date<Utc> = row.value(iter.next().unwrap())?.unwrap();
+                let to_date_c: Date<Utc> = row.value(iter.next().unwrap())?.unwrap();
+                let to_date_d: Date<Utc> = row.value(iter.next().unwrap())?.unwrap();
+                let to_date_e: Date<Utc> = row.value(iter.next().unwrap())?.unwrap();
+                let to_date_f: Date<Utc> = row.value(iter.next().unwrap())?.unwrap();
+                let datetime_a: DateTime<Utc> = row.value(iter.next().unwrap())?.unwrap();
+                let datetime_b: DateTime<Utc> = row.value(iter.next().unwrap())?.unwrap();
+                let datetime_c: DateTime<Utc> = row.value(iter.next().unwrap())?.unwrap();
+                let datetime_d: DateTime<Utc> = row.value(iter.next().unwrap())?.unwrap();
+                let datetime_e: DateTime<Utc> = row.value(iter.next().unwrap())?.unwrap();
+                let datetime_f: DateTime<Utc> = row.value(iter.next().unwrap())?.unwrap();
                 assert_eq!(year_a, years[i]);
                 assert_eq!(year_b, years[i]);
                 assert_eq!(year_e, years[i]);
@@ -1043,11 +1068,18 @@ async fn tests_integ_date_time_functions() -> errors::Result<()> {
                 assert_eq!(hour_f, hours[i]);
                 assert_eq!(minute_f, minutes[i]);
                 assert_eq!(second_f, seconds[i]);
-                assert_eq!(date_b, dates[i]);
-                assert_eq!(date_c, dates[i]);
-                assert_eq!(date_d, dates[i]);
-                assert_eq!(date_e, dates[i]);
-                assert_eq!(date_f, dates[i]);
+                assert_eq!(to_date_a, data_a[i]);
+                assert_eq!(to_date_b, data_a[i]);
+                assert_eq!(to_date_c, data_a[i]);
+                assert_eq!(to_date_d, data_a[i]);
+                assert_eq!(to_date_e, data_a[i]);
+                assert_eq!(to_date_f, data_a[i]);
+                assert_eq!(datetime_a, data_a_datetime[i]);
+                assert_eq!(datetime_b, data_b[i]);
+                assert_eq!(datetime_c, data_b[i]);
+                assert_eq!(datetime_d, data_b[i]);
+                assert_eq!(datetime_e, data_e[i]);
+                assert_eq!(datetime_f, data_f[i]);
             }
         }
     }

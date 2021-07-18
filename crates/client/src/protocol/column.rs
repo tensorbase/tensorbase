@@ -99,6 +99,29 @@ impl<'a> Value<'a, DateTime<Utc>> for ValueRef<'a> {
         }
     }
 }
+
+/// Implement SqlType::Date -> chrono::Date<Utc> data conversion
+impl<'a> Value<'a, Date<Utc>> for ValueRef<'a> {
+    fn get(&'a self, field: &'a Field) -> Result<Option<Date<Utc>>> {
+        match self.inner {
+            Some(ValueRefEnum::DateTime(v)) => Ok(Some(v.to_datetime().date())),
+            Some(ValueRefEnum::DateTime64(v)) => {
+                if let SqlType::DateTime64(p, _) = field.sql_type {
+                    Ok(Some(v.to_datetime(p).date()))
+                } else {
+                    // TODO: Apparently not reachable. Replace it with notreachable!
+                    err!(ConversionError::UnsupportedConversion)
+                }
+            }
+            Some(ValueRefEnum::Date(v)) => {
+                let d = v.to_date();
+                Ok(Some(d))
+            }
+            _ => err!(ConversionError::UnsupportedConversion),
+        }
+    }
+}
+
 /// Implement SqlType::Enum(x)|String|FixedSring(size)->&str data conversion
 impl<'a> Value<'a, &'a str> for ValueRef<'a> {
     fn get(&'a self, field: &'a Field) -> Result<Option<&'_ str>> {
