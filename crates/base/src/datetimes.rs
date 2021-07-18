@@ -223,6 +223,11 @@ fn days_to_date_opt(days: i32) -> Option<NaiveDate> {
 }
 
 #[inline(always)]
+pub fn days_to_unixtime(days: i32, tz_offset: i32) -> i32 {
+    sub_tz_offset(days * 86_400, tz_offset)
+}
+
+#[inline(always)]
 pub fn days_to_ymd(days: i32) -> YMD {
     days_to_date_opt(days)
         .map(|date| YMD {
@@ -536,6 +541,19 @@ mod unit_tests {
             );
             assert_eq!(epoch, converted_epoch);
             assert_eq!(hms.s, seconds);
+        }
+    }
+
+    #[test]
+    fn test_days_to_unixtime() {
+        let tz_offset = 8 * 3600;
+        for days in 0..4096 * 4 {
+            let epoch = days_to_unixtime(days, tz_offset);
+            let ymd = days_to_ymd(days);
+            let datetime = FixedOffset::east(tz_offset)
+                .ymd(ymd.y as i32, ymd.m as u32, ymd.d as u32)
+                .and_hms(0, 0, 0);
+            assert_eq!(epoch, datetime.timestamp() as i32);
         }
     }
 
