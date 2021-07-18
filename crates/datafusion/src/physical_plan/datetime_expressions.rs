@@ -25,16 +25,10 @@ use crate::{
 };
 use arrow::{
     array::{Array, ArrayRef, GenericStringArray, PrimitiveArray, StringOffsetSizeTrait},
-    datatypes::{
-        ArrowPrimitiveType, DataType, TimestampMicrosecondType, TimestampMillisecondType,
-        TimestampNanosecondType, TimestampSecondType,
-    },
+    datatypes::*,
 };
 use arrow::{
-    array::{
-        Date32Array, Date64Array, TimestampMicrosecondArray, TimestampMillisecondArray,
-        TimestampNanosecondArray, TimestampSecondArray, Date16Array, Timestamp32Array,
-    },
+    array::*,
     compute::kernels::temporal,
     datatypes::TimeUnit,
     temporal_conversions::timestamp_ns_to_datetime,
@@ -154,6 +148,41 @@ fn string_to_timestamp_nanos(s: &str) -> Result<i64> {
     // be more confusing than helpful
     Err(DataFusionError::Execution(format!(
         "Error parsing '{}' as timestamp",
+        s
+    )))
+}
+
+
+/// to_date SQL function
+pub fn to_date(args: &[ColumnarValue]) -> Result<ColumnarValue> {
+    handle::<Date16Type, _, Date16Type>(
+        args,
+        string_to_date16,
+        "to_date",
+    )
+}
+
+#[inline]
+fn string_to_date16(s: &str) -> Result<u16> {
+
+    if let Ok(date) = NaiveDate::parse_from_str(s, "%Y-%m-%d") {
+
+        if date.year() > 2148 {
+            return Err(DataFusionError::Execution(format!(
+                "Date '{}' Error: Year must be lowwer than 2149.",
+                s
+            )))
+        }
+
+        let secs = date.and_hms(0, 0, 0)
+        .timestamp();
+
+        let days = (secs / 86_400) as u16;
+        return Ok(days);
+    }
+
+    Err(DataFusionError::Execution(format!(
+        "Error parsing '{}' as date",
         s
     )))
 }

@@ -300,6 +300,9 @@ macro_rules! binary_array_op_scalar {
             DataType::Date32 => {
                 compute_op_scalar!($LEFT, $RIGHT, $OP, Date32Array)
             }
+            DataType::Date64 => {
+                compute_op_scalar!($LEFT, $RIGHT, $OP, Date64Array)
+            }
             other => Err(DataFusionError::Internal(format!(
                 "Data type {:?} not supported for scalar operation on dyn array",
                 other
@@ -337,9 +340,6 @@ macro_rules! binary_array_op {
             }
             DataType::Timestamp(TimeUnit::Second, None) => {
                 compute_op!($LEFT, $RIGHT, $OP, TimestampSecondArray)
-            }
-            DataType::Date16 => {
-                compute_op!($LEFT, $RIGHT, $OP, Date16Array)
             }
             DataType::Date32 => {
                 compute_op!($LEFT, $RIGHT, $OP, Date32Array)

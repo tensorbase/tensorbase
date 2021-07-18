@@ -235,9 +235,22 @@ where
                 .map(|a| take_impl(a.as_ref(), indices, Some(options.clone())))
                 .collect();
             let arrays = arrays?;
-            let pairs: Vec<(Field, ArrayRef)> =
+            let fields: Vec<(Field, ArrayRef)> =
                 fields.clone().into_iter().zip(arrays).collect();
-            Ok(Arc::new(StructArray::from(pairs)) as ArrayRef)
+
+            // Create the null bit buffer.
+            let is_valid: Buffer = indices
+                .iter()
+                .map(|index| {
+                    if let Some(index) = index {
+                        struct_.is_valid(ArrowNativeType::to_usize(&index).unwrap())
+                    } else {
+                        false
+                    }
+                })
+                .collect();
+
+            Ok(Arc::new(StructArray::from((fields, is_valid))) as ArrayRef)
         }
         DataType::Dictionary(key_type, _) => match key_type.as_ref() {
             DataType::Int8 => downcast_dict_take!(Int8Type, values, indices),
@@ -361,7 +374,13 @@ where
     // Soundness: `slice.map` is `TrustedLen`.
     let buffer = unsafe { Buffer::try_from_trusted_len_iter(values)? };
 
-    Ok((buffer, indices.data_ref().null_buffer().cloned()))
+    Ok((
+        buffer,
+        indices
+            .data_ref()
+            .null_buffer()
+            .map(|b| b.bit_slice(indices.offset(), indices.len())),
+    ))
 }
 
 // take implementation when both values and indices contain nulls
@@ -520,7 +539,7 @@ where
         nulls = match indices.data_ref().null_buffer() {
             Some(buffer) => Some(buffer_bin_and(
                 buffer,
-                0,
+                indices.offset(),
                 &null_buf.into(),
                 0,
                 indices.len(),
@@ -809,6 +828,24 @@ mod tests {
         Ok(())
     }
 
+    fn test_take_primitive_arrays_non_null<T>(
+        data: Vec<T::Native>,
+        index: &UInt32Array,
+        options: Option<TakeOptions>,
+        expected_data: Vec<Option<T::Native>>,
+    ) -> Result<()>
+    where
+        T: ArrowPrimitiveType,
+        PrimitiveArray<T>: From<Vec<T::Native>>,
+        PrimitiveArray<T>: From<Vec<Option<T::Native>>>,
+    {
+        let output = PrimitiveArray::<T>::from(data);
+        let expected = Arc::new(PrimitiveArray::<T>::from(expected_data)) as ArrayRef;
+        let output = take(&output, index, options)?;
+        assert_eq!(&output, &expected);
+        Ok(())
+    }
+
     fn test_take_impl_primitive_arrays<T, I>(
         data: Vec<Option<T::Native>>,
         index: &PrimitiveArray<I>,
@@ -828,20 +865,34 @@ mod tests {
     }
 
     // create a simple struct for testing purposes
-    fn create_test_struct() -> StructArray {
-        let boolean_data = BooleanArray::from(vec![true, false, false, true])
-            .data()
-            .clone();
-        let int_data = Int32Array::from(vec![42, 28, 19, 31]).data().clone();
-        let mut field_types = vec![];
-        field_types.push(Field::new("a", DataType::Boolean, true));
-        field_types.push(Field::new("b", DataType::Int32, true));
-        let struct_array_data = ArrayData::builder(DataType::Struct(field_types))
-            .len(4)
-            .add_child_data(boolean_data)
-            .add_child_data(int_data)
-            .build();
-        StructArray::from(struct_array_data)
+    fn create_test_struct(
+        values: Vec<Option<(Option<bool>, Option<i32>)>>,
+    ) -> StructArray {
+        let mut struct_builder = StructBuilder::new(
+            vec![
+                Field::new("a", DataType::Boolean, true),
+                Field::new("b", DataType::Int32, true),
+            ],
+            vec![
+                Box::new(BooleanBuilder::new(values.len())),
+                Box::new(Int32Builder::new(values.len())),
+            ],
+        );
+
+        for value in values {
+            struct_builder
+                .field_builder::<BooleanBuilder>(0)
+                .unwrap()
+                .append_option(value.and_then(|v| v.0))
+                .unwrap();
+            struct_builder
+                .field_builder::<Int32Builder>(1)
+                .unwrap()
+                .append_option(value.and_then(|v| v.1))
+                .unwrap();
+            struct_builder.append(value.is_some()).unwrap();
+        }
+        struct_builder.finish()
     }
 
     #[test]
@@ -876,6 +927,48 @@ mod tests {
             &index,
             None,
             vec![Some(0), Some(1), Some(2), Some(3), Some(3), Some(5)],
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn test_take_primitive_nullable_indices_non_null_values_with_offset() {
+        let index =
+            UInt32Array::from(vec![Some(0), Some(1), Some(2), Some(3), None, None]);
+        let index = index.slice(2, 4);
+        let index = index.as_any().downcast_ref::<UInt32Array>().unwrap();
+
+        assert_eq!(
+            index,
+            &UInt32Array::from(vec![Some(2), Some(3), None, None])
+        );
+
+        test_take_primitive_arrays_non_null::<Int64Type>(
+            vec![0, 10, 20, 30, 40, 50],
+            &index,
+            None,
+            vec![Some(20), Some(30), None, None],
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn test_take_primitive_nullable_indices_nullable_values_with_offset() {
+        let index =
+            UInt32Array::from(vec![Some(0), Some(1), Some(2), Some(3), None, None]);
+        let index = index.slice(2, 4);
+        let index = index.as_any().downcast_ref::<UInt32Array>().unwrap();
+
+        assert_eq!(
+            index,
+            &UInt32Array::from(vec![Some(2), Some(3), None, None])
+        );
+
+        test_take_primitive_arrays::<Int64Type>(
+            vec![None, None, Some(20), Some(30), Some(40), Some(50)],
+            &index,
+            None,
+            vec![Some(20), Some(30), None, None],
         )
         .unwrap();
     }
@@ -1104,7 +1197,7 @@ mod tests {
     }
 
     #[test]
-    fn test_take_primitive_bool() {
+    fn test_take_bool() {
         let index = UInt32Array::from(vec![Some(3), None, Some(1), Some(3), Some(2)]);
         // boolean
         test_take_boolean_arrays(
@@ -1112,6 +1205,25 @@ mod tests {
             &index,
             None,
             vec![Some(false), None, None, Some(false), Some(true)],
+        );
+    }
+
+    #[test]
+    fn test_take_bool_with_offset() {
+        let index =
+            UInt32Array::from(vec![Some(3), None, Some(1), Some(3), Some(2), None]);
+        let index = index.slice(2, 4);
+        let index = index
+            .as_any()
+            .downcast_ref::<PrimitiveArray<UInt32Type>>()
+            .unwrap();
+
+        // boolean
+        test_take_boolean_arrays(
+            vec![Some(false), None, Some(true), Some(false), None],
+            &index,
+            None,
+            vec![None, Some(false), Some(true), None],
         );
     }
 
@@ -1495,61 +1607,59 @@ mod tests {
 
     #[test]
     fn test_take_struct() {
-        let array = create_test_struct();
+        let array = create_test_struct(vec![
+            Some((Some(true), Some(42))),
+            Some((Some(false), Some(28))),
+            Some((Some(false), Some(19))),
+            Some((Some(true), Some(31))),
+            None,
+        ]);
 
-        let index = UInt32Array::from(vec![0, 3, 1, 0, 2]);
-        let a = take(&array, &index, None).unwrap();
-        let a: &StructArray = a.as_any().downcast_ref::<StructArray>().unwrap();
-        assert_eq!(index.len(), a.len());
-        assert_eq!(0, a.null_count());
+        let index = UInt32Array::from(vec![0, 3, 1, 0, 2, 4]);
+        let actual = take(&array, &index, None).unwrap();
+        let actual: &StructArray = actual.as_any().downcast_ref::<StructArray>().unwrap();
+        assert_eq!(index.len(), actual.len());
+        assert_eq!(1, actual.null_count());
 
-        let expected_bool_data = BooleanArray::from(vec![true, true, false, true, false])
-            .data()
-            .clone();
-        let expected_int_data = Int32Array::from(vec![42, 31, 28, 42, 19]).data().clone();
-        let mut field_types = vec![];
-        field_types.push(Field::new("a", DataType::Boolean, true));
-        field_types.push(Field::new("b", DataType::Int32, true));
-        let struct_array_data = ArrayData::builder(DataType::Struct(field_types))
-            .len(5)
-            .add_child_data(expected_bool_data)
-            .add_child_data(expected_int_data)
-            .build();
-        let struct_array = StructArray::from(struct_array_data);
+        let expected = create_test_struct(vec![
+            Some((Some(true), Some(42))),
+            Some((Some(true), Some(31))),
+            Some((Some(false), Some(28))),
+            Some((Some(true), Some(42))),
+            Some((Some(false), Some(19))),
+            None,
+        ]);
 
-        assert_eq!(a, &struct_array);
+        assert_eq!(&expected, actual);
     }
 
     #[test]
-    fn test_take_struct_with_nulls() {
-        let array = create_test_struct();
+    fn test_take_struct_with_null_indices() {
+        let array = create_test_struct(vec![
+            Some((Some(true), Some(42))),
+            Some((Some(false), Some(28))),
+            Some((Some(false), Some(19))),
+            Some((Some(true), Some(31))),
+            None,
+        ]);
 
-        let index = UInt32Array::from(vec![None, Some(3), Some(1), None, Some(0)]);
-        let a = take(&array, &index, None).unwrap();
-        let a: &StructArray = a.as_any().downcast_ref::<StructArray>().unwrap();
-        assert_eq!(index.len(), a.len());
-        assert_eq!(0, a.null_count());
+        let index =
+            UInt32Array::from(vec![None, Some(3), Some(1), None, Some(0), Some(4)]);
+        let actual = take(&array, &index, None).unwrap();
+        let actual: &StructArray = actual.as_any().downcast_ref::<StructArray>().unwrap();
+        assert_eq!(index.len(), actual.len());
+        assert_eq!(3, actual.null_count()); // 2 because of indices, 1 because of struct array
 
-        let expected_bool_data =
-            BooleanArray::from(vec![None, Some(true), Some(false), None, Some(true)])
-                .data()
-                .clone();
-        let expected_int_data =
-            Int32Array::from(vec![None, Some(31), Some(28), None, Some(42)])
-                .data()
-                .clone();
+        let expected = create_test_struct(vec![
+            None,
+            Some((Some(true), Some(31))),
+            Some((Some(false), Some(28))),
+            None,
+            Some((Some(true), Some(42))),
+            None,
+        ]);
 
-        let mut field_types = vec![];
-        field_types.push(Field::new("a", DataType::Boolean, true));
-        field_types.push(Field::new("b", DataType::Int32, true));
-        let struct_array_data = ArrayData::builder(DataType::Struct(field_types))
-            .len(5)
-            // TODO: see https://issues.apache.org/jira/browse/ARROW-5408 for why count != 2
-            .add_child_data(expected_bool_data)
-            .add_child_data(expected_int_data)
-            .build();
-        let struct_array = StructArray::from(struct_array_data);
-        assert_eq!(a, &struct_array);
+        assert_eq!(&expected, actual);
     }
 
     #[test]

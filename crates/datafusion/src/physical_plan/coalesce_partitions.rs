@@ -40,15 +40,15 @@ use pin_project_lite::pin_project;
 /// Merge execution plan executes partitions in parallel and combines them into a single
 /// partition. No guarantees are made about the order of the resulting partition.
 #[derive(Debug)]
-pub struct MergeExec {
+pub struct CoalescePartitionsExec {
     /// Input execution plan
     input: Arc<dyn ExecutionPlan>,
 }
 
-impl MergeExec {
-    /// Create a new MergeExec
+impl CoalescePartitionsExec {
+    /// Create a new CoalescePartitionsExec
     pub fn new(input: Arc<dyn ExecutionPlan>) -> Self {
-        MergeExec { input }
+        CoalescePartitionsExec { input }
     }
 
     /// Input execution plan
@@ -58,7 +58,7 @@ impl MergeExec {
 }
 
 #[async_trait]
-impl ExecutionPlan for MergeExec {
+impl ExecutionPlan for CoalescePartitionsExec {
     /// Return a reference to Any that can be used for downcasting
     fn as_any(&self) -> &dyn Any {
         self
@@ -82,18 +82,18 @@ impl ExecutionPlan for MergeExec {
         children: Vec<Arc<dyn ExecutionPlan>>,
     ) -> Result<Arc<dyn ExecutionPlan>> {
         match children.len() {
-            1 => Ok(Arc::new(MergeExec::new(children[0].clone()))),
+            1 => Ok(Arc::new(CoalescePartitionsExec::new(children[0].clone()))),
             _ => Err(DataFusionError::Internal(
-                "MergeExec wrong number of children".to_string(),
+                "CoalescePartitionsExec wrong number of children".to_string(),
             )),
         }
     }
 
     async fn execute(&self, partition: usize) -> Result<SendableRecordBatchStream> {
-        // MergeExec produces a single partition
+        // CoalescePartitionsExec produces a single partition
         if 0 != partition {
             return Err(DataFusionError::Internal(format!(
-                "MergeExec invalid partition {}",
+                "CoalescePartitionsExec invalid partition {}",
                 partition
             )));
         }
@@ -101,7 +101,7 @@ impl ExecutionPlan for MergeExec {
         let input_partitions = self.input.output_partitioning().partition_count();
         match input_partitions {
             0 => Err(DataFusionError::Internal(
-                "MergeExec requires at least one input partition".to_owned(),
+                "CoalescePartitionsExec requires at least one input partition".to_owned(),
             )),
             1 => {
                 // bypass any threading if there is a single partition
@@ -135,7 +135,7 @@ impl ExecutionPlan for MergeExec {
     ) -> std::fmt::Result {
         match t {
             DisplayFormatType::Default => {
-                write!(f, "MergeExec")
+                write!(f, "CoalescePartitionsExec")
             }
         }
     }
@@ -194,9 +194,9 @@ mod tests {
         // input should have 4 partitions
         assert_eq!(csv.output_partitioning().partition_count(), num_partitions);
 
-        let merge = MergeExec::new(Arc::new(csv));
+        let merge = CoalescePartitionsExec::new(Arc::new(csv));
 
-        // output of MergeExec should have a single partition
+        // output of CoalescePartitionsExec should have a single partition
         assert_eq!(merge.output_partitioning().partition_count(), 1);
 
         // the result should contain 4 batches (one per input partition)
