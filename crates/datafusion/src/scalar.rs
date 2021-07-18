@@ -802,7 +802,7 @@ impl ScalarValue {
                 keys_col.data_type()
             ))
         })?;
-        Self::try_from_array(&dict_array.values(), values_index)
+        Self::try_from_array(dict_array.values(), values_index)
     }
 }
 
@@ -924,6 +924,7 @@ impl TryFrom<ScalarValue> for i64 {
     fn try_from(value: ScalarValue) -> Result<Self> {
         match value {
             ScalarValue::Int64(Some(inner_value))
+            | ScalarValue::Date64(Some(inner_value))
             | ScalarValue::TimestampNanosecond(Some(inner_value))
             | ScalarValue::TimestampMicrosecond(Some(inner_value))
             | ScalarValue::TimestampMillisecond(Some(inner_value))
@@ -980,6 +981,8 @@ impl TryFrom<&DataType> for ScalarValue {
             DataType::UInt64 => ScalarValue::UInt64(None),
             DataType::Utf8 => ScalarValue::Utf8(None),
             DataType::LargeUtf8 => ScalarValue::LargeUtf8(None),
+            DataType::Date32 => ScalarValue::Date32(None),
+            DataType::Date64 => ScalarValue::Date64(None),
             DataType::Timestamp32(_) => {
                 ScalarValue::Timestamp32(None)
             }

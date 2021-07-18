@@ -17,9 +17,9 @@
 
 //! Traits for physical query plan, supporting parallel execution for partitioned relations.
 
-use self::{display::DisplayableExecutionPlan, merge::MergeExec};
-use crate::execution::context::ExecutionContextState;
-use crate::logical_plan::LogicalPlan;
+use self::{
+    coalesce_partitions::CoalescePartitionsExec, display::DisplayableExecutionPlan,
+};
 use crate::physical_plan::expressions::PhysicalSortExpr;
 use crate::{
     error::{DataFusionError, Result},
@@ -120,16 +120,8 @@ impl SQLMetric {
     }
 }
 
-/// Physical query planner that converts a `LogicalPlan` to an
-/// `ExecutionPlan` suitable for execution.
-pub trait PhysicalPlanner {
-    /// Create a physical plan from a logical plan
-    fn create_physical_plan(
-        &self,
-        logical_plan: &LogicalPlan,
-        ctx_state: &ExecutionContextState,
-    ) -> Result<Arc<dyn ExecutionPlan>>;
-}
+/// Physical planner interface
+pub use self::planner::PhysicalPlanner;
 
 /// `ExecutionPlan` represent nodes in the DataFusion Physical Plan.
 ///
@@ -305,6 +297,20 @@ pub fn visit_execution_plan<V: ExecutionPlanVisitor>(
     Ok(())
 }
 
+/// Recursively gateher all execution metrics from this plan and all of its input plans
+pub fn plan_metrics(plan: Arc<dyn ExecutionPlan>) -> HashMap<String, SQLMetric> {
+    fn get_metrics_inner(
+        plan: &dyn ExecutionPlan,
+        mut metrics: HashMap<String, SQLMetric>,
+    ) -> HashMap<String, SQLMetric> {
+        metrics.extend(plan.metrics().into_iter());
+        plan.children().into_iter().fold(metrics, |metrics, child| {
+            get_metrics_inner(child.as_ref(), metrics)
+        })
+    }
+    get_metrics_inner(plan.as_ref(), HashMap::new())
+}
+
 /// Execute the [ExecutionPlan] and collect the results in memory
 pub async fn collect(plan: Arc<dyn ExecutionPlan>) -> Result<Vec<RecordBatch>> {
     match plan.output_partitioning().partition_count() {
@@ -315,8 +321,8 @@ pub async fn collect(plan: Arc<dyn ExecutionPlan>) -> Result<Vec<RecordBatch>> {
         }
         _ => {
             // merge into a single partition
-            let plan = MergeExec::new(plan.clone());
-            // MergeExec must produce a single partition
+            let plan = CoalescePartitionsExec::new(plan.clone());
+            // CoalescePartitionsExec must produce a single partition
             assert_eq!(1, plan.output_partitioning().partition_count());
             common::collect(plan.execute(0).await?).await
         }
@@ -499,9 +505,9 @@ pub trait WindowExpr: Send + Sync + Debug {
                 end: num_rows,
             }])
         } else {
-            lexicographical_partition_ranges(partition_columns)
-                .map(|e|e.collect())
-                .map_err(DataFusionError::ArrowError)
+            Ok(lexicographical_partition_ranges(partition_columns)
+                .map_err(DataFusionError::ArrowError)?
+                .collect::<Vec<_>>())
         }
     }
 
@@ -593,6 +599,7 @@ pub trait Accumulator: Send + Sync + Debug {
 pub mod aggregates;
 pub mod array_expressions;
 pub mod coalesce_batches;
+pub mod coalesce_partitions;
 pub mod common;
 pub mod cross_join;
 #[cfg(feature = "crypto_expressions")]
@@ -614,7 +621,6 @@ pub mod json;
 pub mod limit;
 pub mod math_expressions;
 pub mod memory;
-pub mod merge;
 pub mod parquet;
 pub mod planner;
 pub mod projection;

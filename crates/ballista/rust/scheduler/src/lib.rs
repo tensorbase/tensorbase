@@ -28,16 +28,22 @@ pub use standalone::new_standalone_scheduler;
 #[cfg(test)]
 pub mod test_utils;
 
+// include the generated protobuf source as a submodule
+#[allow(clippy::all)]
+pub mod externalscaler {
+    include!(concat!(env!("OUT_DIR"), "/externalscaler.rs"));
+}
+
 use std::{convert::TryInto, sync::Arc};
 use std::{fmt, net::IpAddr};
 
 use ballista_core::serde::protobuf::{
     execute_query_params::Query, executor_registration::OptionalHost, job_status,
-    scheduler_grpc_server::SchedulerGrpc, ExecuteQueryParams, ExecuteQueryResult,
-    FailedJob, FilePartitionMetadata, FileType, GetFileMetadataParams,
-    GetFileMetadataResult, GetJobStatusParams, GetJobStatusResult, JobStatus,
-    PartitionId, PollWorkParams, PollWorkResult, QueuedJob, RunningJob, TaskDefinition,
-    TaskStatus,
+    scheduler_grpc_server::SchedulerGrpc, task_status, ExecuteQueryParams,
+    ExecuteQueryResult, FailedJob, FilePartitionMetadata, FileType,
+    GetFileMetadataParams, GetFileMetadataResult, GetJobStatusParams, GetJobStatusResult,
+    JobStatus, PartitionId, PollWorkParams, PollWorkResult, QueuedJob, RunningJob,
+    TaskDefinition, TaskStatus,
 };
 use ballista_core::serde::scheduler::ExecutorMeta;
 
@@ -62,6 +68,10 @@ impl parse_arg::ParseArgFromStr for ConfigBackend {
     }
 }
 
+use crate::externalscaler::{
+    external_scaler_server::ExternalScaler, GetMetricSpecResponse, GetMetricsRequest,
+    GetMetricsResponse, IsActiveResponse, MetricSpec, MetricValue, ScaledObjectRef,
+};
 use crate::planner::DistributedPlanner;
 
 use log::{debug, error, info, warn};
@@ -69,6 +79,7 @@ use rand::{distributions::Alphanumeric, thread_rng, Rng};
 use tonic::{Request, Response};
 
 use self::state::{ConfigBackendClient, SchedulerState};
+use ballista_core::config::BallistaConfig;
 use ballista_core::utils::create_datafusion_context;
 use datafusion::physical_plan::parquet::ParquetExec;
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
@@ -100,6 +111,55 @@ impl SchedulerServer {
                 .unwrap()
                 .as_millis(),
         }
+    }
+}
+
+const INFLIGHT_TASKS_METRIC_NAME: &str = "inflight_tasks";
+
+#[tonic::async_trait]
+impl ExternalScaler for SchedulerServer {
+    async fn is_active(
+        &self,
+        _request: Request<ScaledObjectRef>,
+    ) -> Result<Response<IsActiveResponse>, tonic::Status> {
+        let tasks = self.state.get_all_tasks().await.map_err(|e| {
+            let msg = format!("Error reading tasks: {}", e);
+            error!("{}", msg);
+            tonic::Status::internal(msg)
+        })?;
+        let result = tasks.iter().any(|(_key, task)| {
+            !matches!(
+                task.status,
+                Some(task_status::Status::Completed(_))
+                    | Some(task_status::Status::Failed(_))
+            )
+        });
+        debug!("Are there active tasks? {}", result);
+        Ok(Response::new(IsActiveResponse { result }))
+    }
+
+    async fn get_metric_spec(
+        &self,
+        _request: Request<ScaledObjectRef>,
+    ) -> Result<Response<GetMetricSpecResponse>, tonic::Status> {
+        Ok(Response::new(GetMetricSpecResponse {
+            metric_specs: vec![MetricSpec {
+                metric_name: INFLIGHT_TASKS_METRIC_NAME.to_string(),
+                target_size: 1,
+            }],
+        }))
+    }
+
+    async fn get_metrics(
+        &self,
+        _request: Request<GetMetricsRequest>,
+    ) -> Result<Response<GetMetricsResponse>, tonic::Status> {
+        Ok(Response::new(GetMetricsResponse {
+            metric_values: vec![MetricValue {
+                metric_name: INFLIGHT_TASKS_METRIC_NAME.to_string(),
+                metric_value: 10000000, // A very high number to saturate the HPA
+            }],
+        }))
     }
 }
 
@@ -231,7 +291,22 @@ impl SchedulerGrpc for SchedulerServer {
         &self,
         request: Request<ExecuteQueryParams>,
     ) -> std::result::Result<Response<ExecuteQueryResult>, tonic::Status> {
-        if let ExecuteQueryParams { query: Some(query) } = request.into_inner() {
+        if let ExecuteQueryParams {
+            query: Some(query),
+            settings,
+        } = request.into_inner()
+        {
+            // parse config
+            let mut config_builder = BallistaConfig::builder();
+            for kv_pair in &settings {
+                config_builder = config_builder.set(&kv_pair.key, &kv_pair.value);
+            }
+            let config = config_builder.build().map_err(|e| {
+                let msg = format!("Could not parse configs: {}", e);
+                error!("{}", msg);
+                tonic::Status::internal(msg)
+            })?;
+
             let plan = match query {
                 Query::LogicalPlan(logical_plan) => {
                     // parse protobuf
@@ -244,7 +319,7 @@ impl SchedulerGrpc for SchedulerServer {
                 Query::Sql(sql) => {
                     //TODO we can't just create a new context because we need a context that has
                     // tables registered from previous SQL statements that have been executed
-                    let mut ctx = create_datafusion_context();
+                    let mut ctx = create_datafusion_context(&config);
                     let df = ctx.sql(&sql).map_err(|e| {
                         let msg = format!("Error parsing SQL: {}", e);
                         error!("{}", msg);
@@ -280,7 +355,7 @@ impl SchedulerGrpc for SchedulerServer {
             let job_id_spawn = job_id.clone();
             tokio::spawn(async move {
                 // create physical plan using DataFusion
-                let datafusion_ctx = create_datafusion_context();
+                let datafusion_ctx = create_datafusion_context(&config);
                 macro_rules! fail_job {
                     ($code :expr) => {{
                         match $code {

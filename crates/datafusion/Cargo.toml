@@ -96,3 +96,7 @@ harness = false
 [[bench]]
 name = "scalar"
 harness = false
+
+[[bench]]
+name = "physical_plan"
+harness = false
