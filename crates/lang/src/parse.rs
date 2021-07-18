@@ -1962,10 +1962,19 @@ limit
 
         #[test]
         fn test_trailing_semicolon_in_sql_stmt() {
-            let c = "show tables;";
-            let pairs =
-                BqlParser::parse(Rule::cmd_list, c).unwrap_or_else(|e| panic!("{}", e));
-            println!("{}", pretty_parse_tree(pairs));
+            let stmt_arr = [
+                "show tables",
+                "show tables;",
+                "create database if not exists demo",
+                "create database if not exists demo;",
+                "EXPLAIN SELECT * FROM foo WHERE name ='hello'",
+                "EXPLAIN SELECT * FROM foo WHERE name ='hello';",
+            ];
+            for &stmt in stmt_arr.iter() {
+                let pairs = BqlParser::parse(Rule::cmd_list, stmt)
+                    .unwrap_or_else(|e| panic!("{}", e));
+                println!("{}", pretty_parse_tree(pairs));
+            }
         }
     }
 }
