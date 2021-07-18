@@ -27,11 +27,14 @@ license = "Apache-2.0"
 
 [dependencies]
 arrow = { path = "../arrow", version = "5.0.0-SNAPSHOT" }
+base64 = "0.13"
 tonic = "0.4"
 bytes = "1"
 prost = "0.7"
 prost-derive = "0.7"
 tokio = { version = "1.0", features = ["macros", "rt", "rt-multi-thread"] }
+
+[dev-dependencies]
 futures = { version = "0.3", default-features = false, features = ["alloc"]}
 
 [build-dependencies]

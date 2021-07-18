@@ -54,7 +54,6 @@ snap = "1.0"
 brotli = "3.3"
 flate2 = "1.0"
 lz4 = "1.23"
-zstd = "0.9"
 arrow = { path = "../arrow", version = "5.0.0-SNAPSHOT" }
 serde_json = { version = "1.0", features = ["preserve_order"] }
 

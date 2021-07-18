@@ -22,7 +22,8 @@ use crate::{
         information_schema::CatalogWithInformationSchema,
     },
     optimizer::{
-        eliminate_limit::EliminateLimit, hash_build_probe_order::HashBuildProbeOrder,
+        aggregate_statistics::AggregateStatistics, eliminate_limit::EliminateLimit,
+        hash_build_probe_order::HashBuildProbeOrder,
     },
     physical_optimizer::optimizer::PhysicalOptimizerRule,
 };
@@ -61,7 +62,7 @@ use crate::optimizer::optimizer::OptimizerRule;
 use crate::optimizer::projection_push_down::ProjectionPushDown;
 use crate::optimizer::simplify_expressions::SimplifyExpressions;
 use crate::physical_optimizer::coalesce_batches::CoalesceBatches;
-use crate::physical_optimizer::merge_exec::AddMergeExec;
+use crate::physical_optimizer::merge_exec::AddCoalescePartitionsExec;
 use crate::physical_optimizer::repartition::Repartition;
 
 use crate::physical_plan::csv::CsvReadOptions;
@@ -143,7 +144,7 @@ impl ExecutionContext {
 
             let default_catalog: Arc<dyn CatalogProvider> = if config.information_schema {
                 Arc::new(CatalogWithInformationSchema::new(
-                    catalog_list.clone(),
+                    Arc::downgrade(&catalog_list),
                     Arc::new(default_catalog),
                 ))
             } else {
@@ -270,7 +271,7 @@ impl ExecutionContext {
     /// Creates a DataFrame for reading a CSV data source.
     pub fn read_csv(
         &mut self,
-        filename: &str,
+        filename: impl Into<String>,
         options: CsvReadOptions,
     ) -> Result<Arc<dyn DataFrame>> {
         Ok(Arc::new(DataFrameImpl::new(
@@ -280,7 +281,10 @@ impl ExecutionContext {
     }
 
     /// Creates a DataFrame for reading a Parquet data source.
-    pub fn read_parquet(&mut self, filename: &str) -> Result<Arc<dyn DataFrame>> {
+    pub fn read_parquet(
+        &mut self,
+        filename: impl Into<String>,
+    ) -> Result<Arc<dyn DataFrame>> {
         Ok(Arc::new(DataFrameImpl::new(
             self.state.clone(),
             &LogicalPlanBuilder::scan_parquet(
@@ -342,7 +346,7 @@ impl ExecutionContext {
         let state = self.state.lock().unwrap();
         let catalog = if state.config.information_schema {
             Arc::new(CatalogWithInformationSchema::new(
-                state.catalog_list.clone(),
+                Arc::downgrade(&state.catalog_list),
                 catalog,
             ))
         } else {
@@ -474,10 +478,11 @@ impl ExecutionContext {
     pub async fn write_csv(
         &self,
         plan: Arc<dyn ExecutionPlan>,
-        path: String,
+        path: impl AsRef<str>,
     ) -> Result<()> {
+        let path = path.as_ref();
         // create directory to contain the CSV files (one per partition)
-        let fs_path = Path::new(&path);
+        let fs_path = Path::new(path);
         match fs::create_dir(fs_path) {
             Ok(()) => {
                 let mut tasks = vec![];
@@ -511,11 +516,12 @@ impl ExecutionContext {
     pub async fn write_parquet(
         &self,
         plan: Arc<dyn ExecutionPlan>,
-        path: String,
+        path: impl AsRef<str>,
         writer_properties: Option<WriterProperties>,
     ) -> Result<()> {
+        let path = path.as_ref();
         // create directory to contain the Parquet files (one per partition)
-        let fs_path = Path::new(&path);
+        let fs_path = Path::new(path);
         match fs::create_dir(fs_path) {
             Ok(()) => {
                 let mut tasks = vec![];
@@ -624,6 +630,9 @@ pub struct ExecutionConfig {
     /// Should DataFusion repartition data using the aggregate keys to execute aggregates in parallel
     /// using the provided `concurrency` level
     pub repartition_aggregations: bool,
+    /// Should DataFusion repartition data using the partition keys to execute window functions in
+    /// parallel using the provided `concurrency` level
+    pub repartition_windows: bool,
 }
 
 impl Default for ExecutionConfig {
@@ -634,6 +643,7 @@ impl Default for ExecutionConfig {
             optimizers: vec![
                 Arc::new(ConstantFolding::new()),
                 Arc::new(EliminateLimit::new()),
+                Arc::new(AggregateStatistics::new()),
                 Arc::new(ProjectionPushDown::new()),
                 Arc::new(FilterPushDown::new()),
                 Arc::new(SimplifyExpressions::new()),
@@ -643,7 +653,7 @@ impl Default for ExecutionConfig {
             physical_optimizers: vec![
                 Arc::new(CoalesceBatches::new()),
                 Arc::new(Repartition::new()),
-                Arc::new(AddMergeExec::new()),
+                Arc::new(AddCoalescePartitionsExec::new()),
             ],
             query_planner: Arc::new(DefaultQueryPlanner {}),
             default_catalog: "datafusion".to_owned(),
@@ -652,6 +662,7 @@ impl Default for ExecutionConfig {
             information_schema: false,
             repartition_joins: true,
             repartition_aggregations: true,
+            repartition_windows: true,
         }
     }
 }
@@ -742,9 +753,16 @@ impl ExecutionConfig {
         self.repartition_joins = enabled;
         self
     }
+
     /// Enables or disables the use of repartitioning for aggregations to improve parallelism
     pub fn with_repartition_aggregations(mut self, enabled: bool) -> Self {
         self.repartition_aggregations = enabled;
+        self
+    }
+
+    /// Enables or disables the use of repartitioning for window functions to improve parallelism
+    pub fn with_repartition_windows(mut self, enabled: bool) -> Self {
+        self.repartition_windows = enabled;
         self
     }
 }
@@ -898,14 +916,16 @@ mod tests {
         physical_plan::expressions::AvgAccumulator,
     };
     use arrow::array::{
-        Array, ArrayRef, BinaryArray, DictionaryArray, Float64Array, Int32Array,
-        Int64Array, LargeBinaryArray, LargeStringArray, StringArray,
-        TimestampNanosecondArray,
+        Array, ArrayRef, BinaryArray, DictionaryArray, Float32Array, Float64Array,
+        Int16Array, Int32Array, Int64Array, Int8Array, LargeBinaryArray,
+        LargeStringArray, StringArray, TimestampNanosecondArray, UInt16Array,
+        UInt32Array, UInt64Array, UInt8Array,
     };
     use arrow::compute::add;
     use arrow::datatypes::*;
     use arrow::record_batch::RecordBatch;
     use std::fs::File;
+    use std::sync::Weak;
     use std::thread::{self, JoinHandle};
     use std::{io::prelude::*, sync::Mutex};
     use tempfile::TempDir;
@@ -1260,6 +1280,96 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn left_join_using() -> Result<()> {
+        let results = execute(
+            "SELECT t1.c1, t2.c2 FROM test t1 JOIN test t2 USING (c2) ORDER BY t2.c2",
+            1,
+        )
+        .await?;
+        assert_eq!(results.len(), 1);
+
+        let expected = vec![
+            "+----+----+",
+            "| c1 | c2 |",
+            "+----+----+",
+            "| 0  | 1  |",
+            "| 0  | 2  |",
+            "| 0  | 3  |",
+            "| 0  | 4  |",
+            "| 0  | 5  |",
+            "| 0  | 6  |",
+            "| 0  | 7  |",
+            "| 0  | 8  |",
+            "| 0  | 9  |",
+            "| 0  | 10 |",
+            "+----+----+",
+        ];
+
+        assert_batches_eq!(expected, &results);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn left_join_using_join_key_projection() -> Result<()> {
+        let results = execute(
+            "SELECT t1.c1, t1.c2, t2.c2 FROM test t1 JOIN test t2 USING (c2) ORDER BY t2.c2",
+            1,
+        )
+        .await?;
+        assert_eq!(results.len(), 1);
+
+        let expected = vec![
+            "+----+----+----+",
+            "| c1 | c2 | c2 |",
+            "+----+----+----+",
+            "| 0  | 1  | 1  |",
+            "| 0  | 2  | 2  |",
+            "| 0  | 3  | 3  |",
+            "| 0  | 4  | 4  |",
+            "| 0  | 5  | 5  |",
+            "| 0  | 6  | 6  |",
+            "| 0  | 7  | 7  |",
+            "| 0  | 8  | 8  |",
+            "| 0  | 9  | 9  |",
+            "| 0  | 10 | 10 |",
+            "+----+----+----+",
+        ];
+
+        assert_batches_eq!(expected, &results);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn left_join() -> Result<()> {
+        let results = execute(
+            "SELECT t1.c1, t1.c2, t2.c2 FROM test t1 JOIN test t2 ON t1.c2 = t2.c2 ORDER BY t1.c2",
+            1,
+        )
+        .await?;
+        assert_eq!(results.len(), 1);
+
+        let expected = vec![
+            "+----+----+----+",
+            "| c1 | c2 | c2 |",
+            "+----+----+----+",
+            "| 0  | 1  | 1  |",
+            "| 0  | 2  | 2  |",
+            "| 0  | 3  | 3  |",
+            "| 0  | 4  | 4  |",
+            "| 0  | 5  | 5  |",
+            "| 0  | 6  | 6  |",
+            "| 0  | 7  | 7  |",
+            "| 0  | 8  | 8  |",
+            "| 0  | 9  | 9  |",
+            "| 0  | 10 | 10 |",
+            "+----+----+----+",
+        ];
+
+        assert_batches_eq!(expected, &results);
+        Ok(())
+    }
+
+    #[tokio::test]
     async fn window() -> Result<()> {
         let results = execute(
             "SELECT \
@@ -1328,11 +1438,11 @@ mod tests {
             "+----+----+--------------+-----------------+----------------+------------------------+---------+-----------+---------+---------+---------+",
             "| c1 | c2 | ROW_NUMBER() | FIRST_VALUE(c2) | LAST_VALUE(c2) | NTH_VALUE(c2,Int64(2)) | SUM(c2) | COUNT(c2) | MAX(c2) | MIN(c2) | AVG(c2) |",
             "+----+----+--------------+-----------------+----------------+------------------------+---------+-----------+---------+---------+---------+",
-            "| 0  | 1  | 1            | 1               | 10             | 2                      | 1       | 1         | 1       | 1       | 1       |",
-            "| 0  | 2  | 2            | 1               | 10             | 2                      | 3       | 2         | 2       | 1       | 1.5     |",
-            "| 0  | 3  | 3            | 1               | 10             | 2                      | 6       | 3         | 3       | 1       | 2       |",
-            "| 0  | 4  | 4            | 1               | 10             | 2                      | 10      | 4         | 4       | 1       | 2.5     |",
-            "| 0  | 5  | 5            | 1               | 10             | 2                      | 15      | 5         | 5       | 1       | 3       |",
+            "| 0  | 1  | 1            | 1               | 1              |                        | 1       | 1         | 1       | 1       | 1       |",
+            "| 0  | 2  | 2            | 1               | 2              | 2                      | 3       | 2         | 2       | 1       | 1.5     |",
+            "| 0  | 3  | 3            | 1               | 3              | 2                      | 6       | 3         | 3       | 1       | 2       |",
+            "| 0  | 4  | 4            | 1               | 4              | 2                      | 10      | 4         | 4       | 1       | 2.5     |",
+            "| 0  | 5  | 5            | 1               | 5              | 2                      | 15      | 5         | 5       | 1       | 3       |",
             "+----+----+--------------+-----------------+----------------+------------------------+---------+-----------+---------+---------+---------+",
         ];
 
@@ -1385,7 +1495,7 @@ mod tests {
             ROW_NUMBER() OVER (PARTITION BY c2 ORDER BY c1), \
             FIRST_VALUE(c2 + c1) OVER (PARTITION BY c2 ORDER BY c1), \
             LAST_VALUE(c2 + c1) OVER (PARTITION BY c2 ORDER BY c1), \
-            NTH_VALUE(c2 + c1, 2) OVER (PARTITION BY c2 ORDER BY c1), \
+            NTH_VALUE(c2 + c1, 1) OVER (PARTITION BY c2 ORDER BY c1), \
             SUM(c2) OVER (PARTITION BY c2 ORDER BY c1), \
             COUNT(c2) OVER (PARTITION BY c2 ORDER BY c1), \
             MAX(c2) OVER (PARTITION BY c2 ORDER BY c1), \
@@ -1400,13 +1510,13 @@ mod tests {
 
         let expected = vec![
             "+----+----+--------------+-------------------------+------------------------+--------------------------------+---------+-----------+---------+---------+---------+",
-            "| c1 | c2 | ROW_NUMBER() | FIRST_VALUE(c2 Plus c1) | LAST_VALUE(c2 Plus c1) | NTH_VALUE(c2 Plus c1,Int64(2)) | SUM(c2) | COUNT(c2) | MAX(c2) | MIN(c2) | AVG(c2) |",
+            "| c1 | c2 | ROW_NUMBER() | FIRST_VALUE(c2 Plus c1) | LAST_VALUE(c2 Plus c1) | NTH_VALUE(c2 Plus c1,Int64(1)) | SUM(c2) | COUNT(c2) | MAX(c2) | MIN(c2) | AVG(c2) |",
             "+----+----+--------------+-------------------------+------------------------+--------------------------------+---------+-----------+---------+---------+---------+",
-            "| 0  | 1  | 1            | 1                       | 4                      | 2                              | 1       | 1         | 1       | 1       | 1       |",
-            "| 0  | 2  | 1            | 2                       | 5                      | 3                              | 2       | 1         | 2       | 2       | 2       |",
-            "| 0  | 3  | 1            | 3                       | 6                      | 4                              | 3       | 1         | 3       | 3       | 3       |",
-            "| 0  | 4  | 1            | 4                       | 7                      | 5                              | 4       | 1         | 4       | 4       | 4       |",
-            "| 0  | 5  | 1            | 5                       | 8                      | 6                              | 5       | 1         | 5       | 5       | 5       |",
+            "| 0  | 1  | 1            | 1                       | 1                      | 1                              | 1       | 1         | 1       | 1       | 1       |",
+            "| 0  | 2  | 1            | 2                       | 2                      | 2                              | 2       | 1         | 2       | 2       | 2       |",
+            "| 0  | 3  | 1            | 3                       | 3                      | 3                              | 3       | 1         | 3       | 3       | 3       |",
+            "| 0  | 4  | 1            | 4                       | 4                      | 4                              | 4       | 1         | 4       | 4       | 4       |",
+            "| 0  | 5  | 1            | 5                       | 5                      | 5                              | 5       | 1         | 5       | 5       | 5       |",
             "+----+----+--------------+-------------------------+------------------------+--------------------------------+---------+-----------+---------+---------+---------+",
         ];
 
@@ -2253,6 +2363,75 @@ mod tests {
             .await
             .unwrap();
         assert_batches_sorted_eq!(expected, &results);
+    }
+
+    #[tokio::test]
+    async fn case_builtin_math_expression() {
+        let mut ctx = ExecutionContext::new();
+
+        let type_values = vec![
+            (
+                DataType::Int8,
+                Arc::new(Int8Array::from(vec![1])) as ArrayRef,
+            ),
+            (
+                DataType::Int16,
+                Arc::new(Int16Array::from(vec![1])) as ArrayRef,
+            ),
+            (
+                DataType::Int32,
+                Arc::new(Int32Array::from(vec![1])) as ArrayRef,
+            ),
+            (
+                DataType::Int64,
+                Arc::new(Int64Array::from(vec![1])) as ArrayRef,
+            ),
+            (
+                DataType::UInt8,
+                Arc::new(UInt8Array::from(vec![1])) as ArrayRef,
+            ),
+            (
+                DataType::UInt16,
+                Arc::new(UInt16Array::from(vec![1])) as ArrayRef,
+            ),
+            (
+                DataType::UInt32,
+                Arc::new(UInt32Array::from(vec![1])) as ArrayRef,
+            ),
+            (
+                DataType::UInt64,
+                Arc::new(UInt64Array::from(vec![1])) as ArrayRef,
+            ),
+            (
+                DataType::Float32,
+                Arc::new(Float32Array::from(vec![1.0_f32])) as ArrayRef,
+            ),
+            (
+                DataType::Float64,
+                Arc::new(Float64Array::from(vec![1.0_f64])) as ArrayRef,
+            ),
+        ];
+
+        for (data_type, array) in type_values.iter() {
+            let schema =
+                Arc::new(Schema::new(vec![Field::new("v", data_type.clone(), false)]));
+            let batch =
+                RecordBatch::try_new(schema.clone(), vec![array.clone()]).unwrap();
+            let provider = MemTable::try_new(schema, vec![vec![batch]]).unwrap();
+            ctx.register_table("t", Arc::new(provider)).unwrap();
+            let expected = vec![
+                "+---------+",
+                "| sqrt(v) |",
+                "+---------+",
+                "| 1       |",
+                "+---------+",
+            ];
+            let results = plan_and_collect(&mut ctx, "SELECT sqrt(v) FROM t")
+                .await
+                .unwrap();
+
+            assert_batches_sorted_eq!(expected, &results);
+        }
     }
 
     #[tokio::test]
@@ -3346,6 +3525,29 @@ mod tests {
         assert_batches_sorted_eq!(expected, &result);
     }
 
+    #[tokio::test]
+    async fn catalogs_not_leaked() {
+        // the information schema used to introduce cyclic Arcs
+        let ctx = ExecutionContext::with_config(
+            ExecutionConfig::new().with_information_schema(true),
+        );
+
+        // register a single catalog
+        let catalog = Arc::new(MemoryCatalogProvider::new());
+        let catalog_weak = Arc::downgrade(&catalog);
+        ctx.register_catalog("my_catalog", catalog);
+
+        let catalog_list_weak = {
+            let state = ctx.state.lock().unwrap();
+            Arc::downgrade(&state.catalog_list)
+        };
+
+        drop(ctx);
+
+        assert_eq!(Weak::strong_count(&catalog_list_weak), 0);
+        assert_eq!(Weak::strong_count(&catalog_weak), 0);
+    }
+
     struct MyPhysicalPlanner {}
 
     impl PhysicalPlanner for MyPhysicalPlanner {
@@ -3357,6 +3559,16 @@ mod tests {
             Err(DataFusionError::NotImplemented(
                 "query not supported".to_string(),
             ))
+        }
+
+        fn create_physical_expr(
+            &self,
+            _expr: &Expr,
+            _input_dfschema: &crate::logical_plan::DFSchema,
+            _input_schema: &Schema,
+            _ctx_state: &ExecutionContextState,
+        ) -> Result<Arc<dyn crate::physical_plan::PhysicalExpr>> {
+            unimplemented!()
         }
     }
 

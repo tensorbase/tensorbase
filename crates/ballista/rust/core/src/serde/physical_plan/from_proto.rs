@@ -22,7 +22,9 @@ use std::convert::{TryFrom, TryInto};
 use std::sync::Arc;
 
 use crate::error::BallistaError;
-use crate::execution_plans::{ShuffleReaderExec, UnresolvedShuffleExec};
+use crate::execution_plans::{
+    ShuffleReaderExec, ShuffleWriterExec, UnresolvedShuffleExec,
+};
 use crate::serde::protobuf::repartition_exec_node::PartitionMethod;
 use crate::serde::protobuf::ShuffleReaderPartition;
 use crate::serde::scheduler::PartitionLocation;
@@ -35,11 +37,13 @@ use datafusion::catalog::catalog::{
 use datafusion::execution::context::{
     ExecutionConfig, ExecutionContextState, ExecutionProps,
 };
-use datafusion::logical_plan::{window_frames::WindowFrame, DFSchema, Expr};
+use datafusion::logical_plan::{
+    window_frames::WindowFrame, DFSchema, Expr, JoinConstraint, JoinType,
+};
 use datafusion::physical_plan::aggregates::{create_aggregate_expr, AggregateFunction};
+use datafusion::physical_plan::coalesce_partitions::CoalescePartitionsExec;
 use datafusion::physical_plan::hash_aggregate::{AggregateMode, HashAggregateExec};
 use datafusion::physical_plan::hash_join::PartitionMode;
-use datafusion::physical_plan::merge::MergeExec;
 use datafusion::physical_plan::planner::DefaultPhysicalPlanner;
 use datafusion::physical_plan::window_functions::{
     BuiltInWindowFunction, WindowFunction,
@@ -57,7 +61,6 @@ use datafusion::physical_plan::{
     filter::FilterExec,
     functions::{self, BuiltinScalarFunction, ScalarFunctionExpr},
     hash_join::HashJoinExec,
-    hash_utils::JoinType,
     limit::{GlobalLimitExec, LocalLimitExec},
     parquet::ParquetExec,
     projection::ProjectionExec,
@@ -147,7 +150,7 @@ impl TryInto<Arc<dyn ExecutionPlan>> for &protobuf::PhysicalPlanNode {
             }
             PhysicalPlanType::Merge(merge) => {
                 let input: Arc<dyn ExecutionPlan> = convert_box_required!(merge.input)?;
-                Ok(Arc::new(MergeExec::new(input)))
+                Ok(Arc::new(CoalescePartitionsExec::new(input)))
             }
             PhysicalPlanType::Repartition(repart) => {
                 let input: Arc<dyn ExecutionPlan> = convert_box_required!(repart.input)?;
@@ -348,20 +351,53 @@ impl TryInto<Arc<dyn ExecutionPlan>> for &protobuf::PhysicalPlanNode {
                             hashjoin.join_type
                         ))
                     })?;
-                let join_type = match join_type {
-                    protobuf::JoinType::Inner => JoinType::Inner,
-                    protobuf::JoinType::Left => JoinType::Left,
-                    protobuf::JoinType::Right => JoinType::Right,
-                    protobuf::JoinType::Full => JoinType::Full,
-                    protobuf::JoinType::Semi => JoinType::Semi,
-                    protobuf::JoinType::Anti => JoinType::Anti,
+
+                let partition_mode =
+                    protobuf::PartitionMode::from_i32(hashjoin.partition_mode)
+                        .ok_or_else(|| {
+                            proto_error(format!(
+                        "Received a HashJoinNode message with unknown PartitionMode {}",
+                        hashjoin.partition_mode
+                    ))
+                        })?;
+                let partition_mode = match partition_mode {
+                    protobuf::PartitionMode::CollectLeft => PartitionMode::CollectLeft,
+                    protobuf::PartitionMode::Partitioned => PartitionMode::Partitioned,
                 };
                 Ok(Arc::new(HashJoinExec::try_new(
                     left,
                     right,
                     on,
-                    &join_type,
-                    PartitionMode::CollectLeft,
+                    &join_type.into(),
+                    partition_mode,
+                )?))
+            }
+            PhysicalPlanType::ShuffleWriter(shuffle_writer) => {
+                let input: Arc<dyn ExecutionPlan> =
+                    convert_box_required!(shuffle_writer.input)?;
+
+                let output_partitioning = match &shuffle_writer.output_partitioning {
+                    Some(hash_part) => {
+                        let expr = hash_part
+                            .hash_expr
+                            .iter()
+                            .map(|e| e.try_into())
+                            .collect::<Result<Vec<Arc<dyn PhysicalExpr>>, _>>()?;
+
+                        Some(Partitioning::Hash(
+                            expr,
+                            hash_part.partition_count.try_into().unwrap(),
+                        ))
+                    }
+                    None => None,
+                };
+
+                Ok(Arc::new(ShuffleWriterExec::try_new(
+                    shuffle_writer.job_id.clone(),
+                    shuffle_writer.stage_id as usize,
+                    input,
+                    "".to_string(), // this is intentional but hacky - the executor will fill this in
+                    output_partitioning,
                 )?))
             }
             PhysicalPlanType::ShuffleReader(shuffle_reader) => {
@@ -428,11 +464,7 @@ impl TryInto<Arc<dyn ExecutionPlan>> for &protobuf::PhysicalPlanNode {
             PhysicalPlanType::Unresolved(unresolved_shuffle) => {
                 let schema = Arc::new(convert_required!(unresolved_shuffle.schema)?);
                 Ok(Arc::new(UnresolvedShuffleExec {
-                    query_stage_ids: unresolved_shuffle
-                        .query_stage_ids
-                        .iter()
-                        .map(|id| *id as usize)
-                        .collect(),
+                    stage_id: unresolved_shuffle.stage_id as usize,
                     schema,
                     partition_count: unresolved_shuffle.partition_count as usize,
                 }))
