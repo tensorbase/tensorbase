@@ -16,9 +16,10 @@ use fmt::{Debug, Formatter};
 use std::{any::type_name, fmt, lazy::SyncOnceCell, str::FromStr, sync::Arc};
 
 use base::datetimes::{
-    days_to_ordinal, days_to_weekday, days_to_year, days_to_ymd, parse_to_days,
-    unixtime_to_days, unixtime_to_hms, unixtime_to_ordinal, unixtime_to_second,
-    unixtime_to_weekday, unixtime_to_year, unixtime_to_ymd, TimeZoneId,
+    days_to_ordinal, days_to_unixtime, days_to_weekday, days_to_year, days_to_ymd,
+    parse_to_days, parse_to_epoch, unixtime_to_days, unixtime_to_hms,
+    unixtime_to_ordinal, unixtime_to_second, unixtime_to_weekday, unixtime_to_year,
+    unixtime_to_ymd, TimeZoneId,
 };
 
 /// The default timezone is specified at the server's startup stage.
@@ -41,6 +42,9 @@ pub enum BuiltinScalarFunction {
     ToDayOfWeek,
     /// toDate
     ToDate,
+    /// toDateTime
+    // FIXME toDateTime with timezone is not supported
+    ToDateTime,
     /// toHour,
     ToHour,
     /// toMinute,
@@ -70,6 +74,7 @@ impl FromStr for BuiltinScalarFunction {
             "toDayOfMonth" => BuiltinScalarFunction::ToDayOfMonth,
             "toDayOfWeek" => BuiltinScalarFunction::ToDayOfWeek,
             "toDate" => BuiltinScalarFunction::ToDate,
+            "toDateTime" => BuiltinScalarFunction::ToDateTime,
             "toHour" => BuiltinScalarFunction::ToHour,
             "toMinute" => BuiltinScalarFunction::ToMinute,
             "toSecond" => BuiltinScalarFunction::ToSecond,
@@ -94,6 +99,20 @@ macro_rules! downcast_array_args {
                 type_name::<$TO>()
             ))
         })?
+    }};
+}
+
+macro_rules! downcast_string_arg {
+    ($ARG:expr, $NAME:expr, $T:ident) => {{
+        $ARG.as_any()
+            .downcast_ref::<GenericStringArray<T>>()
+            .ok_or_else(|| {
+                DataFusionError::Internal(format!(
+                    "could not cast {} to {}",
+                    $NAME,
+                    type_name::<GenericStringArray<T>>()
+                ))
+            })?
     }};
 }
 
@@ -169,6 +188,7 @@ impl BuiltinScalarFunction {
             BuiltinScalarFunction::ToDayOfMonth => Ok(DataType::UInt8),
             BuiltinScalarFunction::ToDayOfWeek => Ok(DataType::UInt8),
             BuiltinScalarFunction::ToDate => Ok(DataType::Date16),
+            BuiltinScalarFunction::ToDateTime => Ok(DataType::Timestamp32(None)),
             BuiltinScalarFunction::ToQuarter => Ok(DataType::UInt8),
             BuiltinScalarFunction::ToHour => Ok(DataType::UInt8),
             BuiltinScalarFunction::ToMinute => Ok(DataType::UInt8),
@@ -230,6 +250,7 @@ impl BuiltinScalarFunction {
                 other => wrap_type_err!(other, "toDayOfWeek"),
             },
             BuiltinScalarFunction::ToDate => match args[0].data_type(schema) {
+                Ok(DataType::Date16) => Arc::new(|args| Ok(args[0].clone())),
                 Ok(DataType::Utf8) => wrap_string_fn!(fn utf8_to_date -> Date16Array),
                 Ok(DataType::LargeUtf8) => {
                     wrap_string_fn!(fn large_utf8_to_date -> Date16Array)
@@ -239,6 +260,24 @@ impl BuiltinScalarFunction {
                 }
                 Ok(DataType::Int64) => {
                     wrap_datetime_fn!(fn int64_to_date(Int64Array) -> Date16Array)
+                }
+                other => wrap_type_err!(other, "toDate"),
+            },
+            BuiltinScalarFunction::ToDateTime => match args[0].data_type(schema) {
+                Ok(DataType::Utf8) => {
+                    wrap_string_fn!(fn utf8_to_datetime -> Timestamp32Array)
+                }
+                Ok(DataType::LargeUtf8) => {
+                    wrap_string_fn!(fn large_utf8_to_datetime -> Timestamp32Array)
+                }
+                Ok(DataType::Date16) => {
+                    wrap_datetime_fn!(fn date_to_datetime(Date16Array) -> Timestamp32Array)
+                }
+                Ok(DataType::Timestamp32(_tz)) => {
+                    Arc::new(|timestamp| Ok(timestamp[0].clone()))
+                }
+                Ok(DataType::Int64) => {
+                    wrap_datetime_fn!(fn int64_to_datetime(Int64Array) -> Timestamp32Array)
                 }
                 other => wrap_type_err!(other, "toDate"),
             },
@@ -296,15 +335,17 @@ impl BuiltinScalarFunction {
             | BuiltinScalarFunction::ToQuarter => {
                 Signature::Uniform(1, vec![DataType::Date16, DataType::Timestamp32(None)])
             }
-            BuiltinScalarFunction::ToDate => Signature::Uniform(
-                1,
-                vec![
-                    DataType::Date16,
-                    DataType::Timestamp32(None),
-                    DataType::Int64,
-                    DataType::LargeUtf8,
-                ],
-            ),
+            BuiltinScalarFunction::ToDate | BuiltinScalarFunction::ToDateTime => {
+                Signature::Uniform(
+                    1,
+                    vec![
+                        DataType::Date16,
+                        DataType::Timestamp32(None),
+                        DataType::Int64,
+                        DataType::LargeUtf8,
+                    ],
+                )
+            }
             BuiltinScalarFunction::ToHour
             | BuiltinScalarFunction::ToMinute
             | BuiltinScalarFunction::ToSecond => {
@@ -313,6 +354,12 @@ impl BuiltinScalarFunction {
             BuiltinScalarFunction::EndsWith => Signature::Any(2),
         }
     }
+}
+
+fn get_tz_offset_or_default(tz: Option<i32>) -> Result<i32> {
+    tz.or_else(|| Some(DEFAULT_TIMEZONE.get()?.offset())).ok_or(
+        DataFusionError::Internal("default time zone not initialized".to_string()),
+    )
 }
 
 fn handle_date_fn<T, U, F>(array: &PrimitiveArray<T>, f: F) -> Result<PrimitiveArray<U>>
@@ -334,12 +381,40 @@ where
     U: ArrowPrimitiveType,
     F: Fn(Option<T::Native>, i32) -> Option<U::Native>,
 {
-    let tz = tz
-        .or_else(|| Some(DEFAULT_TIMEZONE.get()?.offset()))
-        .ok_or(DataFusionError::Internal(
-            "default time zone not initialized".to_string(),
-        ))?;
+    let tz = get_tz_offset_or_default(tz)?;
     Ok(array.iter().map(|x| f(x, tz)).collect())
+}
+
+fn handle_string_unary_fn<T, U, F>(args: &[ArrayRef], f: F) -> Result<PrimitiveArray<U>>
+where
+    T: StringOffsetSizeTrait,
+    U: ArrowPrimitiveType,
+    F: Clone + Fn(&str) -> Result<U::Native>,
+    PrimitiveArray<U>: From<Vec<Option<U::Native>>>,
+{
+    let string_array = downcast_string_arg!(args[0], "string", T);
+    let start_idx = match T::DATA_TYPE {
+        DataType::Utf8 => 0,
+        DataType::LargeUtf8 => 1, //FIXME for TB string, len header is varied, not 1
+        _ => {
+            return Err(DataFusionError::Execution(
+                "Invalid string offset size".to_string(),
+            ))
+        }
+    };
+    let result_array: Result<Vec<Option<U::Native>>> =
+        string_array
+            .iter()
+            .try_fold(Vec::new(), |mut result, string| {
+                result.push(
+                    string
+                        .map(|string| &string[start_idx..])
+                        .map(f.clone())
+                        .transpose()?,
+                );
+                Ok(result)
+            });
+    Ok(result_array?.into())
 }
 
 /// Extracts the years from Date16 array
@@ -431,6 +506,7 @@ pub fn timestamp32_to_second(
 ) -> Result<UInt8Array> {
     handle_timestamp_fn(array, tz, |x, _tz| Some(unixtime_to_second(x? as i32)))
 }
+
 /// Extracts the date from Timestamp32Array
 pub fn timestamp32_to_date(
     array: &Timestamp32Array,
@@ -440,6 +516,17 @@ pub fn timestamp32_to_date(
         Some(unixtime_to_days(x? as i32, tz) as u16)
     })
 }
+
+/// Converts the date to datetime
+pub fn date_to_datetime(array: &Date16Array) -> Result<Timestamp32Array> {
+    handle_timestamp_fn(array, None, |x, tz| Some(days_to_unixtime(x? as i32, tz)))
+}
+
+/// Extracts the datetime from Timestamp32Array
+pub fn int64_to_datetime(array: &Int64Array) -> Result<Timestamp32Array> {
+    handle_date_fn(array, |x| Some(x?.max(0) as i32))
+}
+
 /// Extracts the date from Timestamp32Array
 pub fn int64_to_date(array: &Int64Array) -> Result<Date16Array> {
     handle_date_fn(array, |x| Some(x?.max(0) as u16))
@@ -461,26 +548,22 @@ pub fn large_utf8_ends_with(args: &[ArrayRef]) -> Result<BooleanArray> {
 
 /// Returns Date16Array if large utf string is formatted with '%Y-%m-%d' style.
 pub fn large_utf8_to_date(args: &[ArrayRef]) -> Result<Date16Array> {
-    string_to_date16::<i64>(args)
+    handle_string_unary_fn::<i64, _, _>(args, str_to_date16)
+}
+
+/// Returns Timestamp32 if large utf string is formatted with '%Y-%m-%d %H:%M:%S' style.
+pub fn large_utf8_to_datetime(args: &[ArrayRef]) -> Result<Timestamp32Array> {
+    handle_string_unary_fn::<i64, _, _>(args, str_to_timestamp32)
 }
 
 /// Returns Date16Array if utf8 string is formatted with '%Y-%m-%d' style.
 pub fn utf8_to_date(args: &[ArrayRef]) -> Result<Date16Array> {
-    string_to_date16::<i32>(args)
+    handle_string_unary_fn::<i32, _, _>(args, str_to_date16)
 }
 
-macro_rules! downcast_string_arg {
-    ($ARG:expr, $NAME:expr, $T:ident) => {{
-        $ARG.as_any()
-            .downcast_ref::<GenericStringArray<T>>()
-            .ok_or_else(|| {
-                DataFusionError::Internal(format!(
-                    "could not cast {} to {}",
-                    $NAME,
-                    type_name::<GenericStringArray<T>>()
-                ))
-            })?
-    }};
+/// Returns Timestamp32 if utf string is formatted with '%Y-%m-%d %H:%M:%S' style.
+pub fn utf8_to_datetime(args: &[ArrayRef]) -> Result<Timestamp32Array> {
+    handle_string_unary_fn::<i32, _, _>(args, str_to_timestamp32)
 }
 
 /// Returns true if string ends with prefix.
@@ -501,36 +584,23 @@ fn ends_with<T: StringOffsetSizeTrait>(args: &[ArrayRef]) -> Result<BooleanArray
     Ok(result)
 }
 
-/// Return Date16Array if the string is formatted with '%Y-%m-%d' date style.
-fn string_to_date16<T: StringOffsetSizeTrait>(args: &[ArrayRef]) -> Result<Date16Array> {
-    if args[0].is_null(0) {
-        return Ok(Date16Array::from(vec![None]));
-    }
+fn str_to_date16(s: &str) -> Result<u16> {
+    parse_to_days(s).map_err(|_| {
+        DataFusionError::Execution(format!(
+            "Error parsing '{}' as date with '%Y-%m-%d' format",
+            s
+        ))
+    })
+}
 
-    let string_array = downcast_string_arg!(args[0], "string", T);
-    let start_idx = match T::DATA_TYPE {
-        DataType::Utf8 => 0,
-        DataType::LargeUtf8 => 1, //FIXME for TB string, len header is varied, not 1
-        _ => {
-            return Err(DataFusionError::Execution(
-                "Invalid string offset size".to_string(),
+fn str_to_timestamp32(s: &str) -> Result<i32> {
+    let tz_offset = get_tz_offset_or_default(None)?;
+    parse_to_epoch(s, tz_offset)
+        .map(|epoch| epoch as i32)
+        .map_err(|_| {
+            DataFusionError::Execution(format!(
+                "Error parsing '{}' as datetime with '%Y-%m-%d %H:%M:%S' format",
+                s
             ))
-        }
-    };
-    let date16_array: Result<Vec<Option<u16>>> = string_array
-        .iter()
-        .map(|string| {
-            string
-                .map(|s: &str| {
-                    parse_to_days(&s[start_idx..]).map_err(|_| {
-                        DataFusionError::Execution(format!(
-                            "Error parsing '{}' as date with '%Y-%m-%d' format",
-                            s
-                        ))
-                    })
-                })
-                .transpose()
         })
-        .collect();
-    Ok(date16_array?.into())
 }

@@ -1,9 +1,12 @@
+#![feature(once_cell)]
+
 #[cfg(test)]
 mod tests {
     use arrow::{
         array::{Array, LargeStringArray, PrimitiveArray, StringArray},
         datatypes::{Date16Type, Int64Type, Timestamp32Type},
     };
+    use base::datetimes::TimeZoneId;
     use datafusion::physical_plan::clickhouse::*;
     use std::sync::Arc;
 
@@ -83,6 +86,101 @@ mod tests {
         let mut s = 0;
         for _ in 0..100 {
             let b = timestamp32_to_date(&a, Some(0)).unwrap();
+            s += b.len() as usize;
+        }
+
+        println!("ts: {:?}, s: {}", ts.elapsed(), s);
+    }
+
+    #[test]
+    fn test_to_datetime() {
+        DEFAULT_TIMEZONE.get_or_init(|| TimeZoneId::default());
+        // test to_datetime(Date16)
+        let a: PrimitiveArray<Date16Type> =
+            vec![Some(0), Some(6209), None, Some(18628)].into();
+        let b = date_to_datetime(&a).unwrap();
+
+        assert_eq!(0, b.value(0));
+        assert_eq!(536457600, b.value(1)); // 1987-01-01
+        assert_eq!(false, b.is_valid(2));
+        assert_eq!(1609459200, b.value(3)); // 2021-01-01
+
+        // test to_datetime(Int64)
+        let a: PrimitiveArray<Int64Type> =
+            vec![Some(0), Some(536474361), None, Some(1609516745), Some(-1)].into();
+        let b = int64_to_datetime(&a).unwrap();
+        assert_eq!(0, b.value(0));
+        assert_eq!(536474361, b.value(1)); // 1987-01-01 04:39:21
+        assert_eq!(false, b.is_valid(2));
+        assert_eq!(1609516745, b.value(3)); // 2021-01-01 15:59:05
+        assert_eq!(0, b.value(4)); // 2021-01-01
+
+        // test to_datetime(Utf8)
+        let a: StringArray = vec![
+            Some("1970-01-01 00:00:00"),
+            Some("1987-01-01 04:39:21"),
+            Some("2021-01-01 15:59:05"),
+        ]
+        .into();
+        let a = Arc::new(a);
+        let b = utf8_to_datetime(&[a]).unwrap();
+
+        assert_eq!(0, b.value(0));
+        assert_eq!(536474361, b.value(1));
+        assert_eq!(1609516745, b.value(2));
+
+        let a: StringArray = vec![
+            Some("err"),
+            Some("1987-01-01 04:39:21"),
+            Some("2021-01-01 15:59:05"),
+        ]
+        .into();
+        let a = Arc::new(a);
+        assert!(utf8_to_datetime(&[a]).is_err());
+
+        // test to_date(LargeUtf8)
+        let a: LargeStringArray = vec![
+            Some("\u{19}1987-01-01 04:39:21"),
+            Some("\u{19}2021-01-01 15:59:05"),
+        ]
+        .into();
+        let a = Arc::new(a);
+        let b = large_utf8_to_datetime(&[a]).unwrap();
+        assert_eq!(536474361, b.value(0));
+        assert_eq!(1609516745, b.value(1));
+
+        let a: LargeStringArray = vec![
+            Some("\u{3}err"),
+            Some("\u{19}1987-01-01 04:39:21"),
+            Some("\u{19}2021-01-01 15:59:05"),
+        ]
+        .into();
+        let a = Arc::new(a);
+        assert!(large_utf8_to_datetime(&[a]).is_err());
+
+        let a: LargeStringArray = vec![
+            Some("\u{19}1970-01-01 00:00:00"),
+            Some("\u{19}1987-01-01 04:39:21"),
+            Some("\u{19}2021-01-01 15:59:05"),
+        ]
+        .into();
+        let a = Arc::new(a);
+        let b = large_utf8_to_datetime(&[a]).unwrap();
+        assert_eq!(0, b.value(0));
+        assert_eq!(536474361, b.value(1));
+        assert_eq!(1609516745, b.value(2));
+    }
+
+    #[test]
+    fn stress_to_datetime() {
+        DEFAULT_TIMEZONE.get_or_init(|| TimeZoneId::default());
+        let v: Vec<u16> = (0..4096).collect();
+        let a: PrimitiveArray<Date16Type> = v.into();
+
+        let ts = ::std::time::Instant::now();
+        let mut s = 0;
+        for _ in 0..100 {
+            let b = date_to_datetime(&a).unwrap();
             s += b.len() as usize;
         }
 
