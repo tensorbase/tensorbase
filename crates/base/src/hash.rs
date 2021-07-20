@@ -22,14 +22,6 @@ macro_rules! decl_Hasher {
 
 decl_Hasher! { usize,u64,i64,u32,i32,u16,i16,u8,i8, }
 
-// inline uint64_t hash_bytes(const void *data, size_t len) {
-//     uint64_t rt = 0;
-//     // #pragma clang loop unroll_count(8)
-//     for (size_t i = 0; i < len; i += 8) {
-//       rt ^= _mm_crc32_u64(0, read_uint64((const char*)data + i)); // FIXME or ^?
-//     }
-//     return rt;
-//   }
 impl Hasher for [u8] {
     #[inline]
     fn hash(&self) -> u64 {
