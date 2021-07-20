@@ -35,11 +35,9 @@ pub fn write_block(blk: &mut Block, tab_ins: &str, tid_ins: Id) -> BaseRtResult<
     let ptks = ms
         .get_table_info_partition_cols(tid_ins)?
         .ok_or(BaseRtError::SchemaInfoShouldExistButNot)?;
-    let parts: HashMap<u64, Vec<(u32, u32)>, BuildBaseHasher> = if ptks.len() == 0 {
+    let parts: HashMap<u64, Vec<(u32, u32)>> = if ptks.len() == 0 {
         //no ptk cols
-        let mut parts = HashMap::<u64, Vec<(u32, u32)>, BuildBaseHasher>::with_hasher(
-            BuildBaseHasher,
-        ); //assumed blk dix < 4G
+        let mut parts = HashMap::<u64, Vec<(u32, u32)>>::new(); //assumed blk dix < 4G
         parts.insert(0, vec![(0, (blk.nrows - 1) as u32)]);
         parts
     } else {
@@ -69,7 +67,7 @@ fn gen_parts_by_ptk_names(
     blk: &Block,
     tab_ins: &str,
     tid_ins: u64,
-) -> Result<HashMap<u64, Vec<(u32, u32)>, BuildBaseHasher>, BaseRtError> {
+) -> Result<HashMap<u64, Vec<(u32, u32)>>, BaseRtError> {
     let cname_ptk = if ptks.len() == 0 {
         // vec![]
         ""
@@ -133,30 +131,6 @@ fn gen_parts_by_ptk_names(
     Ok(parts)
 }
 
-pub struct BaseHasher {
-    state: u64,
-}
-
-impl std::hash::Hasher for BaseHasher {
-    fn write(&mut self, bytes: &[u8]) {
-        use base::hash::Hasher;
-        self.state = bytes.hash();
-    }
-
-    fn finish(&self) -> u64 {
-        self.state
-    }
-}
-
-pub struct BuildBaseHasher;
-
-impl std::hash::BuildHasher for BuildBaseHasher {
-    type Hasher = BaseHasher;
-    fn build_hasher(&self) -> BaseHasher {
-        BaseHasher { state: 0 }
-    }
-}
-
 #[inline(always)]
 pub unsafe fn transmute<A, B>(a: A) -> B {
     let b = ::core::ptr::read(&a as *const A as *const B);
@@ -170,10 +144,9 @@ fn gen_part_idxs<T: 'static + Sized + Copy>(
     ctyp_ptk: &BqlType,
     cdata_ptk: &[T],
     nr: usize,
-) -> BaseRtResult<HashMap<u64, Vec<(u32, u32)>, BuildBaseHasher>> {
-    let mut parts =
-        HashMap::<u64, Vec<(u32, u32)>, BuildBaseHasher>::with_hasher(BuildBaseHasher); //assumed blk dix < 4G
-                                                                                        // let siz_typ_ptk = mem::size_of::<T>();
+) -> BaseRtResult<HashMap<u64, Vec<(u32, u32)>>> {
+    let mut parts = HashMap::<u64, Vec<(u32, u32)>>::new(); //assumed blk dix < 4G
+                                                            // let siz_typ_ptk = mem::size_of::<T>();
     let ptk_expr_fn = unsafe { mem::transmute::<_, fn(T) -> u64>(ptk_expr_fn_ptr) };
     let is_datetime_typ = matches!(ctyp_ptk, BqlType::DateTime);
     let tz_ofs = BMS.timezone.offset() as i64;
