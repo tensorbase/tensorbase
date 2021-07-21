@@ -24,16 +24,6 @@ pub fn mm_anon(size: usize) -> BaseResult<MemAddr> {
 }
 
 #[inline]
-pub fn mm_mremap(addr: MemAddr, old_size: usize, new_size: usize) -> BaseResult<MemAddr> {
-    let ret = unsafe { libc::mremap(addr, old_size, new_size, libc::MREMAP_MAYMOVE) };
-    if addr == libc::MAP_FAILED {
-        Err(BaseError::FailedToMremap)
-    } else {
-        Ok(ret)
-    }
-}
-
-#[inline]
 pub fn mm_file_ro(fd: u32, size: usize) -> BaseResult<MemAddr> {
     let addr = unsafe {
         libc::mmap(

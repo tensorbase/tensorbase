@@ -17,6 +17,9 @@ use meta::{
     types::{BqlType, Id},
 };
 
+#[cfg(target_os = "macos")]
+use libc::fstore_t;
+
 use crate::{
     ch::blocks::Block,
     errs::{BaseRtError, BaseRtResult},
@@ -299,9 +302,35 @@ fn write_part(
     Ok(())
 }
 
+#[cfg(target_os = "macos")]
+#[inline(always)]
+unsafe fn fallocate(fd: i32, mode: i32, offset_in_bytes: i64, pt_len_in_bytes: i64) -> bool {
+    // https://stackoverflow.com/questions/11497567/fallocate-command-equivalent-in-os-x
+    let store = fstore_t {
+        fst_flags: libc::F_ALLOCATECONTIG | libc::F_ALLOCATEALL,
+        fst_posmode: libc::F_PEOFPOSMODE,
+        fst_offset: offset_in_bytes,
+        fst_length: pt_len_in_bytes,
+        fst_bytesalloc: 0
+    };
+
+    libc::fcntl(fd, libc::F_PREALLOCATE, &store as *const fstore_t) == 0
+}
+
+#[cfg(target_os = "linux")]
+#[inline(always)]
+unsafe fn fallocate(fd: i32, mode: i32, offset_in_bytes: i64, pt_len_in_bytes: i64) -> bool {
+    libc::fallocate(
+        fd,
+        mode,
+        offset_in_bytes,
+        pt_len_in_bytes
+    ) == 0
+}
+
 fn dump_buf(fd: u32, offset_in_bytes: usize, pt_len_in_bytes: usize, buf: *const c_void) {
     unsafe {
-        libc::fallocate(fd as i32, 0, offset_in_bytes as i64, pt_len_in_bytes as i64);
+        fallocate(fd as i32, 0, offset_in_bytes as i64, pt_len_in_bytes as i64);
         libc::pwrite(fd as i32, buf, pt_len_in_bytes, offset_in_bytes as i64);
         close(fd as i32);
     }
