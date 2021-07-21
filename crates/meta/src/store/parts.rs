@@ -529,6 +529,32 @@ fn mkdir(path: &CStr) -> MetaResult<()> {
     }
 }
 
+#[cfg(target_os = "macos")]
+#[inline(always)]
+fn open(path: &CStr) -> MetaResult<u32> {
+    unsafe {
+        let mode = libc::S_IRUSR | libc::S_IWUSR | libc::S_IRGRP | libc::S_IROTH;
+
+        let need_chmod = libc::access(path.as_ptr(), mode as u32 as libc::c_int) < 0;
+
+        let fd = libc::open(path.as_ptr(), libc::O_CREAT | libc::O_RDWR);
+
+        if fd < 0 {
+            return Err(MetaError::WrappingIOError(Error::last_os_error()));
+        }
+
+        if need_chmod {
+            let ret = libc::chmod(path.as_ptr(), mode);
+            if ret < 0 {
+                return Err(MetaError::WrappingIOError(Error::last_os_error()));
+            }
+        }
+
+        Ok(fd as u32)
+    }
+}
+
+#[cfg(target_os = "linux")]
 #[inline(always)]
 fn open(path: &CStr) -> MetaResult<u32> {
     unsafe {
