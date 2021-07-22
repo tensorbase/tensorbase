@@ -288,11 +288,11 @@ logical_val  = {
 or_logical_val = { les_or_op ~ logical_val }
 and_logical_val = { les_and_op ~ logical_val }
 or_logical_expr = {
-    logical_val ~  ( or_logical_val )+ |
+    logical_val ~  ( or_logical_val )* |
     "(" ~ logical_val ~  ( or_logical_val )+ ~ ")"
 }
 and_logical_expr = { 
-    logical_val ~  ( and_logical_val )+ | 
+    logical_val ~  ( and_logical_val )* | 
     "(" ~ logical_val ~  ( and_logical_val )+ ~ ")"
 }
 
@@ -307,7 +307,6 @@ or_logical_exprs_with_and = {
 logical_expr = {
     and_logical_exprs_with_or |
     or_logical_exprs_with_and |
-    logical_val | 
     "(" ~ logical_expr ~ ")"
 }
 
