@@ -22,10 +22,14 @@ pub fn prepare_empty_tmp_dir(dir: Option<&str>) -> String {
 #[cfg(test)]
 mod tests {
     use crate::prepare_empty_tmp_dir;
+    use std::env::temp_dir;
 
     #[test]
     fn test_prepare_empty_tmp_dir() {
-        assert_eq!(prepare_empty_tmp_dir(None), "/tmp/base_test".to_string());
+        assert_eq!(
+            prepare_empty_tmp_dir(None),
+            [temp_dir().to_str().unwrap(), "base_test"].join("/")
+        );
         assert_eq!(
             prepare_empty_tmp_dir(Some("/tmp/base_test2")),
             "/tmp/base_test2".to_string()
