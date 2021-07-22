@@ -28,6 +28,7 @@ pub mod codec;
 pub mod contract;
 pub mod datetimes;
 pub mod errs;
+pub mod eval;
 pub mod fs;
 pub mod fuzz;
 pub mod hash;
@@ -35,6 +36,5 @@ pub mod mem;
 pub mod mmap;
 pub mod strings;
 pub mod utils;
-pub mod eval;
 
 pub use base_proc_macro::async_test;

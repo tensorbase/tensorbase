@@ -1785,14 +1785,18 @@ CREATE TABLE test (col Int32)";
             let r = parse_where(c, "a").unwrap();
             assert_eq!(
                 r.into_iter().collect::<HashSet<_>>(),
-                vec![11..=99, 101..=u64::MAX].into_iter().collect::<HashSet<_>>()
+                vec![11..=99, 101..=u64::MAX]
+                    .into_iter()
+                    .collect::<HashSet<_>>()
             );
 
             let c = "where a<>100 and a<>10 ";
             let r = parse_where(c, "a").unwrap();
             assert_eq!(
                 r.into_iter().collect::<HashSet<_>>(),
-                vec![0..=9, 11..=99, 101..=u64::MAX].into_iter().collect::<HashSet<_>>()
+                vec![0..=9, 11..=99, 101..=u64::MAX]
+                    .into_iter()
+                    .collect::<HashSet<_>>()
             );
 
             let c = "where toYear(a)>2001 and toYear(a)<2021 ";

@@ -301,7 +301,12 @@ fn write_part(
 
 #[cfg(target_os = "macos")]
 #[inline(always)]
-unsafe fn fallocate(fd: i32, mode: i32, offset_in_bytes: i64, pt_len_in_bytes: i64) -> bool {
+unsafe fn fallocate(
+    fd: i32,
+    mode: i32,
+    offset_in_bytes: i64,
+    pt_len_in_bytes: i64,
+) -> bool {
     // https://stackoverflow.com/questions/11497567/fallocate-command-equivalent-in-os-x
     use libc::fstore_t;
     let store = fstore_t {
@@ -309,7 +314,7 @@ unsafe fn fallocate(fd: i32, mode: i32, offset_in_bytes: i64, pt_len_in_bytes: i
         fst_posmode: libc::F_PEOFPOSMODE,
         fst_offset: offset_in_bytes,
         fst_length: pt_len_in_bytes,
-        fst_bytesalloc: 0
+        fst_bytesalloc: 0,
     };
 
     libc::fcntl(fd, libc::F_PREALLOCATE, &store as *const fstore_t) == 0
@@ -317,13 +322,13 @@ unsafe fn fallocate(fd: i32, mode: i32, offset_in_bytes: i64, pt_len_in_bytes: i
 
 #[cfg(target_os = "linux")]
 #[inline(always)]
-unsafe fn fallocate(fd: i32, mode: i32, offset_in_bytes: i64, pt_len_in_bytes: i64) -> bool {
-    libc::fallocate(
-        fd,
-        mode,
-        offset_in_bytes,
-        pt_len_in_bytes
-    ) == 0
+unsafe fn fallocate(
+    fd: i32,
+    mode: i32,
+    offset_in_bytes: i64,
+    pt_len_in_bytes: i64,
+) -> bool {
+    libc::fallocate(fd, mode, offset_in_bytes, pt_len_in_bytes) == 0
 }
 
 fn dump_buf(fd: u32, offset_in_bytes: usize, pt_len_in_bytes: usize, buf: *const c_void) {
