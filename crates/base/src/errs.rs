@@ -43,4 +43,7 @@ pub enum BaseError {
 
     #[error("Encoding too long string")]
     EncodingTooLongString,
+
+    #[error("Can not be evaluted")]
+    CanotEval,
 }
