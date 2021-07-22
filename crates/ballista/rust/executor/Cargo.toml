@@ -33,7 +33,7 @@ anyhow = "1"
 async-trait = "0.1.36"
 ballista-core = { path = "../core" }
 configure_me = "0.4.0"
-env_logger = "0.8"
+env_logger = "0.9"
 futures = "0.3"
 log = "0.4"
 snmalloc-rs = {version = "0.2", features= ["cache-friendly"], optional = true}
