@@ -17,9 +17,6 @@ use meta::{
     types::{BqlType, Id},
 };
 
-#[cfg(target_os = "macos")]
-use libc::fstore_t;
-
 use crate::{
     ch::blocks::Block,
     errs::{BaseRtError, BaseRtResult},
@@ -306,6 +303,7 @@ fn write_part(
 #[inline(always)]
 unsafe fn fallocate(fd: i32, mode: i32, offset_in_bytes: i64, pt_len_in_bytes: i64) -> bool {
     // https://stackoverflow.com/questions/11497567/fallocate-command-equivalent-in-os-x
+    use libc::fstore_t;
     let store = fstore_t {
         fst_flags: libc::F_ALLOCATECONTIG | libc::F_ALLOCATEALL,
         fst_posmode: libc::F_PEOFPOSMODE,
