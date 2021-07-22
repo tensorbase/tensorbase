@@ -1,6 +1,7 @@
 use std::{
     ffi::CStr,
     io::{Error, ErrorKind},
+    ops::RangeInclusive,
     thread::park_timeout,
     time::Duration,
 };
@@ -314,64 +315,90 @@ impl<'a> PartStore<'a> {
         copass_ret: &mut Vec<Vec<CoPaInfo>>,
         tid: Id,
         cis: &Vec<(Id, BqlType)>,
-        ptk_s: u64,
-        ptk_e: u64,
+        ptk_range: Vec<RangeInclusive<u64>>,
     ) -> MetaResult<()> {
-        let parts_tree = &self.tree_parts;
+        let tree_parts = &self.tree_parts;
+        let tree_prids = &self.tree_prids;
 
         for (cid, col_typ) in cis {
-            let k = (cid.to_be(), ptk_s.to_be());
-            let kbs0 = k.as_bytes();
-            let k = (cid.to_be(), ptk_e.to_be());
-            let kbs1 = k.as_bytes();
-            // log::debug!("--- cid: {}, col_typ: {:?}", cid, col_typ);
-            let mut cps = Vec::new();
-            let it = parts_tree.range(kbs0..=kbs1);
-            for res in it {
-                if let Ok((kbs, _v)) = res {
-                    let (_, ptk_be) = *(&*kbs).into_ref::<(u64, u64)>();
-                    //
-                    let k = (tid.to_be(), ptk_be);
-                    let kbs = k.as_bytes();
-                    let ptk = ptk_be.to_be();
-                    let iv_part_siz = self
-                        .tree_prids
-                        .get(kbs)
-                        .map_err(|_| MetaError::GetPartInfoError)?
-                        .ok_or(MetaError::CanNotFindPartError)?;
-                    let size = *(&*iv_part_siz).into_ref::<usize>();
-                    let dp = self.get_part_dir(ptk);
-                    let fpath = get_part_path(tid, *cid, ptk, dp)?;
-                    // println!("fpath: {}", std::str::from_utf8(&fpath).unwrap());
-                    let pfd = open_file_as_fd(&fpath)?;
-                    let len_in_bytes =
-                        CoPaInfo::len_in_bytes(size, *col_typ, *cid, ptk, self)?;
-                    // log::debug!("--- copar size: {}, len: {}", size, len_in_bytes);
-                    let addr = mm_file_ro(pfd, len_in_bytes)?;
-                    //issue#22 add om
-                    let addr_om = if matches!(*col_typ, BqlType::String) {
-                        let ompath = gen_ompath_from_part_path(&fpath)?;
-                        let fd_om = open_file_as_fd(&ompath)?;
-                        mm_file_ro(fd_om, CoPaInfo::len_in_bytes_om(size))?
-                    } else {
-                        0 as MemAddr
-                    };
-                    unsafe {
-                        close(pfd as i32);
-                    }
-                    cps.push(CoPaInfo {
-                        addr,
-                        addr_om,
-                        size,
-                        len_in_bytes,
-                    })
-                } else {
-                    return Err(MetaError::GetPartInfoError);
-                }
+            for r in &ptk_range {
+                PartStore::fill_copainfos_int_by_ptk(
+                    self,
+                    tree_parts,
+                    tree_prids,
+                    copass_ret,
+                    tid,
+                    cid,
+                    col_typ,
+                    *r.start(),
+                    *r.end(),
+                )?;
             }
-            copass_ret.push(cps);
         }
 
+        Ok(())
+    }
+
+    #[inline(always)]
+    fn fill_copainfos_int_by_ptk(
+        &self,
+        tree_parts: &sled::Tree,
+        tree_prids: &sled::Tree,
+        copass_ret: &mut Vec<Vec<CoPaInfo>>,
+        tid: Id,
+        cid: &u64,
+        col_typ: &BqlType,
+        ptk_s: u64,
+        ptk_e: u64,
+    ) -> Result<(), MetaError> {
+        let k = (cid.to_be(), ptk_s.to_be());
+        let kbs0 = k.as_bytes();
+        let k = (cid.to_be(), ptk_e.to_be());
+        let kbs1 = k.as_bytes();
+        let mut cps = Vec::new();
+        let it = tree_parts.range(kbs0..=kbs1);
+        for res in it {
+            if let Ok((kbs, _v)) = res {
+                let (_, ptk_be) = *(&*kbs).into_ref::<(u64, u64)>();
+                //
+                let k = (tid.to_be(), ptk_be);
+                let kbs = k.as_bytes();
+                let ptk = ptk_be.to_be();
+                let iv_part_siz = tree_prids
+                    .get(kbs)
+                    .map_err(|_| MetaError::GetPartInfoError)?
+                    .ok_or(MetaError::CanNotFindPartError)?;
+                let size = *(&*iv_part_siz).into_ref::<usize>();
+                let dp = self.get_part_dir(ptk);
+                let fpath = get_part_path(tid, *cid, ptk, dp)?;
+                // println!("fpath: {}", std::str::from_utf8(&fpath).unwrap());
+                let pfd = open_file_as_fd(&fpath)?;
+                let len_in_bytes =
+                    CoPaInfo::len_in_bytes(size, *col_typ, *cid, ptk, self)?;
+                // log::debug!("--- copar size: {}, len: {}", size, len_in_bytes);
+                let addr = mm_file_ro(pfd, len_in_bytes)?;
+                //issue#22 add om
+                let addr_om = if matches!(*col_typ, BqlType::String) {
+                    let ompath = gen_ompath_from_part_path(&fpath)?;
+                    let fd_om = open_file_as_fd(&ompath)?;
+                    mm_file_ro(fd_om, CoPaInfo::len_in_bytes_om(size))?
+                } else {
+                    0 as MemAddr
+                };
+                unsafe {
+                    close(pfd as i32);
+                }
+                cps.push(CoPaInfo {
+                    addr,
+                    addr_om,
+                    size,
+                    len_in_bytes,
+                })
+            } else {
+                return Err(MetaError::GetPartInfoError);
+            }
+        }
+        copass_ret.push(cps);
         Ok(())
     }
 
@@ -719,7 +746,7 @@ mod unit_tests {
         }
 
         let mut cpss = Vec::new();
-        ps.fill_copainfos_int_by_ptk_range(&mut cpss, tid, &cids, 0, 20200105)?;
+        ps.fill_copainfos_int_by_ptk_range(&mut cpss, tid, &cids, vec![0..=20200105])?;
         let mut ct_part = 0;
         for cps in cpss {
             // println!("copa: {:?}", cpi);
@@ -734,7 +761,12 @@ mod unit_tests {
 
         let cids = vec![(1u64, BqlType::UInt(32))]; //faked
         let mut cpss = Vec::new();
-        ps.fill_copainfos_int_by_ptk_range(&mut cpss, tid, &cids, 20200102, 20200103)?;
+        ps.fill_copainfos_int_by_ptk_range(
+            &mut cpss,
+            tid,
+            &cids,
+            vec![20200102..=20200103],
+        )?;
         let mut ct_part = 0;
         for cps in cpss {
             // println!("copa: {:?}", cpi);

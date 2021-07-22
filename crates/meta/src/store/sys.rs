@@ -306,9 +306,9 @@ impl MetaStore {
 
     pub fn get_columns_by_qtn(
         &self,
-        qtn: &String,
+        qtn: &str,
     ) -> MetaResult<Vec<(String, u64, ColumnInfo)>> {
-        let cnp = to_qualified_key!(qtn.as_str(), "");
+        let cnp = to_qualified_key!(qtn, "");
         self._get_columns(&cnp)
     }
 

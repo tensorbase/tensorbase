@@ -806,7 +806,7 @@ impl<'a> BaseMgmtSys<'a> {
         }
         let p = ps.remove(0);
         log::debug!("successfully parsed command: {} ", cmds);
-        let p = seek_to_sub_cmd(&mut p.into_inner())
+        let p = seek_to_sub_cmd(p.into_inner())
             .map_err(|e| BaseRtError::WrappingLangError(e))?;
         Ok(p)
     }
