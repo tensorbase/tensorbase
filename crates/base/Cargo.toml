@@ -19,6 +19,7 @@ chrono-tz = "0.5"
 serde = "1.0"
 serde_derive = "1.0"
 rand = "0.8"
+fasteval = "0.2.4"
 
 [dev-dependencies]
 anyhow = "1.0"
