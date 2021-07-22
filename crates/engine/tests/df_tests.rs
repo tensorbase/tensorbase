@@ -77,7 +77,7 @@ fn init_copas2(cis: Vec<(Id, BqlType)>) -> Vec<Vec<CoPaInfo>> {
     let ps = PartStore::new(&[parts_dir], dd).unwrap();
     // ps.pretty_print().unwrap();
     let mut copas = Vec::new();
-    ps.fill_copainfos_int_by_ptk_range(&mut copas, TID, &cis, 0, u64::MAX)
+    ps.fill_copainfos_int_by_ptk_range(&mut copas, TID, &cis, vec![0..=u64::MAX])
         .unwrap();
     copas
 }

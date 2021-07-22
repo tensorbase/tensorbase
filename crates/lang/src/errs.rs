@@ -26,6 +26,9 @@ pub enum LangError {
     WrappingMetaError(#[from] meta::errs::MetaError),
 
     #[error(transparent)]
+    WrappingBaseError(#[from] base::errs::BaseError),
+
+    #[error(transparent)]
     WrappingParseIntError(#[from] ParseIntError),
 
     #[error(transparent)]
@@ -48,4 +51,10 @@ pub enum LangError {
 
     #[error("Fail to unwrap")]
     FailToUnwrap,
+
+    #[error("Unsupported partition key expr parsing")]
+    PartitionKeyExprParsingUnsupported,
+
+    #[error("Conflict condition when partition key pxpr parsing")]
+    PartitionKeyExprParsingConflict,
 }

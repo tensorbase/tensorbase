@@ -13,7 +13,7 @@ use arrow::{
     record_batch::RecordBatch,
 };
 use datafusion::{datasource::MemTable, error::Result, prelude::ExecutionContext};
-use lang::parse::TablesContext;
+use lang::parse::{parse_where, TablesContext};
 use meta::{
     store::{
         parts::{CoPaInfo, PartStore},
@@ -71,19 +71,51 @@ pub(crate) fn run(
     let cols = tctx.cols;
     for tab in tabs {
         let qn1 = [current_db, &tab].join(".");
-        let qtn = if tab.contains('.') { &tab } else { &qn1 };
+        let qtn = if tab.contains('.') { tab } else { &qn1 };
         let tid = ms.tid_by_qname(&qtn).ok_or(EngineError::TableNotExist)?;
+        //parts pruning
+        let ptk_range = match ms.get_table_info_partition_cols(tid)? {
+            Some(iv) => {
+                let ptc = unsafe { std::str::from_utf8_unchecked(&*iv) };
+                let pc = if ptc.ends_with(",") {
+                    &ptc[..ptc.len() - 1]
+                } else {
+                    &ptc
+                };
+                log::debug!("--- pc: {:?}", pc);
+                if (&cols).contains(pc) {
+                    match ms.get_table_info_partition_keys_expr(tid)? {
+                        Some(iv) => {
+                            let ptk_expr = unsafe { std::str::from_utf8_unchecked(&*iv) };
+                            log::debug!("ptk_expr: {:?}", ptk_expr);
+                            parse_where(tctx.where_str, ptk_expr)?
+                        }
+                        None => {
+                            vec![0..=u64::MAX]
+                        }
+                    }
+                } else {
+                    vec![0..=u64::MAX]
+                }
+            }
+            _ => vec![0..=u64::MAX],
+        };
+        log::debug!("ptk_range: {:?}", ptk_range);
+        if ptk_range.len() == 0 {
+            return Ok(Vec::<RecordBatch>::new());
+        }
+
         // *cid, ci.data_type
         let mut cis = Vec::new();
         let mut fields = Vec::new();
         if cols.len() != 0 && !tctx.has_select_all {
-            for cn in &cols {
+            for cn in cols.iter() {
                 let qcn = if cn.contains('.') {
                     // ms.cid_by_qname(&cn).ok_or(EngineError::ColumnNotExist)?
                     //FIXME for t.c, not work for db.t.c
                     [current_db, cn].join(".")
                 } else {
-                    [qtn, cn.as_str()].join(".")
+                    [qtn, cn].join(".")
                 };
                 if qcn.contains(qtn) {
                     if let Some(cid) = ms.cid_by_qname(&qcn) {
@@ -129,7 +161,7 @@ pub(crate) fn run(
         let schema = Arc::new(Schema::new(fields));
         let copasss = &mut qs.copasss;
         let mut copass = Vec::new();
-        ps.fill_copainfos_int_by_ptk_range(&mut copass, tid, &cis, 0, u64::MAX)?;
+        ps.fill_copainfos_int_by_ptk_range(&mut copass, tid, &cis, ptk_range)?;
         if copass.len() == 0 {
             return Err(EngineError::UnexpectedDataLoadingError);
         }
@@ -140,7 +172,7 @@ pub(crate) fn run(
             tid,
         );
 
-        setup_tables(tab.as_str(), schema, &mut ctx, &cis, &copass)?;
+        setup_tables(tab, schema, &mut ctx, &cis, &copass)?;
 
         copasss.push(copass);
     }

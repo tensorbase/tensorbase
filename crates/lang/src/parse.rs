@@ -3,11 +3,14 @@
  *   All rights reserved.
  */
 
+use base::eval::eval_literal_u64;
 use meta::types::{BqlType, ColumnInfo, EngineType, Table};
 pub use pest::iterators::Pair;
 pub use pest::iterators::Pairs;
 use std::collections::HashSet;
 use std::net::IpAddr;
+use std::ops::RangeInclusive;
+use std::vec;
 
 pub(crate) use pest::Parser;
 use pest_derive::Parser;
@@ -24,6 +27,10 @@ pub fn pretty_parse_tree(pairs: Pairs<Rule>) -> String {
     let lines: Vec<_> = pairs.map(|pair| format_pair(pair, 0, true)).collect();
     let lines = lines.join("\n");
     return lines.to_string();
+}
+
+pub fn pretty_parse_pair(pair: Pair<Rule>) -> String {
+    format_pair(pair, 0, true)
 }
 
 fn format_pair(pair: Pair<Rule>, indent_level: usize, is_newline: bool) -> String {
@@ -436,32 +443,36 @@ pub fn parse_create_table(pair: Pair<Rule>) -> LangResult<(Table, bool)> {
     Ok((ctx.tab, ctx.fallible))
 }
 
-#[derive(Debug)]
-pub struct TablesContext {
-    pub tabs: HashSet<String>,
-    pub cols: HashSet<String>,
+#[derive(Debug, Default)]
+pub struct TablesContext<'a> {
+    pub tabs: HashSet<&'a str>,
+    pub cols: HashSet<&'a str>,
     pub has_count_all: bool,
     pub has_select_all: bool,
+    pub where_str: &'a str,
 }
 
-impl TablesContext {
-    fn parse(&mut self, pair: Pair<Rule>) -> LangResult<()> {
+impl<'a> TablesContext<'a> {
+    fn parse(&mut self, pair: Pair<'a, Rule>) -> LangResult<()> {
         let r = pair.as_rule();
         for p in pair.clone().into_inner() {
             self.parse(p)?;
         }
         match r {
             Rule::qualified_table_name => {
-                self.tabs.insert(pair.as_str().trim().to_owned());
+                self.tabs.insert(pair.as_str().trim());
             }
             Rule::qualified_name => {
-                self.cols.insert(pair.as_str().trim().to_owned());
+                self.cols.insert(pair.as_str().trim());
             }
             Rule::select_column_all => {
                 self.has_select_all = true;
             }
             Rule::count_tuple_expr => {
                 self.has_count_all = true;
+            }
+            Rule::where_clause => {
+                self.where_str = pair.as_str().trim();
             }
             _ => {}
         }
@@ -472,10 +483,7 @@ impl TablesContext {
 
 pub fn parse_tables(pair: Pair<Rule>) -> LangResult<TablesContext> {
     let mut ctx = TablesContext {
-        tabs: Default::default(),
-        cols: Default::default(),
-        has_count_all: false,
-        has_select_all: false,
+        ..Default::default()
     };
     ctx.parse(pair)?;
     // println!("{:?}", ctx.tables);
@@ -483,15 +491,191 @@ pub fn parse_tables(pair: Pair<Rule>) -> LangResult<TablesContext> {
     Ok(ctx)
 }
 
+#[derive(Debug, Default)]
+struct ParseWhereContext<'a> {
+    pub ptk_expr: &'a str,
+    pub ptk_ranges: Vec<RangeInclusive<u64>>,
+    pub op: &'a str,
+    // pub state: ParseWhereState,
+    pub ptk_hit: bool,
+    pub depth: u8,
+}
+
+// #[derive(Debug)]
+// enum ParseWhereState {
+//     InTopAnd,
+//     InTopOr,
+// }
+
+impl<'a> ParseWhereContext<'a> {
+    pub fn parse(&mut self, pair: Pair<'a, Rule>) -> LangResult<()> {
+        let r = pair.as_rule();
+        match r {
+            Rule::logical_val => self.depth += 1,
+            _ => {}
+        }
+        for p in pair.clone().into_inner() {
+            self.parse(p)?;
+        }
+        match r {
+            Rule::logical_val => self.depth -= 1,
+            Rule::les_or_op => return Err(LangError::PartitionKeyExprParsingUnsupported),
+            Rule::comp_expr_cmp_operand => {
+                if self.depth <= 1 {
+                    if self.ptk_expr == pair.as_str().trim() {
+                        self.ptk_hit = true;
+                    } else {
+                        if self.ptk_hit == true {
+                            let e = pair.as_str().trim();
+                            let p = eval_literal_u64(e)?;
+                            match self.op {
+                                "=" => match self.ptk_ranges.len() {
+                                    0 => self.ptk_ranges.push(p..=p),
+                                    _ => {
+                                        if self.ptk_ranges.iter().all(|r| !r.contains(&p))
+                                        {
+                                            return Err(
+                                            LangError::PartitionKeyExprParsingConflict,
+                                        );
+                                        }
+                                    }
+                                },
+                                "<>" => match self.ptk_ranges.len() {
+                                    0 => {
+                                        self.ptk_ranges.push(0..=p - 1);
+                                        self.ptk_ranges.push(p + 1..=u64::MAX);
+                                    }
+                                    _ => {
+                                        let mut v = vec![];
+                                        self.ptk_ranges.retain(|r| {
+                                            let b = r.contains(&p);
+                                            if b {
+                                                v = vec![
+                                                    *r.start()..=p - 1,
+                                                    p + 1..=*r.end(),
+                                                ];
+                                            }
+                                            !b
+                                        });
+                                        if v.len() > 0 {
+                                            self.ptk_ranges.extend(v);
+                                        }
+                                    }
+                                },
+                                op @ ">" | op @ ">=" => {
+                                    let optrick = op.len() as u64 - 1;
+                                    match self.ptk_ranges.len() {
+                                        0 => self
+                                            .ptk_ranges
+                                            .push(p + 1 - optrick..=u64::MAX),
+                                        len @ _ => {
+                                            let mut conflicted_ct = 0;
+                                            let mut v = vec![];
+                                            self.ptk_ranges.retain(|r| {
+                                                let b = r.contains(&p);
+                                                if b {
+                                                    v.push(p + 1 - optrick..=*r.end());
+                                                    false
+                                                } else if *r.end() <= p - optrick {
+                                                    conflicted_ct += 1;
+                                                    false
+                                                } else {
+                                                    true
+                                                }
+                                            });
+                                            if conflicted_ct == len {
+                                                return Err(LangError::PartitionKeyExprParsingConflict);
+                                            }
+                                            if v.len() > 0 {
+                                                self.ptk_ranges.extend(v);
+                                            }
+                                        }
+                                    }
+                                }
+                                op @ "<" | op @ "<=" => {
+                                    let optrick = op.len() as u64 - 1;
+                                    match self.ptk_ranges.len() {
+                                        0 => self.ptk_ranges.push(0..=p - 1 + optrick),
+                                        len @ _ => {
+                                            let mut conflicted_ct = 0;
+                                            let mut v = vec![];
+                                            self.ptk_ranges.retain(|r| {
+                                                let b = r.contains(&p);
+                                                if b {
+                                                    v.push(*r.start()..=p - 1 + optrick);
+                                                    false
+                                                } else if *r.start() <= p + optrick {
+                                                    conflicted_ct += 1;
+                                                    false
+                                                } else {
+                                                    true
+                                                }
+                                            });
+                                            if conflicted_ct == len {
+                                                return Err(LangError::PartitionKeyExprParsingConflict);
+                                            }
+                                            if v.len() > 0 {
+                                                self.ptk_ranges.extend(v);
+                                            }
+                                        }
+                                    }
+                                }
+                                _ => {
+                                    return Err(
+                                        LangError::PartitionKeyExprParsingUnsupported,
+                                    )
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    return Err(LangError::PartitionKeyExprParsingUnsupported);
+                }
+            }
+            Rule::comp_op => self.op = pair.as_str().trim(),
+            _ => {}
+        }
+
+        Ok(())
+    }
+}
+
+pub fn parse_where(
+    where_str: &str,
+    ptk_expr: &str,
+) -> LangResult<Vec<RangeInclusive<u64>>> {
+    let ps: Pairs<Rule> = BqlParser::parse(Rule::where_clause, where_str)
+        .map_err(|e| LangError::ASTError(e.to_string()))?;
+    let pair = seek_to(ps, Rule::where_clause).ok_or(LangError::FailToUnwrap)?;
+    let mut ctx = ParseWhereContext {
+        ptk_expr,
+        ..Default::default()
+    };
+    // println!("{:?}", ctx);
+    match ctx.parse(pair) {
+        Ok(_) => {
+            if ctx.ptk_ranges.iter().any(|r| r.start() > r.end()) {
+                Ok(vec![])
+            } else {
+                Ok(ctx.ptk_ranges)
+            }
+        }
+        Err(LangError::PartitionKeyExprParsingUnsupported) => Ok(vec![0..=u64::MAX]),
+        Err(LangError::PartitionKeyExprParsingConflict) => Ok(vec![]),
+        Err(e) => {
+            unreachable!("should not happen in parse_where")
+        }
+    }
+}
+
 pub fn parse_system_numbers_table(tab: &str) -> LangResult<(i64, i64)> {
-    let mut ps: Pairs<Rule> = BqlParser::parse(Rule::qualified_table_name, tab)
+    let ps: Pairs<Rule> = BqlParser::parse(Rule::qualified_table_name, tab)
         .map_err(|e| LangError::ASTError(e.to_string()))?;
     // println!("{}", pretty_parse_tree(ps.clone()));
-    let p =
-        seek_to(&mut ps, Rule::qualified_table_name).ok_or(LangError::FailToUnwrap)?;
-    let table_name = seek_to(&mut p.into_inner(), Rule::table_name);
+    let p = seek_to(ps, Rule::qualified_table_name).ok_or(LangError::FailToUnwrap)?;
+    let table_name = seek_to(p.into_inner(), Rule::table_name);
     let inner = table_name.ok_or(LangError::UnsupportedSystemNumbersNamingFormatError)?;
-    let numbers = seek_to(&mut inner.into_inner(), Rule::table_name_numbers)
+    let numbers = seek_to(inner.into_inner(), Rule::table_name_numbers)
         .ok_or(LangError::UnsupportedSystemNumbersNamingFormatError)?;
     let mut nums = numbers.into_inner();
     if let Some(a) = nums.next() {
@@ -531,20 +715,46 @@ pub fn parse_command(cmds: &str) -> LangResult<Pairs<Rule>> {
     Ok(ps)
 }
 
-pub fn seek_to_sub_cmd<'a>(pairs: &mut Pairs<'a, Rule>) -> LangResult<Pair<'a, Rule>> {
+pub fn seek_to_sub_cmd<'a>(pairs: Pairs<'a, Rule>) -> LangResult<Pair<'a, Rule>> {
     let p = seek_to(pairs, Rule::cmd).ok_or(LangError::FailToUnwrap)?;
     p.into_inner().next().ok_or(LangError::FailToUnwrap)
 }
 
 /// Seek to given rule in a sequence of pairs.
-fn seek_to<'a, R: pest::RuleType>(
-    pairs: &mut Pairs<'a, R>,
+fn seek_to<'a, R: pest::RuleType>(pairs: Pairs<'a, R>, to: R) -> Option<Pair<'a, R>> {
+    for p in pairs {
+        let r = p.as_rule();
+        if r == to {
+            return Some(p);
+        }
+    }
+    None
+}
+
+#[inline(always)]
+fn is_leaf_pair<'a, R: pest::RuleType>(pair: Pair<'a, R>) -> bool {
+    pair.into_inner().next().is_none()
+}
+
+/// Seek to given rule in a sequence of pairs.
+fn seek_to_tree<'a, R: pest::RuleType>(
+    pairs: Pairs<'a, R>,
     to: R,
 ) -> Option<Pair<'a, R>> {
     for p in pairs {
         let r = p.as_rule();
         if r == to {
             return Some(p);
+        }
+        if is_leaf_pair(p.clone()) {
+            continue;
+        } else {
+            let stt = seek_to_tree(p.clone().into_inner(), to);
+            if stt.is_none() {
+                continue;
+            } else {
+                return stt;
+            }
         }
     }
     None
@@ -929,9 +1139,9 @@ SELECT * FROM domain
 WHERE domain_ID IN (SELECT domain_ID FROM domain_setting)
 LIMIT 100;
 "#;
-        let mut queries =
+        let queries =
             BqlParser::parse(Rule::query, sql).unwrap_or_else(|e| panic!("{}", e));
-        let limit = seek_to(&mut queries, Rule::limit);
+        let limit = seek_to(queries.clone(), Rule::limit);
         println!("{:?}", queries);
     }
 
@@ -1138,6 +1348,10 @@ LIMIT 100;
     }
 
     mod bql {
+        use std::{collections::HashSet, ops::RangeInclusive};
+
+        use crate::parse::{parse_where, pretty_parse_pair, seek_to, seek_to_tree};
+
         use super::{pretty_parse_tree, BqlParser, Rule};
         use pest::Parser;
 
@@ -1528,6 +1742,100 @@ CREATE TABLE test (col Int32)";
             //- logical_expr > logical_val > comp_expr
             //   - expr > arith_expr > arith_expr_item > qualified_name > id: "x"
             //   - expr > arith_expr > arith_expr_item > qualified_name > id: "y"
+        }
+
+        #[test]
+        fn test_parse_where() {
+            use std::iter::FromIterator;
+            // let c = "where (a>0 and a<100) or (a> 200)";
+            // let c = "where (a>0 and a<100)";
+            // let c = "where a>0";
+            // let pairs = BqlParser::parse(Rule::where_clause, c)
+            //     .unwrap_or_else(|e| panic!("{}", e));
+            // println!("{}", pretty_parse_tree(pairs.clone()));
+            // let alewo = seek_to_tree(pairs, Rule::and_logical_val);
+            // println!("\n{}", pretty_parse_pair(alewo.unwrap()));
+
+            // let c = "where a>0 or a>100";
+            // let r = parse_where(c, "a").unwrap();
+            // println!("{:?}", r);
+            // assert_eq!(r, vec![0..=u64::MAX]);
+
+            let c = "where a>0 and a>100";
+            let r = parse_where(c, "a").unwrap();
+            assert_eq!(r, vec![101..=u64::MAX]);
+
+            let c = "where a>0 and a>100 and a<1000";
+            let r = parse_where(c, "a").unwrap();
+            assert_eq!(r, vec![101..=999]);
+
+            let c = "where a>0 and a>100 and a<1000 and a<101";
+            let r = parse_where(c, "a").unwrap();
+            assert_eq!(r, vec![]);
+
+            let c = "where a<100 and a>100";
+            let r = parse_where(c, "a").unwrap();
+            assert_eq!(r, vec![]);
+
+            let c = "where a<>100 and a>100";
+            let r = parse_where(c, "a").unwrap();
+            assert_eq!(r, vec![101..=u64::MAX]);
+
+            let c = "where a<>100 and a>10 ";
+            let r = parse_where(c, "a").unwrap();
+            assert_eq!(
+                r.into_iter().collect::<HashSet<_>>(),
+                vec![11..=99, 101..=u64::MAX].into_iter().collect::<HashSet<_>>()
+            );
+
+            let c = "where a<>100 and a<>10 ";
+            let r = parse_where(c, "a").unwrap();
+            assert_eq!(
+                r.into_iter().collect::<HashSet<_>>(),
+                vec![0..=9, 11..=99, 101..=u64::MAX].into_iter().collect::<HashSet<_>>()
+            );
+
+            let c = "where toYear(a)>2001 and toYear(a)<2021 ";
+            let r = parse_where(c, "toYear(a)").unwrap();
+            assert_eq!(
+                r.into_iter().collect::<HashSet<_>>(),
+                vec![2002..=2020].into_iter().collect::<HashSet<_>>()
+            );
+
+            let c = "where toYear(a)>=2001 and toYear(a)<=2021 ";
+            let r = parse_where(c, "toYear(a)").unwrap();
+            assert_eq!(
+                r.into_iter().collect::<HashSet<_>>(),
+                vec![2001..=2021].into_iter().collect::<HashSet<_>>()
+            );
+
+            let c = "where toYear(a)>=2001 and toYear(a)<2001 ";
+            let r = parse_where(c, "toYear(a)").unwrap();
+            assert_eq!(
+                r.into_iter().collect::<HashSet<_>>(),
+                vec![].into_iter().collect::<HashSet<_>>()
+            );
+
+            let c = "where toYear(a)=2001 and toYear(a)=2021 ";
+            let r = parse_where(c, "toYear(a)").unwrap();
+            assert_eq!(
+                r.into_iter().collect::<HashSet<_>>(),
+                vec![].into_iter().collect::<HashSet<_>>()
+            );
+
+            let c = "where b='2001-01-01' ";
+            let r = parse_where(c, "toYear(a)").unwrap();
+            assert_eq!(
+                r.into_iter().collect::<HashSet<_>>(),
+                vec![].into_iter().collect::<HashSet<_>>()
+            );
+
+            let c = "where toYYYY(pickup_datetime)=1970";
+            let r = parse_where(c, "toYYYY(pickup_datetime)").unwrap();
+            assert_eq!(
+                r.into_iter().collect::<HashSet<_>>(),
+                vec![1970..=1970].into_iter().collect::<HashSet<_>>()
+            );
         }
 
         #[test]
