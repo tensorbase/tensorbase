@@ -10,13 +10,13 @@ fn integ_test_timing() {
         thread::sleep(ten_millis);
     }
     println!("t0: {:?}", t0.elapsed());
-    assert!((t0.elapsed() - ten_millis) < time::Duration::from_millis(1));
+    assert!((t0.elapsed() - ten_millis) < time::Duration::from_millis(5));
 
     with_timer_print! {t1,
         thread::sleep(ten_millis);
         thread::sleep(ten_millis);
     }
-    assert!((t1.elapsed() - ten_millis - ten_millis) < time::Duration::from_millis(1));
+    assert!((t1.elapsed() - ten_millis - ten_millis) < time::Duration::from_millis(5));
 }
 
 #[test]
