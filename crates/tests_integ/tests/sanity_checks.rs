@@ -1118,6 +1118,38 @@ async fn tests_integ_select_all() -> errors::Result<()> {
     Ok(())
 }
 
+#[tokio::test]
+async fn tests_integ_partition_prune() -> errors::Result<()> {
+    let pool = get_pool();
+    let mut conn = pool.connection().await?;
+
+    conn.execute("create database if not exists test_db")
+        .await?;
+    conn.execute("use test_db").await?;
+
+    conn.execute(format!("drop table if exists test1_tab"))
+        .await?;
+    conn.execute(format!(
+        "create table test1_tab(a UInt64, b UInt64) engine=BaseStorage partition by a"
+    ))
+    .await?;
+    conn.execute(format!("insert into test1_tab values(1,1),(2,2)"))
+        .await?;
+
+    {
+        let sql = "select a from test1_tab where b = 1";
+        let mut query_result = conn.query(sql).await?;
+
+        while let Some(block) = query_result.next().await? {
+            let cnt = block.row_count();
+            assert_eq!(cnt, 1);
+        }
+    }
+
+    conn.execute("drop database if exists test_db").await?;
+    Ok(())
+}
+
 // #[tokio::test]
 // async fn test_insert_large_block() -> errors::Result<()> {
 //     let pool = get_pool();
