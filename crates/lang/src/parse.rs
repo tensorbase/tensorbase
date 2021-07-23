@@ -657,6 +657,8 @@ pub fn parse_where(
         Ok(_) => {
             if ctx.ptk_ranges.iter().any(|r| r.start() > r.end()) {
                 Ok(vec![])
+            } else if ctx.ptk_ranges.len() == 0 {
+                Ok(vec![0..=u64::MAX])
             } else {
                 Ok(ctx.ptk_ranges)
             }
@@ -1820,7 +1822,7 @@ CREATE TABLE test (col Int32)";
             let r = parse_where(c, "toYear(a)").unwrap();
             assert_eq!(
                 r.into_iter().collect::<HashSet<_>>(),
-                vec![].into_iter().collect::<HashSet<_>>()
+                vec![0..=u64::MAX].into_iter().collect::<HashSet<_>>()
             );
 
             let c = "where toYYYY(pickup_datetime)=1970";
