@@ -3,6 +3,7 @@
  *   All rights reserved.
  */
 
+use base::errs::BaseError;
 use base::eval::eval_literal_u64;
 use meta::types::{BqlType, ColumnInfo, EngineType, Table};
 pub use pest::iterators::Pair;
@@ -660,7 +661,10 @@ pub fn parse_where(
                 Ok(ctx.ptk_ranges)
             }
         }
-        Err(LangError::PartitionKeyExprParsingUnsupported) => Ok(vec![0..=u64::MAX]),
+        Err(LangError::PartitionKeyExprParsingUnsupported)
+        | Err(LangError::WrappingBaseError(BaseError::CanotEval)) => {
+            Ok(vec![0..=u64::MAX])
+        }
         Err(LangError::PartitionKeyExprParsingConflict) => Ok(vec![]),
         Err(e) => {
             unreachable!("should not happen in parse_where")
@@ -1746,21 +1750,6 @@ CREATE TABLE test (col Int32)";
 
         #[test]
         fn test_parse_where() {
-            use std::iter::FromIterator;
-            // let c = "where (a>0 and a<100) or (a> 200)";
-            // let c = "where (a>0 and a<100)";
-            // let c = "where a>0";
-            // let pairs = BqlParser::parse(Rule::where_clause, c)
-            //     .unwrap_or_else(|e| panic!("{}", e));
-            // println!("{}", pretty_parse_tree(pairs.clone()));
-            // let alewo = seek_to_tree(pairs, Rule::and_logical_val);
-            // println!("\n{}", pretty_parse_pair(alewo.unwrap()));
-
-            // let c = "where a>0 or a>100";
-            // let r = parse_where(c, "a").unwrap();
-            // println!("{:?}", r);
-            // assert_eq!(r, vec![0..=u64::MAX]);
-
             let c = "where a>0 and a>100";
             let r = parse_where(c, "a").unwrap();
             assert_eq!(r, vec![101..=u64::MAX]);
@@ -1839,6 +1828,20 @@ CREATE TABLE test (col Int32)";
             assert_eq!(
                 r.into_iter().collect::<HashSet<_>>(),
                 vec![1970..=1970].into_iter().collect::<HashSet<_>>()
+            );
+
+            let c = "where toYYYY(pickup_datetime)=123*456-789";
+            let r = parse_where(c, "toYYYY(pickup_datetime)").unwrap();
+            assert_eq!(
+                r.into_iter().collect::<HashSet<_>>(),
+                vec![55299..=55299].into_iter().collect::<HashSet<_>>()
+            );
+
+            let c = "where toYYYY(pickup_datetime)=123*a-789";
+            let r = parse_where(c, "toYYYY(pickup_datetime)").unwrap();
+            assert_eq!(
+                r.into_iter().collect::<HashSet<_>>(),
+                vec![0..=u64::MAX].into_iter().collect::<HashSet<_>>()
             );
         }
 
