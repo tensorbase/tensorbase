@@ -541,7 +541,7 @@ impl<'a> ParseWhereContext<'a> {
                                         }
                                     }
                                 },
-                                "<>" => match self.ptk_ranges.len() {
+                                op @ "<>" | op @ "!=" => match self.ptk_ranges.len() {
                                     0 => {
                                         self.ptk_ranges.push(0..=p - 1);
                                         self.ptk_ranges.push(p + 1..=u64::MAX);

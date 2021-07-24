@@ -162,19 +162,20 @@ pub(crate) fn run(
         let copasss = &mut qs.copasss;
         let mut copass = Vec::new();
         ps.fill_copainfos_int_by_ptk_range(&mut copass, tid, &cis, ptk_range)?;
-        if copass.len() == 0 {
-            return Err(EngineError::UnexpectedDataLoadingError);
+        if copass.len() > 0 {
+            log::debug!(
+                "got {} copas, with {} copa per copas for {}",
+                copass.len(),
+                copass[0].len(),
+                tid,
+            );
+            setup_tables(tab, schema, &mut ctx, &cis, &copass)?;
+            copasss.push(copass);
         }
-        log::debug!(
-            "got {} copas, with {} copa per copas for {}",
-            copass.len(),
-            copass[0].len(),
-            tid,
-        );
-
-        setup_tables(tab, schema, &mut ctx, &cis, &copass)?;
-
-        copasss.push(copass);
+    }
+    if qs.copasss.len() == 0 {
+        let res: Vec<RecordBatch> = Vec::new();
+        return Ok(res);
     }
     // log::info!("query setup runtime(ms): {}", t.elapsed().as_millis());
 
