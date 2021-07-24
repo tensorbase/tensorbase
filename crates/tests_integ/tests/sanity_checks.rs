@@ -819,17 +819,18 @@ async fn tests_integ_select_remote_function() -> errors::Result<()> {
     insert.commit().await?;
 
     drop(insert);
-    let dates = [
-        Utc.ymd(2010, 1, 1).and_hms(0, 0, 0),
-        Utc.ymd(2011, 2, 28).and_hms(0, 0, 0),
-        Utc.ymd(2012, 2, 29).and_hms(0, 0, 0),
+    let dates = vec![
+        NaiveDate::from_ymd(2010, 1, 1).and_hms(1, 1, 1),
+        NaiveDate::from_ymd(2011, 2, 28).and_hms(2, 5, 6),
+        NaiveDate::from_ymd(2012, 2, 29).and_hms(23, 59, 59),
     ];
+    let dates = apply_offset(&dates, FixedOffset::west(11 * 3600 + 45 * 60));
     let data = vec![1, 2, 3];
     let data_i = vec!["abc", "efg", "hello world"];
 
     {
         let sql =
-            "select a,b,c,d,e,f,h,i,j from remote('127.0.0.1:9528', test_remote_func)";
+            "select a,b,c,d,i,j from remote('127.0.0.1:9528', test_remote_func)";
         let mut query_result = conn.query(sql).await?;
 
         while let Some(block) = query_result.next().await? {
