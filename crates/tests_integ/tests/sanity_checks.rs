@@ -1153,10 +1153,10 @@ async fn tests_integ_partition_prune() -> errors::Result<()> {
     ))
     .await?;
 
-    conn.execute(format!("insert into test1_tab values(1,1),(2,2)"))
+    conn.execute(format!("insert into test2_tab values(1,1),(2,2)"))
         .await?;
     {
-        let sql = "select * from test2_tab where toYear(a)<>1";
+        let sql = "select * from test2_tab where a<>1";
         let mut query_result = conn.query(sql).await?;
 
         while let Some(block) = query_result.next().await? {
