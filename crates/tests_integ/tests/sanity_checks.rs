@@ -829,8 +829,7 @@ async fn tests_integ_select_remote_function() -> errors::Result<()> {
     let data_i = vec!["abc", "efg", "hello world"];
 
     {
-        let sql =
-            "select a,b,c,d,i,j from remote('127.0.0.1:9528', test_remote_func)";
+        let sql = "select a,b,c,d,i,j from remote('127.0.0.1:9528', test_remote_func)";
         let mut query_result = conn.query(sql).await?;
 
         while let Some(block) = query_result.next().await? {
@@ -1162,7 +1161,7 @@ async fn tests_integ_partition_prune() -> errors::Result<()> {
 
         while let Some(block) = query_result.next().await? {
             let cnt = block.row_count();
-            println!("cnt:{}",cnt);
+            println!("cnt:{}", cnt);
             assert_eq!(cnt, 1);
         }
     }
