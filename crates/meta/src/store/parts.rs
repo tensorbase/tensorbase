@@ -360,7 +360,6 @@ impl<'a> PartStore<'a> {
         for res in it {
             if let Ok((kbs, _v)) = res {
                 let (_, ptk_be) = *(&*kbs).into_ref::<(u64, u64)>();
-                //
                 let k = (tid.to_be(), ptk_be);
                 let kbs = k.as_bytes();
                 let ptk = ptk_be.to_be();
@@ -398,7 +397,9 @@ impl<'a> PartStore<'a> {
                 return Err(MetaError::GetPartInfoError);
             }
         }
-        copass_ret.push(cps);
+        if cps.len() > 0 {
+            copass_ret.push(cps);
+        }
         Ok(())
     }
 

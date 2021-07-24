@@ -1146,6 +1146,26 @@ async fn tests_integ_partition_prune() -> errors::Result<()> {
         }
     }
 
+    conn.execute(format!("drop table if exists test2_tab"))
+        .await?;
+    conn.execute(format!(
+        "create table test2_tab (a UInt32, b UInt32) engine=BaseStorage partition by a"
+    ))
+    .await?;
+
+    conn.execute(format!("insert into test1_tab values(1,1),(2,2)"))
+        .await?;
+    {
+        let sql = "select * from test2_tab where toYear(a)<>1";
+        let mut query_result = conn.query(sql).await?;
+
+        while let Some(block) = query_result.next().await? {
+            let cnt = block.row_count();
+            println!("cnt:{}",cnt);
+            assert_eq!(cnt, 1);
+        }
+    }
+
     conn.execute("drop database if exists test_db").await?;
     Ok(())
 }
