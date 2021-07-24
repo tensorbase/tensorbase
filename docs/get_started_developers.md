@@ -38,12 +38,12 @@ The development of TensorBase is same to the idiom of Rust engineering.
 
 5. connect to the TensorBase server with clickhouse-client like this:
 
-        clickhouse-client --port 9528 -n
-        
+        ```clickhouse-client --port 9528``` or ```clickhouse-client --port 9528 -n```
+    
     NOTE:
 
     `--port` – Here 9528 is the default port of TensorBase.
-    `--multiquery`, `-n` – If specified, allow processing multiple queries separated by semicolons.
+    `--multiquery`, `-n` – If specified, allow processing multiple queries separated by semicolons. (So, it may be slightly quicker than multiple statements.)
 
 6. execute query like this:
 
