@@ -38,16 +38,21 @@ The development of TensorBase is same to the idiom of Rust engineering.
 
 5. connect to the TensorBase server with clickhouse-client like this:
 
-        clickhouse-client --port 9528
+        clickhouse-client --port 9528 -n
         
-    NOTE: here 9528 is the default port of TensorBase
+    NOTE:
+
+    `--port` – Here 9528 is the default port of TensorBase.
+    `--multiquery`, `-n` – If specified, allow processing multiple queries separated by semicolons.
 
 6. execute query like this:
 
-        create table employees (id UInt64, salary UInt64) ENGINE = BaseStorage
-        insert into employees values (0, 1000), (1, 1500)
-        select count(id) from employees
-        select avg(salary) from employees
+        ```sql
+        create table employees (id UInt64, salary UInt64) ENGINE = BaseStorage;
+        insert into employees values (0, 1000), (1, 1500);
+        select count(id) from employees;
+        select avg(salary) from employees;
+        ```
 
 7. more supported statements could be seen [here](/docs/lang.md).
 
