@@ -12,6 +12,7 @@ use arrow::{
     ffi::FFI_ArrowArray,
     record_batch::RecordBatch,
 };
+use base::contract;
 use datafusion::{datasource::MemTable, error::Result, prelude::ExecutionContext};
 use lang::parse::{parse_where, TablesContext};
 use meta::{
@@ -197,6 +198,10 @@ fn setup_tables(
     cis: &Vec<(Id, BqlType)>,
     copass: &Vec<Vec<CoPaInfo>>,
 ) -> EngineResult<()> {
+    contract!(copass.len() > 0, "copass should not be empty");
+    for cps in copass {
+        contract!(cps.len() == copass[0].len(), "copas length should be equal");
+    }
     let nc = copass.len();
     let np = copass[0].len();
     let mut batches = Vec::with_capacity(np);
