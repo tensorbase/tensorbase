@@ -199,9 +199,10 @@ fn setup_tables(
     copass: &Vec<Vec<CoPaInfo>>,
 ) -> EngineResult<()> {
     contract!(copass.len() > 0, "copass should not be empty");
-    for cps in copass {
-        contract!(cps.len() == copass[0].len(), "copas length should be equal");
-    }
+    contract!(
+        copass.iter().all(|cps| cps.len() == copass[0].len()),
+        "copas length should be equal"
+    );
     let nc = copass.len();
     let np = copass[0].len();
     let mut batches = Vec::with_capacity(np);
