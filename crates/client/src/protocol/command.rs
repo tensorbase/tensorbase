@@ -150,7 +150,6 @@ impl<'a, R: AsyncRead + Unpin + Send> ResponseStream<'a, R> {
                 return Ok(None);
             }
 
-            log::info!("code[0]: {}", code[0]);
             match code[0] as u64 {
                 SERVER_PONG => {
                     self.clear_pending();
@@ -523,6 +522,7 @@ where
         } else if field.is_lowcardinality() && field.sql_type != SqlType::String {
             return err!(DriverError::UnsupportedType(SqlType::LowCardinality));
         }
+
         // Read DATA
         let col = if block_info.rows == 0 {
             Box::new(()) as Box<dyn AsInColumn>
