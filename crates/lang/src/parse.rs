@@ -2114,6 +2114,13 @@ CREATE TABLE test (col Int32)";
                 r.into_iter().collect::<HashSet<_>>(),
                 vec![1..=1, 10..=10].into_iter().collect::<HashSet<_>>()
             );
+
+            let c = "where a=10 or a=100 or a!=100";
+            let r = parse_where(c, "a").unwrap();
+            assert_eq!(
+                r.into_iter().collect::<HashSet<_>>(),
+                vec![0..=u64::MAX].into_iter().collect::<HashSet<_>>()
+            );
         }
 
         #[test]
