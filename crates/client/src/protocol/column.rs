@@ -18,6 +18,7 @@ use super::value::{
     ValueDate, ValueDateTime, ValueDateTime64, ValueDecimal32, ValueDecimal64, ValueIp4,
     ValueIp6, ValueUuid,
 };
+use crate::protocol::encoder::Encoder;
 
 use super::{Value, ValueRefEnum};
 use crate::errors::{ConversionError, DriverError, Result};
@@ -47,11 +48,17 @@ pub trait AsOutColumn {
 /// Convert received from Clickhouse server data to rust type
 pub trait AsInColumn: Send {
     unsafe fn get_at(&self, index: u64) -> ValueRef<'_>;
+    unsafe fn into_bytes(&mut self) -> Vec<u8>;
 }
+
 /// Default implementation returns `Null` data
 impl AsInColumn for () {
     unsafe fn get_at(&self, _: u64) -> ValueRef<'_> {
         ValueRef { inner: None }
+    }
+
+    unsafe fn into_bytes(&mut self) -> Vec<u8> {
+        vec![]
     }
 }
 
@@ -462,6 +469,11 @@ impl<'a, C: AsInColumn + ?Sized + 'a> AsInColumn for Box<C> {
     unsafe fn get_at(&self, index: u64) -> ValueRef<'_> {
         self.as_ref().get_at(index)
     }
+
+    #[inline]
+    unsafe fn into_bytes(&mut self) -> Vec<u8> {
+        self.as_mut().into_bytes()
+    }
 }
 /// String data is stored in Clickhouse as arbitrary byte sequence.
 /// It's not always possible safely convert it to utf-8 rust string.
@@ -573,6 +585,9 @@ impl<'a, T: Copy + Send + Into<i16>> AsInColumn for EnumColumn<T> {
             inner: Some(ValueRefEnum::Enum(enum_value)),
         }
     }
+    unsafe fn into_bytes(&mut self) -> Vec<u8> {
+        as_bytes_bufer_mut(&mut self.data).to_vec()
+    }
 }
 
 /// Column of sized types that can be represented
@@ -610,17 +625,28 @@ pub(crate) struct FixedNullColumn<T: Sized> {
     nulls: Vec<u8>,
 }
 
-impl<'a, T> AsInColumn for FixedColumn<T>
-where
-    T: Send + Sized + ValueIndex + 'static,
-{
+impl<'a> AsInColumn for FixedColumn<BoxString> {
     unsafe fn get_at(&self, index: u64) -> ValueRef<'_> {
         debug_assert!((index as usize) < self.data.len());
         ValueRef {
             inner: Some(ValueIndex::valueref_at(self.data.as_slice(), index)),
         }
     }
+
+    unsafe fn into_bytes(&mut self) -> Vec<u8> {
+        self.data
+            .iter_mut()
+            .map(|mut val| unsafe {
+                let mut buf = Vec::with_capacity(8 + val.len());
+                let _ = (val.len() as u64).encode(&mut buf);
+                let _ = buf.write(as_bytes_bufer_mut(&mut val));
+                buf
+            })
+            .flatten()
+            .collect()
+    }
 }
+
 /// Borrow mutable reference to an array of
 /// arbitrary type and represent it as an array of bytes.
 /// It's used internally to load array of integer data types from socket stream.
@@ -757,6 +783,10 @@ where
             self.inner.get_at(index)
         }
     }
+
+    unsafe fn into_bytes(&mut self) -> Vec<u8> {
+        as_bytes_bufer_mut(&mut self.inner.data).to_vec()
+    }
 }
 /// Any type that implement ValueIndex trait can be loaded into FixedColumn
 pub(crate) trait ValueIndex: Sized {
@@ -812,20 +842,49 @@ impl_vre_at!(ValueDate, ValueRefEnum::Date);
 impl_vre_at!(ValueDateTime, ValueRefEnum::DateTime);
 impl_vre_at!(ValueDateTime64, ValueRefEnum::DateTime64);
 
-#[allow(unused_macros)]
 macro_rules! impl_fixed_column {
-    ($f:ty,$vr:expr) => {
+    ($f:ty) => {
         impl AsInColumn for FixedColumn<$f> {
             unsafe fn get_at(&self, index: u64) -> ValueRef<'_> {
                 debug_assert!((index as usize) < self.data.len());
-                let vr = self.data.get_unchecked(index as usize);
                 ValueRef {
-                    inner: Some($vr(*vr)),
+                    inner: Some(ValueIndex::valueref_at(self.data.as_slice(), index)),
                 }
+            }
+            unsafe fn into_bytes(&mut self) -> Vec<u8> {
+                as_bytes_bufer_mut(&mut self.data).to_vec()
             }
         }
     };
 }
+
+impl_fixed_column!(u8);
+impl_fixed_column!(i8);
+impl_fixed_column!(u16);
+impl_fixed_column!(i16);
+impl_fixed_column!(u32);
+impl_fixed_column!(i32);
+impl_fixed_column!(u64);
+impl_fixed_column!(i64);
+#[cfg(feature = "int128")]
+impl_fixed_column!(u128);
+
+impl_fixed_column!(f32);
+impl_fixed_column!(f64);
+
+impl_fixed_column!(ValueUuid);
+impl_fixed_column!(ValueIp4);
+impl_fixed_column!(ValueIp6);
+
+impl_fixed_column!(ValueDecimal32);
+impl_fixed_column!(ValueDecimal64);
+#[cfg(feature = "int128")]
+impl_fixed_column!(ValueDecimal128);
+
+impl_fixed_column!(ValueDate);
+impl_fixed_column!(ValueDateTime);
+impl_fixed_column!(ValueDateTime64);
+
 /// One dimensional array of integral types
 #[allow(dead_code)]
 pub(crate) struct FixedArrayColumn<T> {
@@ -898,6 +957,13 @@ impl<T: Send + IntoArray> AsInColumn for FixedArrayColumn<T> {
             inner: Some(IntoArray::into_array(&self.data[size1..size2])),
         }
     }
+
+    unsafe fn into_bytes(&mut self) -> Vec<u8> {
+        let mut data = as_bytes_bufer_mut(&mut self.data).to_vec();
+        let mut index = as_bytes_bufer_mut(&mut self.index).to_vec();
+        index.append(&mut data);
+        index
+    }
 }
 
 /// LowCardinality data type is used to reduce the storage requirements
@@ -960,5 +1026,12 @@ impl<T: Copy + Send + Sized + Into<u64>> AsInColumn for LowCardinalityColumn<T> 
                 inner: Some(ValueIndex::valueref_at(self.values.as_slice(), index)),
             }
         }
+    }
+
+    unsafe fn into_bytes(&mut self) -> Vec<u8> {
+        let mut data = as_bytes_bufer_mut(&mut self.data).to_vec();
+        let mut values = as_bytes_bufer_mut(&mut self.values).to_vec();
+        data.append(&mut values);
+        data
     }
 }

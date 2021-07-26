@@ -228,33 +228,9 @@ impl From<ServerBlock> for Block {
         new_blk.ncols = b.columns.len();
         new_blk.nrows = nrows;
 
-        for c in b.columns {
+        for mut c in b.columns {
             let btype = sqltype_to_bqltype(c.header.field.get_sqltype());
-            let mut data = Vec::with_capacity(4 * 1024);
-
-            for i in 0..nrows {
-                // TODO: support NULL
-                if let Some(value) = unsafe { c.data.get_at(i as u64) }.into_inner() {
-                    let val = value_ref_to_bytes(&value);
-                    let val_len = val.len();
-
-                    if btype == BqlType::String {
-                        let mut buf = BytesMut::new();
-                        buf.write_varint(val_len as u64);
-                        data.append(&mut buf.to_vec());
-                    }
-
-                    data.reserve(val_len);
-
-                    let len = data.len();
-                    let new_len = len + val_len;
-                    unsafe {
-                        data.set_len(new_len);
-                    }
-
-                    data[len..new_len].copy_from_slice(val);
-                }
-            }
+            let data = unsafe { c.data.into_bytes() };
             let chunk = BaseChunk {
                 btype,
                 size: nrows,
