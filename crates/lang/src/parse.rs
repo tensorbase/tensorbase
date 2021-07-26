@@ -3,12 +3,14 @@
  *   All rights reserved.
  */
 
+use base::contract;
 use base::errs::BaseError;
 use base::eval::eval_literal_u64;
 use meta::types::{BqlType, ColumnInfo, EngineType, Table};
 pub use pest::iterators::Pair;
 pub use pest::iterators::Pairs;
 use std::collections::HashSet;
+use std::mem::swap;
 use std::net::IpAddr;
 use std::ops::RangeInclusive;
 use std::vec;
@@ -497,16 +499,22 @@ struct ParseWhereContext<'a> {
     pub ptk_expr: &'a str,
     pub ptk_ranges: Vec<RangeInclusive<u64>>,
     pub op: &'a str,
-    // pub state: ParseWhereState,
+    pub state: ParseWhereState,
     pub ptk_hit: bool,
     pub depth: u8,
 }
 
-// #[derive(Debug)]
-// enum ParseWhereState {
-//     InTopAnd,
-//     InTopOr,
-// }
+#[derive(Debug)]
+enum ParseWhereState {
+    InTopAnd,
+    InTopOr,
+}
+
+impl Default for ParseWhereState {
+    fn default() -> ParseWhereState {
+        ParseWhereState::InTopAnd
+    }
+}
 
 impl<'a> ParseWhereContext<'a> {
     pub fn parse(&mut self, pair: Pair<'a, Rule>) -> LangResult<()> {
@@ -520,7 +528,13 @@ impl<'a> ParseWhereContext<'a> {
         }
         match r {
             Rule::logical_val => self.depth -= 1,
-            Rule::les_or_op => return Err(LangError::PartitionKeyExprParsingUnsupported),
+            Rule::les_or_op => self.state = ParseWhereState::InTopOr,
+            Rule::les_and_op => match self.state {
+                ParseWhereState::InTopOr => {
+                    return Err(LangError::PartitionKeyExprParsingUnsupported)
+                }
+                ParseWhereState::InTopAnd => {}
+            },
             Rule::comp_expr_cmp_operand => {
                 if self.depth <= 1 {
                     if self.ptk_expr == pair.as_str().trim() {
@@ -535,9 +549,16 @@ impl<'a> ParseWhereContext<'a> {
                                     _ => {
                                         if self.ptk_ranges.iter().all(|r| !r.contains(&p))
                                         {
-                                            return Err(
-                                            LangError::PartitionKeyExprParsingConflict,
-                                        );
+                                            match self.state {
+                                                ParseWhereState::InTopAnd => {
+                                                    return Err(
+                                                        LangError::PartitionKeyExprParsingConflict,
+                                                    );
+                                                }
+                                                ParseWhereState::InTopOr => {
+                                                    self.ptk_ranges.push(p..=p)
+                                                }
+                                            }
                                         }
                                     }
                                 },
@@ -546,22 +567,37 @@ impl<'a> ParseWhereContext<'a> {
                                         self.ptk_ranges.push(0..=p - 1);
                                         self.ptk_ranges.push(p + 1..=u64::MAX);
                                     }
-                                    _ => {
-                                        let mut v = vec![];
-                                        self.ptk_ranges.retain(|r| {
-                                            let b = r.contains(&p);
-                                            if b {
-                                                v = vec![
-                                                    *r.start()..=p - 1,
-                                                    p + 1..=*r.end(),
-                                                ];
+                                    _ => match self.state {
+                                        ParseWhereState::InTopAnd => {
+                                            let mut v = vec![];
+                                            self.ptk_ranges.retain(|r| {
+                                                let b = r.contains(&p);
+                                                if b {
+                                                    v = vec![
+                                                        *r.start()..=p - 1,
+                                                        p + 1..=*r.end(),
+                                                    ];
+                                                }
+                                                !b
+                                            });
+                                            if v.len() > 0 {
+                                                self.ptk_ranges.extend(v);
                                             }
-                                            !b
-                                        });
-                                        if v.len() > 0 {
-                                            self.ptk_ranges.extend(v);
                                         }
-                                    }
+                                        ParseWhereState::InTopOr => {
+                                            if self
+                                                .ptk_ranges
+                                                .iter()
+                                                .any(|r| r.contains(&p))
+                                            {
+                                                self.ptk_ranges = vec![0..=u64::MAX];
+                                            } else {
+                                                self.ptk_ranges.clear();
+                                                self.ptk_ranges.push(0..=p - 1);
+                                                self.ptk_ranges.push(p + 1..=u64::MAX);
+                                            }
+                                        }
+                                    },
                                 },
                                 op @ ">" | op @ ">=" => {
                                     let optrick = op.len() as u64 - 1;
@@ -569,56 +605,112 @@ impl<'a> ParseWhereContext<'a> {
                                         0 => self
                                             .ptk_ranges
                                             .push(p + 1 - optrick..=u64::MAX),
-                                        len @ _ => {
-                                            let mut conflicted_ct = 0;
-                                            let mut v = vec![];
-                                            self.ptk_ranges.retain(|r| {
-                                                let b = r.contains(&p);
-                                                if b {
-                                                    v.push(p + 1 - optrick..=*r.end());
-                                                    false
-                                                } else if *r.end() <= p - optrick {
-                                                    conflicted_ct += 1;
-                                                    false
-                                                } else {
-                                                    true
+                                        len @ _ => match self.state {
+                                            ParseWhereState::InTopAnd => {
+                                                let mut conflicted_ct = 0;
+                                                let mut v = vec![];
+                                                self.ptk_ranges.retain(|r| {
+                                                    let b = r.contains(&p);
+                                                    if b {
+                                                        v.push(
+                                                            p + 1 - optrick..=*r.end(),
+                                                        );
+                                                        false
+                                                    } else if *r.end() <= p - optrick {
+                                                        conflicted_ct += 1;
+                                                        false
+                                                    } else {
+                                                        true
+                                                    }
+                                                });
+                                                if conflicted_ct == len {
+                                                    return Err(LangError::PartitionKeyExprParsingConflict);
                                                 }
-                                            });
-                                            if conflicted_ct == len {
-                                                return Err(LangError::PartitionKeyExprParsingConflict);
+                                                if v.len() > 0 {
+                                                    self.ptk_ranges.extend(v);
+                                                }
                                             }
-                                            if v.len() > 0 {
-                                                self.ptk_ranges.extend(v);
+                                            ParseWhereState::InTopOr => {
+                                                let mut v = vec![];
+                                                self.ptk_ranges.retain(|r| {
+                                                    if *r.end() < p + 1 - optrick {
+                                                        true
+                                                    } else if r
+                                                        .contains(&(p + 1 - optrick))
+                                                    {
+                                                        v.push(*r.start()..=u64::MAX);
+                                                        false
+                                                    } else {
+                                                        false
+                                                    }
+                                                });
+                                                if v.len() > 0 {
+                                                    self.ptk_ranges.extend(v);
+                                                }
+                                                if self.ptk_ranges.iter().all(|r| {
+                                                    !r.contains(&(p + 1 - optrick))
+                                                }) {
+                                                    self.ptk_ranges
+                                                        .push(p + 1 - optrick..=u64::MAX);
+                                                }
                                             }
-                                        }
+                                        },
                                     }
                                 }
                                 op @ "<" | op @ "<=" => {
                                     let optrick = op.len() as u64 - 1;
                                     match self.ptk_ranges.len() {
                                         0 => self.ptk_ranges.push(0..=p - 1 + optrick),
-                                        len @ _ => {
-                                            let mut conflicted_ct = 0;
-                                            let mut v = vec![];
-                                            self.ptk_ranges.retain(|r| {
-                                                let b = r.contains(&p);
-                                                if b {
-                                                    v.push(*r.start()..=p - 1 + optrick);
-                                                    false
-                                                } else if *r.start() <= p + optrick {
-                                                    conflicted_ct += 1;
-                                                    false
-                                                } else {
-                                                    true
+                                        len @ _ => match self.state {
+                                            ParseWhereState::InTopAnd => {
+                                                let mut conflicted_ct = 0;
+                                                let mut v = vec![];
+                                                self.ptk_ranges.retain(|r| {
+                                                    let b = r.contains(&p);
+                                                    if b {
+                                                        v.push(
+                                                            *r.start()..=p - 1 + optrick,
+                                                        );
+                                                        false
+                                                    } else if *r.start() <= p + optrick {
+                                                        conflicted_ct += 1;
+                                                        false
+                                                    } else {
+                                                        true
+                                                    }
+                                                });
+                                                if conflicted_ct == len {
+                                                    return Err(LangError::PartitionKeyExprParsingConflict);
                                                 }
-                                            });
-                                            if conflicted_ct == len {
-                                                return Err(LangError::PartitionKeyExprParsingConflict);
+                                                if v.len() > 0 {
+                                                    self.ptk_ranges.extend(v);
+                                                }
                                             }
-                                            if v.len() > 0 {
-                                                self.ptk_ranges.extend(v);
+                                            ParseWhereState::InTopOr => {
+                                                let mut v = vec![];
+                                                self.ptk_ranges.retain(|r| {
+                                                    if *r.start() > p + 1 - optrick {
+                                                        true
+                                                    } else if r
+                                                        .contains(&(p + 1 - optrick))
+                                                    {
+                                                        v.push(0..=*r.end());
+                                                        false
+                                                    } else {
+                                                        false
+                                                    }
+                                                });
+                                                if v.len() > 0 {
+                                                    self.ptk_ranges.extend(v);
+                                                }
+                                                if self.ptk_ranges.iter().all(|r| {
+                                                    !r.contains(&(p + 1 - optrick))
+                                                }) {
+                                                    self.ptk_ranges
+                                                        .push(0..=p + 1 - optrick);
+                                                }
                                             }
-                                        }
+                                        },
                                     }
                                 }
                                 _ => {
@@ -634,6 +726,90 @@ impl<'a> ParseWhereContext<'a> {
                 }
             }
             Rule::comp_op => self.op = pair.as_str().trim(),
+            Rule::between_expr => {
+                let children: Vec<_> = pair.clone().into_inner().collect();
+                contract!(children.len() == 3, "between expr has 3 sub exprs");
+                if self.ptk_expr == children[0].as_str().trim() {
+                    let low_str = children[1].as_str().trim();
+                    let mut low_val = eval_literal_u64(low_str)?;
+                    let high_str = children[2].as_str().trim();
+                    let mut high_val = eval_literal_u64(high_str)?;
+                    if high_val < low_val {
+                        swap(&mut low_val, &mut high_val);
+                    }
+                    match self.ptk_ranges.len() {
+                        0 => self.ptk_ranges.push(low_val..=high_val),
+                        _ => match self.state {
+                            ParseWhereState::InTopAnd => {
+                                let mut conflict = false;
+                                let mut v = vec![];
+                                self.ptk_ranges.retain(|r| {
+                                    if r.contains(&low_val) && r.contains(&high_val) {
+                                        v.push(low_val..=high_val);
+                                        false
+                                    } else if r.contains(&low_val)
+                                        && !r.contains(&high_val)
+                                    {
+                                        v.push(low_val..=*r.end());
+                                        false
+                                    } else if !r.contains(&low_val)
+                                        && r.contains(&high_val)
+                                    {
+                                        v.push(*r.start()..=high_val);
+                                        false
+                                    } else if low_val < *r.start() && high_val > *r.end()
+                                    {
+                                        true
+                                    } else {
+                                        conflict = true;
+                                        true
+                                    }
+                                });
+                                if conflict {
+                                    return Err(
+                                        LangError::PartitionKeyExprParsingConflict,
+                                    );
+                                }
+                                if v.len() > 0 {
+                                    self.ptk_ranges.extend(v);
+                                }
+                            }
+                            ParseWhereState::InTopOr => {
+                                let mut v = vec![];
+                                self.ptk_ranges.retain(|r| {
+                                    if r.contains(&low_val) && r.contains(&high_val) {
+                                        true
+                                    } else if r.contains(&low_val)
+                                        && !r.contains(&high_val)
+                                    {
+                                        v.push(*r.start()..=high_val);
+                                        false
+                                    } else if !r.contains(&low_val)
+                                        && r.contains(&high_val)
+                                    {
+                                        v.push(low_val..=*r.end());
+                                        false
+                                    } else if low_val < *r.start() && high_val > *r.end()
+                                    {
+                                        v.push(low_val..=high_val);
+                                        false
+                                    } else {
+                                        true
+                                    }
+                                });
+                                if v.len() > 0 {
+                                    self.ptk_ranges.extend(v);
+                                }
+                                if self.ptk_ranges.iter().all(|r| {
+                                    !r.contains(&low_val) && !r.contains(&high_val)
+                                }) {
+                                    self.ptk_ranges.push(low_val..=high_val);
+                                }
+                            }
+                        },
+                    }
+                }
+            }
             _ => {}
         }
 
@@ -1752,6 +1928,7 @@ CREATE TABLE test (col Int32)";
 
         #[test]
         fn test_parse_where() {
+            // ... and ...
             let c = "where a>0 and a>100";
             let r = parse_where(c, "a").unwrap();
             assert_eq!(r, vec![101..=u64::MAX]);
@@ -1844,6 +2021,98 @@ CREATE TABLE test (col Int32)";
             assert_eq!(
                 r.into_iter().collect::<HashSet<_>>(),
                 vec![0..=u64::MAX].into_iter().collect::<HashSet<_>>()
+            );
+
+            // between ... and ...
+            let c = "where a between 1 and 5";
+            let r = parse_where(c, "a").unwrap();
+            assert_eq!(
+                r.into_iter().collect::<HashSet<_>>(),
+                vec![1..=5].into_iter().collect::<HashSet<_>>()
+            );
+
+            let c = "where a between 1 and 5 and a between 2 and 3";
+            let r = parse_where(c, "a").unwrap();
+            assert_eq!(
+                r.into_iter().collect::<HashSet<_>>(),
+                vec![2..=3].into_iter().collect::<HashSet<_>>()
+            );
+
+            let c = "where a between 1 and 5 and a between 10 and 120";
+            let r = parse_where(c, "a").unwrap();
+            assert_eq!(
+                r.into_iter().collect::<HashSet<_>>(),
+                vec![].into_iter().collect::<HashSet<_>>()
+            );
+
+            let c = "where a between 1 and 5 and a between 2 and 10";
+            let r = parse_where(c, "a").unwrap();
+            assert_eq!(
+                r.into_iter().collect::<HashSet<_>>(),
+                vec![2..=5].into_iter().collect::<HashSet<_>>()
+            );
+
+            // ... or ...
+            let c = "where a between 1 and 5 or a between 2 and 10";
+            let r = parse_where(c, "a").unwrap();
+            assert_eq!(
+                r.into_iter().collect::<HashSet<_>>(),
+                vec![1..=10].into_iter().collect::<HashSet<_>>()
+            );
+
+            let c = "where a between 1 and 5 or a between 7 and 10";
+            let r = parse_where(c, "a").unwrap();
+            assert_eq!(
+                r.into_iter().collect::<HashSet<_>>(),
+                vec![1..=5, 7..=10].into_iter().collect::<HashSet<_>>()
+            );
+
+            let c = "where a between 1 and 5 or a between 2 and 3";
+            let r = parse_where(c, "a").unwrap();
+            assert_eq!(
+                r.into_iter().collect::<HashSet<_>>(),
+                vec![1..=5].into_iter().collect::<HashSet<_>>()
+            );
+
+            let c = "where a > 1 or a>3 and a<=4";
+            let r = parse_where(c, "a").unwrap();
+            assert_eq!(
+                r.into_iter().collect::<HashSet<_>>(),
+                vec![0..=u64::MAX].into_iter().collect::<HashSet<_>>()
+            );
+            let c = "where a > 1 or a>3";
+            let r = parse_where(c, "a").unwrap();
+            assert_eq!(
+                r.into_iter().collect::<HashSet<_>>(),
+                vec![2..=u64::MAX].into_iter().collect::<HashSet<_>>()
+            );
+
+            let c = "where a <=10 or a<=5";
+            let r = parse_where(c, "a").unwrap();
+            assert_eq!(
+                r.into_iter().collect::<HashSet<_>>(),
+                vec![0..=10].into_iter().collect::<HashSet<_>>()
+            );
+
+            let c = "where a <=10 or a>=5";
+            let r = parse_where(c, "a").unwrap();
+            assert_eq!(
+                r.into_iter().collect::<HashSet<_>>(),
+                vec![0..=u64::MAX].into_iter().collect::<HashSet<_>>()
+            );
+
+            let c = "where a=10 or a!=10";
+            let r = parse_where(c, "a").unwrap();
+            assert_eq!(
+                r.into_iter().collect::<HashSet<_>>(),
+                vec![0..=u64::MAX].into_iter().collect::<HashSet<_>>()
+            );
+
+            let c = "where a=1 or a=10";
+            let r = parse_where(c, "a").unwrap();
+            assert_eq!(
+                r.into_iter().collect::<HashSet<_>>(),
+                vec![1..=1, 10..=10].into_iter().collect::<HashSet<_>>()
             );
         }
 
