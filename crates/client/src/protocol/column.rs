@@ -49,6 +49,9 @@ pub trait AsOutColumn {
 pub trait AsInColumn: Send {
     unsafe fn get_at(&self, index: u64) -> ValueRef<'_>;
     unsafe fn into_bytes(&mut self) -> Vec<u8>;
+    fn offset_map(&self) -> Option<Vec<u32>> {
+        None
+    }
 }
 
 /// Default implementation returns `Null` data
@@ -644,6 +647,19 @@ impl<'a> AsInColumn for FixedColumn<BoxString> {
             })
             .flatten()
             .collect()
+    }
+
+    fn offset_map(&self) -> Option<Vec<u32>> {
+        let mut offset = vec![0];
+        let mut start = 0;
+
+        offset = self.data.iter().fold(offset, |mut offset, s| {
+            start = s.len() + start + 1;
+            offset.push(start as u32);
+            offset
+        });
+
+        Some(offset)
     }
 }
 

@@ -77,12 +77,11 @@ use_db = { ^"use" ~ database_name }
 
 //insert
 insert_into = { 
-    ^"insert" ~ ^"into" ~ 
-    qualified_table_name ~  
-    column_list? ~ 
-    format_clause? ~
-    select?
- }
+    ^"insert" ~ ^"into" ~
+    ((^"function" ~ select_remote) |
+	(qualified_table_name ~ column_list? ~ format_clause? ~ select?))
+}
+
 column_list = { "(" ~ column_name ~ ( "," ~ column_name )* ~ ")" }
 format_clause = {
     ^"values" ~ rows* |
@@ -129,6 +128,7 @@ ipv6_lit = @{
 }
 
 from = { ^"from" ~ ( remote_func | join_tables | compound_select ) }
+select_remote = {remote_func ~ (select | ("values" ~ rows*)) }
 
 remote_func = {
     ^"remote" ~ "(" ~ remote_addresses ~ "," ~ remote_table ~ ("," ~ username_lit ~ "," ~ password_lit)? ~ ")"

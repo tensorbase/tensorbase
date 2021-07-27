@@ -105,12 +105,18 @@ fn update_remote_db_pools(remote_tb_info: &RemoteTableInfo) -> BaseRtResult<()> 
 pub fn remote_query(
     remote_tb_info: RemoteTableInfo,
     raw_query: &str,
+    is_local: bool,
 ) -> BaseRtResult<Vec<Block>> {
     let ps = &BMS.remote_db_pool;
     update_remote_db_pools(&remote_tb_info)?;
-    let sql = remote_tb_info
-        .to_local_query_str(raw_query)
-        .ok_or(ClientError::Other("missing table info.".into()))?;
+
+    let sql = if !is_local {
+        remote_tb_info
+            .to_local_query_str(raw_query)
+            .ok_or(ClientError::Other("missing table info.".into()))?
+    } else {
+        raw_query.to_owned()
+    };
     let blks = remote_tb_info
         .addrs
         .into_iter()
@@ -125,6 +131,7 @@ pub fn remote_query(
         .into_iter()
         .flatten()
         .collect();
+
 
     Ok(blks)
 }

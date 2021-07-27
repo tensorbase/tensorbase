@@ -230,13 +230,14 @@ impl From<ServerBlock> for Block {
 
         for mut c in b.columns {
             let btype = sqltype_to_bqltype(c.header.field.get_sqltype());
+            let offset_map = c.data.offset_map();
             let data = unsafe { c.data.into_bytes() };
             let chunk = BaseChunk {
                 btype,
                 size: nrows,
                 data,
                 null_map: None,
-                offset_map: None,
+                offset_map,
                 lc_dict_data: None,
             };
             let column = Column {

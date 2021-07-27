@@ -855,6 +855,90 @@ async fn tests_integ_select_remote_function() -> errors::Result<()> {
     Ok(())
 }
 
+#[tokio::test]
+async fn tests_integ_insert_into_remote_function() -> errors::Result<()> {
+    let pool = get_pool();
+    let mut conn = pool.connection().await?;
+
+    conn.execute(format!("DROP TABLE IF EXISTS test_remote_func"))
+        .await?;
+    conn.execute(format!(
+        "CREATE TABLE test_remote_func( \
+            a UInt8, \
+            b UInt16, \
+            c UInt32, \
+            d UInt64, \
+            i String, \
+            j DateTime \
+        )"
+    ))
+    .await?;
+
+    let data_a = vec![1u8, 2, 3];
+    let data_b = vec![1u16, 2, 3];
+    let data_c = vec![1u32, 2, 3];
+    let data_d = vec![1u64, 2, 3];
+    let data_i = vec!["abc", "efg", "hello world"];
+    let data_naive = vec![
+        NaiveDate::from_ymd(2010, 1, 1).and_hms(1, 1, 1),
+        NaiveDate::from_ymd(2011, 2, 28).and_hms(2, 5, 6),
+        NaiveDate::from_ymd(2012, 2, 29).and_hms(23, 59, 59),
+    ];
+    let data_j = apply_offset(&data_naive, FixedOffset::west(11 * 3600 + 45 * 60));
+
+    let block = {
+        Block::new("test_remote_func")
+            .add("a", data_a)
+            .add("b", data_b)
+            .add("c", data_c)
+            .add("d", data_d)
+            .add("i", data_i)
+            .add("j", data_j)
+    };
+
+    let mut insert = conn.insert(&block).await?;
+    insert.commit().await?;
+
+    drop(insert);
+    let dates = vec![
+        NaiveDate::from_ymd(2010, 1, 1).and_hms(1, 1, 1),
+        NaiveDate::from_ymd(2011, 2, 28).and_hms(2, 5, 6),
+        NaiveDate::from_ymd(2012, 2, 29).and_hms(23, 59, 59),
+    ];
+    let dates = apply_offset(&dates, FixedOffset::west(11 * 3600 + 45 * 60));
+    let data = vec![1, 2, 3];
+    let data_i = vec!["abc", "efg", "hello world"];
+
+    {
+        let sql = "insert into function remote('127.0.0.1:9528', test_remote_func) select * from test_remote_func";
+        let mut query_result = conn.query(sql).await?;
+        query_result.next().await?;
+    }
+    {
+        let sql = "select count(a), count(b), count(c), count(d), count(i), count(j) from test_remote_func";
+        let mut query_result = conn.query(sql).await?;
+
+        while let Some(block) = query_result.next().await? {
+            for row in block.iter_rows() {
+                let agg_res = row.value::<u64>(0)?.unwrap() as i64;
+                assert_eq!(agg_res, 6);
+                let agg_res = row.value::<u64>(1)?.unwrap() as i64;
+                assert_eq!(agg_res, 6);
+                let agg_res = row.value::<u64>(2)?.unwrap() as i64;
+                assert_eq!(agg_res, 6);
+                let agg_res = row.value::<u64>(3)?.unwrap() as i64;
+                assert_eq!(agg_res, 6);
+                let agg_res = row.value::<u64>(4)?.unwrap() as i64;
+                assert_eq!(agg_res, 6);
+                let agg_res = row.value::<u64>(5)?.unwrap() as i64;
+                assert_eq!(agg_res, 6);
+            }
+        }
+    }
+
+    Ok(())
+}
+
 fn apply_offset(
     data_naive: &Vec<NaiveDateTime>,
     tz: impl TimeZone,

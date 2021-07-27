@@ -223,6 +223,7 @@ pub enum InsertFormat {
     Inline,
     CSV,
     Select(String),
+    Remote(TablePlaceKindContext, String),
 }
 
 pub struct InsertIntoContext {
@@ -231,9 +232,41 @@ pub struct InsertIntoContext {
     pub values: Option<Vec<Vec<String>>>, //WARN gen vec of vec String is slow
 }
 
+pub fn parse_insert_from_remote(
+    pair: Pair<Rule>,
+    ctx: &mut InsertIntoContext,
+) -> LangResult<()> {
+    let query = pair.as_str().trim().to_owned();
+    if let Some(j) = query.find(")") {
+        let (remote_addr, remote_query) = query.split_at(j + 1);
+        let mut p = BqlParser::parse(Rule::remote_func, remote_addr)
+            .map_err(|e| LangError::ASTError(e.to_string()))?;
+        let mut tab_ctx = TablePlaceKindContext {
+            place_kind: TablePlaceKind::Local,
+        };
+        tab_ctx.parse(
+            p.nth(0)
+                .ok_or(LangError::ASTError("missing remote address".to_owned()))?,
+        )?;
+        if let TablePlaceKind::Remote(remote_tab) = &tab_ctx.place_kind {
+            ctx.tab.name = remote_tab.table_name.clone();
+            ctx.tab.dbname = remote_tab
+                .database_name
+                .as_ref()
+                .unwrap_or(&"".to_owned())
+                .to_string();
+        }
+        ctx.format = InsertFormat::Remote(tab_ctx, remote_query.to_owned());
+        return Ok(());
+    }
+
+    Err(LangError::ASTError("missing remote address".to_owned()))
+}
+
 impl InsertIntoContext {
     fn parse(&mut self, pair: Pair<Rule>) -> LangResult<()> {
         let r = pair.as_rule();
+
         //pre
         match r {
             Rule::rows => {
@@ -253,6 +286,10 @@ impl InsertIntoContext {
             }
             Rule::select => {
                 self.format = InsertFormat::Select(pair.as_str().trim().to_owned());
+            }
+            Rule::select_remote => {
+                parse_insert_from_remote(pair, self)?;
+                return Ok(());
             }
             _ => {}
         }
@@ -942,7 +979,7 @@ fn seek_to_tree<'a, R: pest::RuleType>(
     None
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub struct RemoteTableInfo {
     pub addrs: Vec<RemoteAddr>,
     pub username: Option<String>,
@@ -996,13 +1033,13 @@ impl RemoteTableInfo {
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub enum TablePlaceKind {
     Local,
     Remote(RemoteTableInfo),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct TablePlaceKindContext {
     pub place_kind: TablePlaceKind,
 }
@@ -1692,6 +1729,32 @@ LIMIT 100;
             let pairs = BqlParser::parse(Rule::insert_into, c)
                 .unwrap_or_else(|e| panic!("{}", e));
             println!("pairs: {}", pretty_parse_tree(pairs));
+        }
+
+        #[test]
+        fn test_parse_insert_into_remote() {
+            let c = r"INSERT INTO remote('127.0.0.0', test.a) VALUES";
+            let pairs = BqlParser::parse(Rule::insert_into, c)
+                .unwrap_or_else(|e| panic!("{}", e));
+            println!("pairs: {}", pretty_parse_tree(pairs));
+
+            let c = r"INSERT INTO remote('127.0.0.0', test.a) SELECT * from a";
+            let pairs = BqlParser::parse(Rule::insert_into, c)
+                .unwrap_or_else(|e| panic!("{}", e));
+            println!("pairs: {}", pretty_parse_tree(pairs));
+
+            assert_parse!(
+                "INSERT INTO remote('127.0.0.0', test.a) VALUES",
+                insert_into
+            );
+            assert_parse!(
+                "INSERT INTO remote('127.0.0.0', test.a) SELECT * FROM a",
+                insert_into
+            );
+            assert_parse!(
+                "INSERT INTO remote('127.0.0.0', test.a) SELECT * FROM a LIMIT 10",
+                insert_into
+            );
         }
 
         #[test]
