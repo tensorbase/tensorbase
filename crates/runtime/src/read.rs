@@ -132,6 +132,5 @@ pub fn remote_query(
         .flatten()
         .collect();
 
-
     Ok(blks)
 }
