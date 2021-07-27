@@ -12,7 +12,7 @@ use lang::parse::{
     parse_command, parse_create_database, parse_create_table, parse_desc_table,
     parse_drop_database, parse_drop_table, parse_insert_into, parse_optimize_table,
     parse_show_create_table, parse_table_place, seek_to_sub_cmd, Pair, Rule,
-    TablePlaceKind,
+    TablePlaceKind, TablePlaceKindContext,
 };
 use lightjit::jit;
 use meta::{
@@ -62,7 +62,11 @@ pub static WRITE: SyncOnceCell<
 > = SyncOnceCell::new();
 
 pub static REMOTE_READ: SyncOnceCell<
-    fn(remote_tb_info: RemoteTableInfo, raw_query: &str) -> BaseRtResult<Vec<Block>>,
+    fn(
+        remote_tb_info: RemoteTableInfo,
+        raw_query: &str,
+        is_local: bool,
+    ) -> BaseRtResult<Vec<Block>>,
 > = SyncOnceCell::new();
 
 pub struct BaseHasher {
@@ -581,7 +585,20 @@ impl<'a> BaseMgmtSys<'a> {
         let dbn = if dbn.is_empty() { current_db } else { dbn };
         ms.dbid_by_name(dbn).ok_or(BaseRtError::DatabaseNotExist)?;
         let tn = tab.name.as_str();
-        let qtn = [dbn, tn].join(".");
+        let mut qtn = [dbn, tn].join(".");
+
+        if let lang::parse::InsertFormat::Remote(ref ctx, _) = insert_info.format {
+            if let lang::parse::TablePlaceKind::Remote(tab_info) = &ctx.place_kind {
+                let db_name = tab_info
+                    .database_name
+                    .as_ref()
+                    .unwrap_or(&dbn.to_owned())
+                    .to_string();
+                let tab_name = &tab_info.table_name;
+                qtn = [db_name, tab_name.to_string()].join(".");
+            }
+        }
+
         let tid = ms.tid_by_qname(&qtn).ok_or(BaseRtError::TableNotExist)?;
         let mut blk = Default::default();
 
@@ -608,7 +625,34 @@ impl<'a> BaseMgmtSys<'a> {
             lang::parse::InsertFormat::Select(ref select_stmt) => {
                 self.command_insert_into_select(cctx, select_stmt, qtn, tid)
             }
+            lang::parse::InsertFormat::Remote(ctx, ref query) => {
+                self.command_insert_into_remote(cctx, ctx, blk, query, qtn, tid)
+            }
         }
+    }
+
+    fn command_insert_into_remote(
+        &self,
+        cctx: &mut ConnCtx,
+        ctx: TablePlaceKindContext,
+        blk: Block,
+        query: &str,
+        qtn: String,
+        tid: Id,
+    ) -> BaseRtResult<BaseCommandKind> {
+        if let TablePlaceKind::Remote(remote_tb_info) = ctx.place_kind {
+            if query.contains("values") {
+                return Ok(BaseCommandKind::InsertFormatInline(blk, qtn, tid));
+            }
+            let remote_read = REMOTE_READ.get().unwrap();
+            let blks = remote_read(remote_tb_info, query, true)?;
+
+            return Ok(BaseCommandKind::InsertFormatSelectValue(blks, qtn, tid));
+        }
+
+        Err(BaseRtError::WrappingLangError(
+            lang::errs::LangError::ASTError("missing remote table info.".to_owned()),
+        ))
     }
 
     fn command_insert_into_select(
@@ -791,7 +835,7 @@ impl<'a> BaseMgmtSys<'a> {
             TablePlaceKind::Remote(remote_tb_info) => {
                 log::debug!("successfully parsed remote query to {:?} ", remote_tb_info);
                 let remote_read = REMOTE_READ.get().unwrap();
-                let blks = remote_read(remote_tb_info, p.as_str())?;
+                let blks = remote_read(remote_tb_info, p.as_str(), false)?;
 
                 Ok(BaseCommandKind::Query(blks))
             }
@@ -873,6 +917,7 @@ impl<'a> BaseMgmtSys<'a> {
                 return self.command_optimize_table(p, &cctx.current_db);
             }
             Rule::insert_into => {
+                println!("{:?}", p.as_str());
                 return self.command_insert_into(p, cctx);
             }
             Rule::query => {
