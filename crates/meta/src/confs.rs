@@ -26,6 +26,7 @@ pub struct Conf {
     pub storage: Storage,
     #[serde(default)]
     pub server: Server,
+    pub clickhouse: Option<CHGroup>,
 }
 
 // impl Deref for Conf {
@@ -47,6 +48,47 @@ pub struct Server {
     #[serde(default = "Server::default_port")]
     pub port: u16,
     pub timezone: Option<String>,
+}
+
+#[derive(Serialize, Deserialize, PartialEq, Debug)]
+pub struct CHGroup {
+    pub members: Vec<CHConfig>,
+}
+
+#[derive(Serialize, Deserialize, PartialEq, Debug)]
+pub struct CHConfig {
+    pub ip_addr: Option<String>,
+    pub host: Option<String>,
+    #[serde(default = "CHConfig::default_port")]
+    pub port: u16,
+    pub username: Option<String>,
+    pub password: Option<String>,
+    pub database: Option<String>,
+    #[serde(default = "CHConfig::default_pool_min_size")]
+    pub pool_min_size: u16,
+    #[serde(default = "CHConfig::default_pool_max_size")]
+    pub pool_max_size: u16,
+    pub compression: Option<String>,
+    #[serde(default = "CHConfig::default_ping")]
+    pub ping: bool,
+}
+
+impl CHConfig {
+    fn default_port() -> u16 {
+        9000
+    }
+
+    fn default_pool_min_size() -> u16 {
+        1
+    }
+
+    fn default_pool_max_size() -> u16 {
+        4
+    }
+
+    fn default_ping() -> bool {
+        false
+    }
 }
 
 impl Server {

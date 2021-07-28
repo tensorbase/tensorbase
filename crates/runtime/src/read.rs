@@ -60,7 +60,7 @@ fn update_remote_db_pools(remote_tb_info: &RemoteTableInfo) -> BaseRtResult<()> 
         username,
         password,
         database_name,
-        table_name,
+        ..
     } = remote_tb_info;
     for remote_addr in addrs {
         if let Some(pool) = ps.get(&remote_addr) {
