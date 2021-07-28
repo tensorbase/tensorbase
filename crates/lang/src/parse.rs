@@ -1102,18 +1102,97 @@ fn parse_ip_address(pair: Pair<Rule>) -> LangResult<RemoteAddr> {
     Ok(addr)
 }
 
+/// parse a range of multiple addresses, eg: example0{1..3}.
 #[inline]
-fn parse_host_address(pair: Pair<Rule>) -> RemoteAddr {
-    let s = pair.as_str().trim().to_string();
-    let vs: Vec<&str> = s.split(":").collect();
-    let mut addr = RemoteAddr::default();
+fn parse_host_range_expr(s: &str, hosts: &mut Vec<String>) -> LangResult<()> {
+    match (s.find("{"), s.find("}")) {
+        (Some(l), Some(r)) => {
+            let mut ss = vec![];
+            if let Some(i) = s[l..r].find("..") {
+                let x = s[(l + 1)..(l + i)]
+                    .parse::<u32>()
+                    .map_err(|e| LangError::WrappingParseIntError(e))?;
+                let y = s[(l + i + 2)..r]
+                    .parse::<u32>()
+                    .map_err(|e| LangError::WrappingParseIntError(e))?;
+                let mut addr = (x..=y)
+                    .map(|n| s.replace(&s[l..=r], &n.to_string()))
+                    .collect::<Vec<_>>();
 
-    addr.host_name = Some(vs[0].to_owned());
-    if vs.len() == 2 {
-        addr.port = Some(vs[1].parse().unwrap());
+                ss.append(&mut addr);
+
+                for s in ss {
+                    parse_host_range_expr(&s, hosts)?;
+                }
+            } else {
+                hosts.push(s.to_string());
+            }
+        }
+        _ => {
+            hosts.push(s.to_string());
+        }
     }
 
-    addr
+    Ok(())
+}
+
+/// parse multiple addresses that can be comma-separated, eg: example0{1,2,3}.
+#[inline]
+fn parse_host_comma_expr(s: &str, hosts: &mut Vec<String>) {
+    match (s.find("{"), s.find("}")) {
+        (Some(l), Some(r)) => {
+            let mut ss = vec![];
+            if let Some(i) = s[l..r].find(",") {
+                let mut addr = s[(l + 1)..r]
+                    .split(",")
+                    .map(|n| s.replace(&s[l..=r], n))
+                    .collect::<Vec<_>>();
+
+                ss.append(&mut addr);
+
+                for s in ss {
+                    parse_host_comma_expr(&s, hosts);
+                }
+            } else {
+                hosts.push(s.to_string());
+            }
+        }
+        _ => {
+            hosts.push(s.to_string());
+        }
+    }
+}
+
+#[inline]
+fn parse_host_address(pair: Pair<Rule>) -> LangResult<Vec<RemoteAddr>> {
+    let s = pair.as_str().trim();
+    let vs: Vec<&str> = s.split(":").collect();
+    let mut ss1 = vec![];
+    parse_host_range_expr(s, &mut ss1)?;
+
+    let mut ss2 = vec![];
+
+    for s in ss1 {
+        parse_host_comma_expr(&s, &mut ss2);
+    }
+
+    // TODO: replicated host nodes parser
+
+    let mut addrs = vec![];
+
+    for s in ss2 {
+        let mut addr = RemoteAddr::default();
+
+        addr.host_name = Some(vs[0].to_owned());
+
+        if vs.len() == 2 {
+            addr.port = Some(vs[1].parse().unwrap());
+        }
+
+        addrs.push(addr);
+    }
+
+    Ok(addrs)
 }
 
 impl TablePlaceKindContext {
@@ -1142,9 +1221,9 @@ impl TablePlaceKindContext {
                     .transpose()?;
             }
             Rule::host_address => {
-                self.mut_remote_info().map(|place_kind| {
-                    place_kind.addrs.push(parse_host_address(pair));
-                });
+                if let Some(place_kind) = self.mut_remote_info() {
+                    place_kind.addrs.append(&mut parse_host_address(pair)?);
+                }
             }
             Rule::remote_database_name => {
                 self.mut_remote_info().map(|place_kind| {
@@ -1186,8 +1265,9 @@ mod unit_tests {
     // #[macro_export]
 
     use super::{
-        parse_create_database, parse_create_table, pretty_parse_tree, seek_to, BqlParser,
-        RemoteAddr, RemoteTableInfo, Rule, TablePlaceKind,
+        parse_create_database, parse_create_table, parse_host_comma_expr,
+        parse_host_range_expr, pretty_parse_tree, seek_to, BqlParser, RemoteAddr,
+        RemoteTableInfo, Rule, TablePlaceKind,
     };
     use base::datetimes::TimeZoneId;
     use meta::types::BqlType;
@@ -1563,6 +1643,59 @@ LIMIT 100;
         assert_eq!(
             &info.to_local_query_str(sql).unwrap(),
             "select a, b from  test_remote_to_local  group by a"
+        );
+    }
+
+    #[test]
+    fn test_parse_host_expr() {
+        let s = "host{1..4}-{2..3}";
+        let mut hosts = vec![];
+        parse_host_range_expr(s, &mut hosts).unwrap();
+
+        assert_eq!(
+            hosts,
+            vec![
+                "host1-2".to_string(),
+                "host1-3".to_string(),
+                "host2-2".to_string(),
+                "host2-3".to_string(),
+                "host3-2".to_string(),
+                "host3-3".to_string(),
+                "host4-2".to_string(),
+                "host4-3".to_string()
+            ]
+        );
+
+        let s = "host{2,3}-{3,4}";
+        let mut hosts = vec![];
+        parse_host_comma_expr(s, &mut hosts);
+
+        assert_eq!(
+            hosts,
+            vec![
+                "host2-3".to_string(),
+                "host2-4".to_string(),
+                "host3-3".to_string(),
+                "host3-4".to_string()
+            ]
+        );
+
+        let s = "host{5..6}-{2,3}";
+        let mut hosts1 = vec![];
+        parse_host_range_expr(s, &mut hosts1).unwrap();
+        let mut hosts2 = vec![];
+        for s in hosts1 {
+            parse_host_comma_expr(&s, &mut hosts2);
+        }
+
+        assert_eq!(
+            hosts2,
+            vec![
+                "host5-2".to_string(),
+                "host5-3".to_string(),
+                "host6-2".to_string(),
+                "host6-3".to_string()
+            ]
         );
     }
 
