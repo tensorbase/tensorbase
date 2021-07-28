@@ -6,6 +6,7 @@ use base::{
 };
 use bytes::BytesMut;
 use client::prelude::Pool;
+use client::prelude::PoolBuilder;
 use dashmap::DashMap;
 use lang::parse::RemoteAddr;
 use lang::parse::{
@@ -22,6 +23,7 @@ use meta::{
     toml,
     types::{BaseChunk, BqlType, Id},
 };
+use std::net::IpAddr;
 use std::{
     env,
     fs::remove_dir_all,
@@ -161,7 +163,9 @@ pub static BMS: SyncLazy<BaseMgmtSys> = SyncLazy::new(|| {
     log::info!("server.port: {:?}", &conf.server.port);
 
     let conf = Box::new(conf);
-    BaseMgmtSys::from_conf(Box::leak(conf)).unwrap()
+    let mut bms = BaseMgmtSys::from_conf(Box::leak(conf)).unwrap();
+    bms.build_remote_db_pool();
+    bms
 });
 
 pub static EXPR_JIT: SyncLazy<Mutex<jit::JIT>> =
@@ -271,6 +275,54 @@ impl<'a> BaseMgmtSys<'a> {
             timezone,
             timezone_name,
         })
+    }
+
+    pub fn build_remote_db_pool(&mut self) {
+        if let Some(ch) = self.conf.clickhouse.as_ref() {
+            for conf in &ch.members {
+                let mut builder = PoolBuilder::default();
+
+                if conf.ping {
+                    builder = builder.with_ping();
+                }
+
+                if let Some(comp) = &conf.compression {
+                    builder = builder.with_compression();
+                }
+
+                builder = builder.with_pool(conf.pool_min_size, conf.pool_max_size);
+
+                if let Some(username) = &conf.username {
+                    builder = builder.with_username(username);
+                }
+
+                if let Some(password) = &conf.password {
+                    builder = builder.with_password(password);
+                }
+
+                let addr = conf
+                    .ip_addr
+                    .as_ref()
+                    .map(|i| i.to_string())
+                    .or(conf.host.as_ref().map(|h| h.to_string()))
+                    .map(|s| format!("{}:{}", s, conf.port))
+                    .unwrap_or("".into());
+
+                builder = builder.add_addr(addr);
+                let pool = builder
+                    .build()
+                    .expect("initial remote connection pool failed");
+                let remote_addr = RemoteAddr {
+                    ip_addr: conf.ip_addr.as_ref().map(|s| {
+                        s.parse::<IpAddr>().expect("correct ipv4 or ipv6 address")
+                    }),
+                    host_name: conf.host.clone(),
+                    port: Some(conf.port),
+                };
+                log::info!("connect remote database: {:?}", remote_addr);
+                self.remote_db_pool.insert(remote_addr, pool);
+            }
+        }
     }
 
     //===

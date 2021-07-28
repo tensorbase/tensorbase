@@ -47,6 +47,7 @@ async fn main() -> io::Result<()> {
     info!("[Base] built in release mode");
 
     let conf = &BMS.conf;
+    info!("{:?}", conf);
     let srv_addr = [
         conf.server.ip_addr.as_str(),
         conf.server.port.to_string().as_str(),
