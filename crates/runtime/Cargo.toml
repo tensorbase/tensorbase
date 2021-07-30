@@ -19,7 +19,7 @@ base = { path = "../base" }
 meta = { path = "../meta" }
 lang = { path = "../lang" }
 engine = { path = "../engine" }
-lightjit = { path = "../lightjit" }
+basejit = { git = "https://github.com/tensorbase/basejit.git", branch = "main" }
 client = { path = "../client" }
 baselog = { git = "https://github.com/tensorbase/baselog.git", branch = "main" }
 clickhouse-rs-cityhash-sys = "0.1.2"

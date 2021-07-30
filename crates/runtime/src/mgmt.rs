@@ -15,7 +15,7 @@ use lang::parse::{
     parse_show_create_table, parse_table_place, seek_to_sub_cmd, Pair, Rule,
     TablePlaceKind, TablePlaceKindContext,
 };
-use lightjit::jit;
+use basejit::jit;
 use meta::{
     confs::Conf,
     errs::MetaError,

@@ -4,7 +4,6 @@ members = [
     "crates/lang",
     "crates/runtime",
     "crates/base",
-    "crates/lightjit",
     "crates/server",
     "crates/engine",
     "crates/client",

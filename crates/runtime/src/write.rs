@@ -425,7 +425,7 @@ mod unit_tests {
         with_timer_print,
     };
     use baselog::{Config, ConfigBuilder, LevelFilter, TermLogger, TerminalMode};
-    use lightjit::builtins::to_fn1;
+    use basejit::builtins::to_fn1;
     use meta::{
         confs::Conf,
         types::{BaseChunk, BqlType, ColumnInfo, EngineType, Table, TableInfo},
