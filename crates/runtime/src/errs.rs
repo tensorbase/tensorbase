@@ -42,6 +42,9 @@ pub enum BaseRtError {
     #[error("Unsupported partition key type")]
     UnsupportedPartitionKeyType,
 
+    #[error("Unsupported default expression argment type")]
+    UnsupportedDefaultExpressionArgumentType,
+
     #[error("Command parsing error")]
     CommandParsingError,
 
@@ -180,6 +183,7 @@ impl BaseRtError {
             BaseRtError::UnsupportedLowCardinalityDictVersion => 27,
             BaseRtError::UnsupportedPartitionKeyType => 28,
             BaseRtError::UnsupportedConversionToBqlType => 29,
+            BaseRtError::UnsupportedDefaultExpressionArgumentType => 30,
 
             BaseRtError::InvalidStringConversion(_) => 100,
             BaseRtError::IndexOutOfRange => 101,

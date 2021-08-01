@@ -1254,6 +1254,74 @@ async fn tests_integ_partition_prune() -> errors::Result<()> {
     Ok(())
 }
 
+#[tokio::test]
+async fn tests_integ_create_table_with_default_expr() -> errors::Result<()> {
+    let pool = get_pool();
+    let mut conn = pool.connection().await?;
+
+    conn.execute("create database if not exists test_db")
+        .await?;
+    conn.execute("use test_db").await?;
+
+    conn.execute(format!(
+        "drop table if exists test1_tab_default_UInt8_literal"
+    ))
+    .await?;
+    // conn.execute(format!(
+    //    "create table test1_tab_default_literal(a UInt64, b UInt8, c UInt8 default b)"
+    // ))
+    // .await?;
+    conn.execute(format!(
+        "create table test1_tab_default_UInt8_literal(
+            a UInt64,
+            b1 UInt8, c1 UInt8 default b1, 
+            b2 UInt16, c2 UInt16 default b2,
+            b3 UInt32, c3 UInt32 default b3,
+            b4 UInt64, c4 UInt64 default b4
+        )"
+    ))
+    .await?;
+    conn.execute(format!(
+        "insert into test1_tab_default_UInt8_literal (a, b1, b2, b3, b4) 
+        values(20, 1, 2, 3, 4), (40, 2, 4, 6, 8)"
+    ))
+    .await?;
+
+    {
+        let sql = "select a, b1, c1, b2, c2, b3, c3, b4, c4 from test1_tab_default_UInt8_literal";
+        let mut query_result = conn.query(sql).await?;
+
+        let a_data = &[20_u64, 40];
+        let b1_data = &[1_u8, 2];
+        let b2_data = &[2_u16, 4];
+        let b3_data = &[3_u32, 6];
+        let b4_data = &[4_u64, 8];
+        while let Some(block) = query_result.next().await? {
+            let mut i = 0;
+
+            for row in block.iter_rows() {
+                if i == 0 {
+                    assert_eq!(row.value::<u64>(0)?.unwrap(), a_data[i]);
+                    assert_eq!(row.value::<u8>(1)?.unwrap(), b1_data[i]);
+                    assert_eq!(row.value::<u8>(2)?.unwrap(), b1_data[i]);
+                    assert_eq!(row.value::<u16>(3)?.unwrap(), b2_data[i]);
+                    assert_eq!(row.value::<u16>(4)?.unwrap(), b2_data[i]);
+                    assert_eq!(row.value::<u32>(5)?.unwrap(), b3_data[i]);
+                    assert_eq!(row.value::<u32>(6)?.unwrap(), b3_data[i]);
+                    assert_eq!(row.value::<u64>(7)?.unwrap(), b4_data[i]);
+                    assert_eq!(row.value::<u64>(8)?.unwrap(), b4_data[i]);
+                    println!("row:{:?}", row);
+                }
+
+                i += 1;
+            }
+        }
+    }
+
+    // conn.execute("drop database if exists test_db").await?;
+    Ok(())
+}
+
 // #[tokio::test]
 // async fn test_insert_large_block() -> errors::Result<()> {
 //     let pool = get_pool();

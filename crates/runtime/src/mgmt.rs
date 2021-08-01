@@ -1,9 +1,10 @@
 use base::{
     codec::encode_ascii_bytes_vec_short,
     datetimes::{parse_to_epoch, TimeZoneId},
-    mem::SyncPointer,
+    mem::{shape_slice, SyncPointer},
     strings::s,
 };
+use basejit::jit;
 use bytes::BytesMut;
 use client::prelude::Pool;
 use client::prelude::PoolBuilder;
@@ -15,19 +16,20 @@ use lang::parse::{
     parse_show_create_table, parse_table_place, seek_to_sub_cmd, Pair, Rule,
     TablePlaceKind, TablePlaceKindContext,
 };
-use basejit::jit;
 use meta::{
     confs::Conf,
-    errs::MetaError,
+    errs::{MetaError, MetaResult},
     store::{parts::PartStore, sys::MetaStore},
     toml,
-    types::{BaseChunk, BqlType, Id},
+    types::{BaseChunk, BqlType, ColumnInfo, Id},
 };
 use std::net::IpAddr;
 use std::{
+    collections::HashMap,
     env,
     fs::remove_dir_all,
     lazy::{SyncLazy, SyncOnceCell},
+    mem,
     panic::panic_any,
     path::Path,
     pin::Pin,
@@ -361,7 +363,8 @@ impl<'a> BaseMgmtSys<'a> {
                         } else {
                             &ptc
                         };
-                        let expr_name = qtn.replace(".", "_");
+                        let expr_name =
+                            [qtn, "partition_key"].join("_").replace(".", "_");
                         EXPR_JIT
                             .lock()
                             .map_err(|_| BaseRtError::LightJitCompilationError)?
@@ -385,6 +388,66 @@ impl<'a> BaseMgmtSys<'a> {
                 };
                 self.ptk_exprs_reg.insert(tid, SyncPointer(rt));
                 Ok(rt)
+            }
+        }
+    }
+
+    //===
+    pub fn get_default_expr_fn_ptr(
+        &self,
+        qcn: &str,
+        cid: Id,
+        // ci: ColumnInfo,
+        col_type: BqlType,
+        default_expr: &str,
+        default_expr_cols: &str,
+    ) -> BaseRtResult<*const u8> {
+        log::debug!(
+            "bqlType:{:?}, default_expr:{}, default_expr_cols:{}",
+            col_type,
+            default_expr,
+            default_expr_cols
+        );
+        let fp_opt = self.ptk_exprs_reg.get(&cid);
+        match fp_opt {
+            Some(fp) => {
+                let p = *fp;
+                Ok(p.as_ptr())
+            }
+            None => {
+                let default_expr = match col_type {
+                    BqlType::Date => ["date", &default_expr].join("_"),
+                    _ => default_expr.to_string(),
+                };
+
+                let ptc = if default_expr_cols.ends_with(",") {
+                    &default_expr_cols[..default_expr_cols.len() - 1]
+                } else {
+                    &default_expr_cols
+                };
+
+                let expr_name = [qcn, "default_expr"].join("_").replace(".", "_");
+                EXPR_JIT
+                    .lock()
+                    .map_err(|_| BaseRtError::LightJitCompilationError)?
+                    .ensure_fn_redef(expr_name.as_str());
+
+                let mut fn_code = s!(
+                    fn $expr_name$($ptc$) -> (r) {
+                        r = $default_expr$
+                });
+
+                fn_code.push('\n');
+                log::debug!("col default expr, To jit compile expr: {}", fn_code);
+
+                let fn_code_ptr = EXPR_JIT
+                    .lock()
+                    .map_err(|_| BaseRtError::LightJitCompilationError)?
+                    .compile(fn_code.as_str())
+                    .map_err(|_| BaseRtError::LightJitCompilationError)?; //FIXME possible memory leak
+
+                self.ptk_exprs_reg.insert(cid, SyncPointer(fn_code_ptr));
+                Ok(fn_code_ptr)
             }
         }
     }
@@ -1122,44 +1185,82 @@ fn command_insert_into_gen_block(
 ) -> BaseRtResult<()> {
     let nr = rows.len();
     if tab.columns.len() != 0 {
-        return Err(BaseRtError::UnsupportedFunctionality2(
-            "insert with partial values now is not supported",
-        ));
         //insert into some columns
-        // let mut ic = 0;
-        // for (cn, _) in &tab.columns {
-        //     let qcn = [qtn.as_str(), &cn].join(".");
-        //     let cid =
-        //         ms.cid_by_qname(&qcn).ok_or(BaseRtError::ColumnNotExist)?;
-        //     let ci = ms
-        //         .get_column_info(cid)?
-        //         .ok_or(BaseRtError::SchemaInfoShouldExistButNot)?;
-        //     let name = cn.as_bytes().to_vec();
-        //     let btype = ci.data_type;
-        //     //rows to cols
-        //     let nr = rows.len();
-        //     if nc != rows[0].len() {
-        //         return Err(BaseRtError::InvalidFormatForInsertIntoValueList);
-        //     }
-        //     let mut data: Vec<u8> = Vec::new();
-        //     for i in 0..nr {
-        //         let lit = &rows[i][ic];
-        //         let bs = parse_literal_as_bytes(lit, btype)?;
-        //         data.extend(bs);
-        //     }
-        //     blk.columns.push(Column {
-        //         name,
-        //         data: BaseChunk {
-        //             btype,
-        //             size: 0,
-        //             data,
-        //             null_map: if ci.is_nullable { Some(vec![]) } else { None }, //FIXME
-        //             offset_map: None,
-        //             lc_dict_data: None,
-        //         },
-        //     });
-        //     ic += 1;
-        // }
+        let mut col_infos = ms.get_columns(dbn, tn)?;
+        col_infos.sort_unstable_by_key(|c| c.2.ordinal);
+        let nc = col_infos.len();
+
+        let col_len = col_infos.len();
+        let mut ci_index_map: HashMap<String, (usize, &ColumnInfo)> = HashMap::default();
+        // build block column data 
+        for i in 0..col_len {
+            let (cn, _, ci) = &col_infos[i];
+            let full_col_name = [qtn.as_str(), &cn].join(".");
+            ci_index_map.insert(full_col_name.clone(), (i, &ci));
+
+            let btype = ci.data_type;
+            let value_index = tab.columns.iter().position(|col| col.0 == cn.to_string());
+            let data = match value_index {
+                Some(index) => {
+                    let mut data: Vec<u8> = Vec::new();
+                    for j in 0..nr {
+                        let lit = &rows[j][index];
+                        let bs = parse_literal_as_bytes(lit, btype)?;
+                        data.extend(bs);
+                    }
+                    data
+                }
+                None => {
+                    // default value or null
+                    if ci.default_expr.is_empty() {
+                        get_default_value_without_expr(&ci)?
+                    } else {
+                        vec![]
+                    }
+                }
+            };
+
+            let name = cn.as_bytes().to_vec();
+            blk.columns.push(Column {
+                name,
+                data: BaseChunk {
+                    btype,
+                    size: 0,
+                    data,
+                    null_map: if ci.is_nullable { Some(vec![]) } else { None }, //FIXME
+                    offset_map: None,
+                    lc_dict_data: None,
+                },
+            });
+        }
+
+        //NOTE default expr may use other column data as expr arg, so it should be calculated last
+        for i in 0..nc {
+            let (cn, cid, ci) = &col_infos[i];
+            let col_full_name = [qtn.as_str(), &cn].join(".");
+
+            let arg_value_index = tab.columns.iter().position(|col| col.0 == cn.to_string());
+            if arg_value_index.is_none() {
+                let default_expr_cols = &ci.default_expr_cols;
+                let expr_args_info = if !default_expr_cols.is_empty() {
+                    let (data_index, arg_ci) = &get_arg_column_infos(
+                        qtn,
+                        &ci.default_expr_cols,
+                        &ci_index_map,
+                    )?[0];
+                    
+                    let data = &blk.columns[*data_index].data.data;
+                    vec![(arg_ci.data_type, &data[0..])]
+                } else {
+                    vec![]
+                };
+
+                // calculate
+                let col_default_data =
+                    get_column_default_value(&col_full_name, *cid, nr, ci, expr_args_info)?;
+                blk.columns[i].data.data = col_default_data;
+            }
+        }
     } else {
         //insert into all columns
         let mut col_infos = ms.get_columns(dbn, tn)?;
@@ -1198,6 +1299,200 @@ fn command_insert_into_gen_block(
     blk.nrows = nr;
 
     Ok(())
+}
+
+fn get_default_value_without_expr(ci: &ColumnInfo) -> MetaResult<Vec<u8>> {
+    let is_nullable = ci.is_nullable;
+    let size = ci.data_type.size_in_usize()?;
+    match ci.data_type {
+        BqlType::UInt(_) => {
+            if is_nullable {
+                Ok(vec![0u8; size])
+            } else {
+                Ok(Vec::new())
+            }
+        }
+        BqlType::Int(_) => {
+            if is_nullable {
+                Ok(vec![0u8; size])
+            } else {
+                Ok(Vec::new())
+            }
+        }
+        BqlType::Decimal(_, _) => {
+            if is_nullable {
+                Ok(vec![0u8; size])
+            } else {
+                Ok(Vec::new())
+            }
+        }
+        _ => todo!(),
+    }
+}
+
+/// support single param
+pub(crate) fn get_column_default_value(
+    col_full_name: &str,
+    cid: Id,
+    nr: usize,
+    ci: &ColumnInfo,
+    args_info: Vec<(BqlType, &[u8])>,
+) -> BaseRtResult<Vec<u8>> {
+    let fn_ptr = BMS.get_default_expr_fn_ptr(
+        col_full_name,
+        cid,
+        ci.data_type,
+        &ci.default_expr,
+        &ci.default_expr_cols,
+    )?;
+
+    let arg_num = args_info.len();
+
+    if nr >= u32::MAX as usize {
+        return Err(BaseRtError::TooBigBlockSize);
+    }
+
+    let (arg_type, arg_data) = &args_info[0];
+    let data = match arg_type {
+        BqlType::UInt(bits) => match bits {
+            8 => calculate_column_default_value(
+                fn_ptr as *const u8,
+                ci.data_type,
+                *arg_type,
+                &arg_data,
+                nr,
+            )?,
+            16 => {
+                let param_data = shape_slice::<u16>(&arg_data);
+                calculate_column_default_value(
+                    fn_ptr as *const u8,
+                    ci.data_type,
+                    *arg_type,
+                    &param_data,
+                    nr,
+                )?
+            }
+            32 => {
+                let param_data = shape_slice::<u32>(&arg_data);
+                calculate_column_default_value(
+                    fn_ptr as *const u8,
+                    ci.data_type,
+                    *arg_type,
+                    &param_data,
+                    nr,
+                )?
+            }
+            64 => {
+                let param_data = shape_slice::<u64>(&arg_data);
+                calculate_column_default_value(
+                    fn_ptr as *const u8,
+                    ci.data_type,
+                    *arg_type,
+                    &param_data,
+                    nr,
+                )?
+            }
+            _ => {
+                return Err(BaseRtError::UnsupportedDefaultExpressionArgumentType);
+            }
+        },
+        meta::types::BqlType::DateTime => {
+            let param_data = shape_slice::<u32>(&arg_data);
+            calculate_column_default_value(
+                fn_ptr as *const u8,
+                ci.data_type,
+                *arg_type,
+                &param_data,
+                nr,
+            )?
+        }
+        meta::types::BqlType::Date => {
+            let param_data = shape_slice::<u16>(&arg_data);
+            calculate_column_default_value(
+                fn_ptr as *const u8,
+                ci.data_type,
+                *arg_type,
+                &param_data,
+                nr,
+            )?
+        }
+        // meta::types::BqlType::Int(_) => {}
+        // meta::types::BqlType::Decimal(_, _) => {}
+        _ => {
+            todo!()
+        }
+    };
+
+    Ok(data)
+}
+
+#[inline(always)]
+fn calculate_column_default_value<T: 'static + Sized + Copy + std::fmt::Debug>(
+    default_expr_fn_ptr: *const u8,
+    col_data_type: BqlType,
+    col_param_type: BqlType,
+    col_param_data: &[T],
+    nr: usize,
+) -> BaseRtResult<Vec<u8>> {
+    let default_expr_fn =
+        unsafe { mem::transmute::<_, fn(T) -> u64>(default_expr_fn_ptr) };
+    let is_datetime_typ = matches!(col_param_type, BqlType::DateTime);
+    let tz_ofs = BMS.timezone.offset() as i64;
+    let mut data = Vec::<u8>::new();
+
+    for j in 0..nr {
+        let raw_default_value = default_expr_fn(col_param_data[j]);
+
+        match col_data_type {
+            BqlType::UInt(bits) => match bits {
+                8 => {
+                    let value = raw_default_value as u8;
+                    data.extend(value.to_le_bytes())
+                }
+                16 => {
+                    let value = raw_default_value as u16;
+                    data.extend(value.to_le_bytes())
+                }
+                32 => {
+                    let value = raw_default_value as u32;
+                    data.extend(value.to_le_bytes())
+                }
+                64 => {
+                    let value = raw_default_value as u64;
+                    data.extend(value.to_le_bytes())
+                }
+                _ => {
+                    return Err(BaseRtError::UnsupportedDefaultExpressionArgumentType);
+                }
+            },
+            _ => {
+                todo!()
+            }
+        };
+    }
+
+    Ok(data)
+}
+
+#[inline(always)]
+fn get_arg_column_infos(
+    qtn: &str,
+    arg_cols_info: &str,
+    col_map: &HashMap<String, (usize, &ColumnInfo)>,
+) -> BaseRtResult<Vec<(usize, ColumnInfo)>> {
+    let arg_col_name = if arg_cols_info.ends_with(",") {
+        &arg_cols_info[..arg_cols_info.len() - 1]
+    } else {
+        &arg_cols_info
+    };
+
+    let arg_col_full_name = [qtn, arg_col_name].join(".");
+    let (col_index, ci) =
+        col_map
+            .get(&arg_col_full_name)
+            .ok_or(BaseRtError::ColumnNotExist)?;
+
+    Ok(vec![(*col_index, (**ci).clone())])
 }
 
 #[cfg(test)]

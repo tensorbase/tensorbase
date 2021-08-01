@@ -642,7 +642,7 @@ impl MetaStore {
                 let cid = self.new_col(dn, tn, colname)?;
                 let r = self
                     .tree_cols
-                    .insert(&cid.to_be_bytes(), col_info.as_bytes())
+                    .insert(&cid.to_be_bytes(), col_info.into_bytes()?)
                     .map_err(|_| MetaError::InsertError)?;
                 debug_assert!(r.is_none());
             }
@@ -659,13 +659,8 @@ impl MetaStore {
             .map_err(|_e| MetaError::InsertError)?;
         if let Some(iv) = r {
             let bs = &*iv;
-            if std::mem::size_of::<ColumnInfo>() == bs.len() {
-                let ci = bs.into_ref::<ColumnInfo>();
-                Ok(Some(*ci))
-            } else {
-                //FIXME handle old version
-                Err(MetaError::GenericError)
-            }
+            let ci = ColumnInfo::from_bytes(bs)?;
+            Ok(Some(ci))
         } else {
             Ok(None)
         }
@@ -892,6 +887,8 @@ mod unit_tests {
                     is_primary_key: false,
                     is_nullable: true,
                     ordinal: i - 1,
+                    default_expr: Default::default(),
+                    default_expr_cols: Default::default(),
                 },
             ));
         }

@@ -347,7 +347,10 @@ impl CreateTabContext {
                 self.fallible = false;
             }
             Rule::column_def => {
-                self.tab.columns.push(Default::default());
+                let (c_name, mut ci): (String, ColumnInfo) = Default::default();
+                //NOTE as mark of start of column_default_expr
+                ci.default_expr = "$".to_string();
+                self.tab.columns.push((c_name, ci));
             }
             Rule::table_attr_settings => {
                 self.tab.tab_info.settings = Default::default();
@@ -440,11 +443,30 @@ impl CreateTabContext {
             }
             Rule::qualified_name => {
                 let ti = &mut self.tab.tab_info;
-                let ptk = pair.into_inner().as_str().trim();
+                let key_name = pair.into_inner().as_str().trim();
                 if ti.partition_keys_expr == "$" {
-                    ti.partition_cols.push_str(ptk);
+                    ti.partition_cols.push_str(key_name);
                     ti.partition_cols.push(',');
                 }
+
+                let col = self
+                    .tab
+                    .columns
+                    .last_mut()
+                    .ok_or(LangError::CreateTableParsingError)?;
+                if col.1.default_expr == "$" {
+                    col.1.default_expr_cols.push_str(key_name);
+                    col.1.default_expr_cols.push(',');
+                }
+            }
+            Rule::column_default_value => {
+                let col = self
+                    .tab
+                    .columns
+                    .last_mut()
+                    .ok_or(LangError::CreateTableParsingError)?;
+                let column_default_expr = pair.into_inner().as_str().trim();
+                col.1.default_expr = column_default_expr.to_string();
             }
             Rule::table_attr_partition => {
                 let ti = &mut self.tab.tab_info;

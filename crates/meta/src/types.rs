@@ -23,13 +23,113 @@ macro_rules! to_qualified_key {
     ($($e:expr),* $(,)*) => {[$($e),*].join(".")}
 }
 
-#[derive(PartialEq, Debug, Default, Copy, Clone)]
-#[repr(C, packed)]
+#[derive(PartialEq, Debug, Default, Clone)]
 pub struct ColumnInfo {
     pub data_type: BqlType,
     pub is_primary_key: bool,
     pub is_nullable: bool,
     pub ordinal: u32,
+    pub default_expr: String,
+    pub default_expr_cols: String,
+}
+
+impl ColumnInfo {
+    pub fn into_bytes(&self) -> MetaResult<Vec<u8>> {
+        let mut data = Vec::new();
+
+        let is_primary_key = if self.is_primary_key { 1_u8 } else { 0_u8 };
+        data.push(is_primary_key);
+
+        let is_nullable = if self.is_nullable { 1_u8 } else { 0_u8 };
+        data.push(is_nullable);
+
+        let ordinal = self.ordinal.to_le_bytes();
+        data.extend(ordinal);
+
+        let data_type_vec = self.data_type.to_vec()?;
+        let data_type_vec_len = (data_type_vec.len() as u32).to_le_bytes();
+        data.extend(data_type_vec_len);
+        data.extend(data_type_vec);
+
+        let default_expr_vec = self.default_expr.as_bytes();
+        let default_expr_vec_len = (default_expr_vec.len() as u32).to_le_bytes();
+        data.extend(default_expr_vec_len);
+        data.extend(default_expr_vec);
+
+        let default_expr_cols_vec = self.default_expr_cols.as_bytes();
+        let default_expr_vec_cols_len =
+            (default_expr_cols_vec.len() as u32).to_le_bytes();
+        data.extend(default_expr_vec_cols_len);
+        data.extend(default_expr_cols_vec);
+
+        Ok(data)
+    }
+
+    pub fn from_bytes(data: &[u8]) -> MetaResult<ColumnInfo> {
+        if data.len() < 18usize {
+            return Err(MetaError::ColExistedError(1_u64));
+        }
+
+        // is_primary_key
+        let is_primary_key = data[0] > 0;
+
+        // is_nullable
+        let is_nullable = data[1] > 0;
+
+        // ordinal
+        let ordinal_bytes = [data[2], data[3], data[4], data[5]];
+        let ordinal = u32::from_le_bytes(ordinal_bytes);
+
+        // prefix length bytes
+        // data type
+        let mut raw_data = &data[6..];
+        if raw_data.len() < 4_usize {
+            return Err(MetaError::ColExistedError(1_u64));
+        }
+
+        let data_type_len_bytes = [raw_data[0], raw_data[1], raw_data[2], raw_data[3]];
+        let data_type_len = u32::from_le_bytes(data_type_len_bytes) as usize;
+        
+        let data_type_bytes = &raw_data[4..4 + data_type_len];
+        let data_type = BqlType::from_bytes(data_type_bytes)?;
+
+        raw_data = &raw_data[4 + data_type_len..];
+
+        // default_expr
+        if raw_data.len() < 4_usize {
+            return Err(MetaError::ColExistedError(1_u64));
+        }
+
+        let default_expr_len_bytes = [raw_data[0], raw_data[1], raw_data[2], raw_data[3]];
+        let default_expr_len = u32::from_le_bytes(default_expr_len_bytes) as usize;
+        let default_expr_bytes = &raw_data[4..4 + default_expr_len];
+        let default_expr =
+            unsafe { std::str::from_utf8_unchecked(default_expr_bytes) }.to_string();
+
+        raw_data = &raw_data[4 + default_expr_len..];
+
+        // default_expr_cols
+        if raw_data.len() < 4_usize {
+            return Err(MetaError::ColExistedError(1_u64));
+        }
+
+        let default_expr_cols_len_bytes =
+            [raw_data[0], raw_data[1], raw_data[2], raw_data[3]];
+        let default_expr_cols_len =
+            u32::from_le_bytes(default_expr_cols_len_bytes) as usize;
+        let default_expr_cols_bytes = &raw_data[4..4 + default_expr_cols_len];
+        let default_expr_cols =
+            unsafe { std::str::from_utf8_unchecked(default_expr_cols_bytes) }.to_string();
+
+        Ok(ColumnInfo {
+            is_primary_key,
+            is_nullable,
+            ordinal,
+            data_type,
+            default_expr,
+            default_expr_cols,
+        })
+    }
 }
 
 //FIXME add ids to Tab/Col model?
@@ -742,5 +842,38 @@ mod unit_tests {
     #[test]
     fn test_type_sizes() {
         show_option_size!(BqlType);
+    }
+
+    #[test]
+    fn test_column_from_bytes() -> MetaResult<()> {
+        let is_primary_key = false;
+        let is_nullable = true;
+        let ordinal = 10_u32;
+        let data_type = BqlType::UInt(8);
+        let default_expr = "to_date(col2)";
+        let default_expr_cols = "col2,";
+
+        let raw_ci = ColumnInfo {
+            is_primary_key,
+            is_nullable,
+            ordinal,
+            data_type,
+            default_expr: default_expr.to_string(),
+            default_expr_cols: default_expr_cols.to_string(),
+        };
+
+        let raw_ci_bytes = raw_ci.into_bytes()?;
+        // println!("data:{:?}", raw_ci_bytes);
+        let decode_ci = ColumnInfo::from_bytes(&raw_ci_bytes)?;
+
+        // println!("decode_di:{:?}", decode_ci);
+        assert_eq!(is_primary_key, decode_ci.is_primary_key);
+        assert_eq!(is_nullable, decode_ci.is_nullable);
+        assert_eq!(ordinal, decode_ci.ordinal);
+        assert_eq!(data_type, decode_ci.data_type);
+        assert_eq!(default_expr, decode_ci.default_expr);
+        assert_eq!(default_expr_cols, decode_ci.default_expr_cols);
+
+        Ok(())
     }
 }

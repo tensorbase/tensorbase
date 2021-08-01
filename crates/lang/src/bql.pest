@@ -33,12 +33,14 @@ create_table = {
 }
 if_not_exists = { ^"if" ~ ^"not" ~ ^"exists" }
 column_def = {
-    column_name ~ type_name ~ column_constraint?
+    column_name ~ type_name ~ column_default_value? ~ column_constraint?
 }
 column_constraint = {
     ^"primary" ~ ^"key" ~ sort_order? |
-    ^"not" ~ ^"null" |
-    ^"default" ~ literal
+    ^"not" ~ ^"null" 
+}
+column_default_value = {
+     ^"default" ~ arith_expr
 }
 table_attributes = {
     table_attr_engine? ~ 
