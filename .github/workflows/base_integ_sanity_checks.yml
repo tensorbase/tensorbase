@@ -32,7 +32,7 @@ jobs:
             data_dirs = ["${{ github.workspace }}/tb_data"]   
             [storage]                          
             data_dirs_clickhouse = ""          
-            [server]                           
+            [server.tcp]                           
             ip_addr = "localhost"              
             port = 9528   
             timezone = "Etc/GMT-8"
