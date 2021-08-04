@@ -975,7 +975,6 @@ impl<'a> BaseMgmtSys<'a> {
                 return self.command_optimize_table(p, &cctx.current_db);
             }
             Rule::insert_into => {
-                println!("{:?}", p.as_str());
                 return self.command_insert_into(p, cctx);
             }
             Rule::query => {
