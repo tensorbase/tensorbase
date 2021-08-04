@@ -24,7 +24,6 @@ pub struct Conf {
     pub system: System,
     #[serde(default)]
     pub storage: Storage,
-    #[serde(default)]
     pub server: Server,
     pub clickhouse: Option<CHGroup>,
 }
@@ -39,15 +38,31 @@ pub struct Conf {
 pub struct System {
     pub meta_dirs: Vec<String>,
     pub data_dirs: Vec<String>,
+    pub timezone: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, PartialEq, Debug)]
 pub struct Server {
-    #[serde(default = "Server::default_ip_addr")]
+    pub tcp: Option<Tcp>,
+    pub tls: Option<Tls>,
+}
+
+#[derive(Serialize, Deserialize, PartialEq, Debug)]
+pub struct Tcp {
+    #[serde(default = "Tcp::default_ip_addr")]
     pub ip_addr: String,
-    #[serde(default = "Server::default_port")]
+    #[serde(default = "Tcp::default_port")]
     pub port: u16,
-    pub timezone: Option<String>,
+}
+
+#[derive(Serialize, Deserialize, PartialEq, Debug)]
+pub struct Tls {
+    #[serde(default = "Tls::default_ip_addr")]
+    pub ip_addr: String,
+    #[serde(default = "Tls::default_port")]
+    pub port: u16,
+    pub certificate_file: String,
+    pub private_key_file: String,
 }
 
 #[derive(Serialize, Deserialize, PartialEq, Debug)]
@@ -91,7 +106,7 @@ impl CHConfig {
     }
 }
 
-impl Server {
+impl Tcp {
     fn default_ip_addr() -> String {
         "127.0.0.1".to_string()
     }
@@ -101,11 +116,31 @@ impl Server {
     }
 }
 
-impl Default for Server {
+impl Default for Tcp {
     fn default() -> Self {
-        Server {
-            ip_addr: Server::default_ip_addr(),
-            port: Server::default_port(),
+        Tcp {
+            ip_addr: Self::default_ip_addr(),
+            port: Self::default_port(),
+            ..Default::default()
+        }
+    }
+}
+
+impl Tls {
+    fn default_ip_addr() -> String {
+        "127.0.0.1".to_string()
+    }
+
+    fn default_port() -> u16 {
+        9440u16
+    }
+}
+
+impl Default for Tls {
+    fn default() -> Self {
+        Tls {
+            ip_addr: Self::default_ip_addr(),
+            port: Self::default_port(),
             ..Default::default()
         }
     }
@@ -174,19 +209,30 @@ mod unit_tests {
     fn basic_check_for_conf_str() -> MetaResult<()> {
         let conf0: super::Conf = toml::from_str(
             r#"[system]
-            meta_dirs = ["/data/n3/schema"]
-            data_dirs = ["/data/n3/data"]
+            meta_dirs = ["/tmp/tb_schema"]
+            data_dirs = ["/tmp/tb_data"]
+            timezone = "Etc/GMT-8"
             
             [storage]
             data_dirs_clickhouse = ""
             
-            [server]
-            ip_addr = "127.0.0.1"
-            # port = 8080
+            # enable TCP service 
+            [server.tcp]
+            ip_addr = "localhost"
+            port = 9528
+            
+            # enable TLS-based TCP service, in the same time of above TCP
+            # warning: here all files in certs are just test certificates, 
+            #          do not use them in production!
+            [server.tls]
+            ip_addr = "localhost"
+            port = 9440
+            certificate_file = "../certs/cert.pem"
+            private_key_file = "../certs/key.pem"
         "#,
         )
         .unwrap();
-        // println!("{}", toml::to_string_pretty(&conf0)?);
+        println!("{}", toml::to_string_pretty(&conf0).unwrap());
         Conf::save(&conf0, None).unwrap();
         let conf1 = Conf::load(None).unwrap();
         assert_eq!(conf0, conf1);

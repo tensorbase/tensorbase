@@ -159,8 +159,14 @@ pub static BMS: SyncLazy<BaseMgmtSys> = SyncLazy::new(|| {
     log::info!("confs to use:");
     log::info!("system.meta_dirs: {:?}", &conf.system.meta_dirs);
     log::info!("system.data_dirs: {:?}", &conf.system.data_dirs);
-    log::info!("server.ip_addr: {:?}", &conf.server.ip_addr);
-    log::info!("server.port: {:?}", &conf.server.port);
+    if let Some(tcp_srv) = &conf.server.tcp {
+        log::info!("tcp server: {:?}", tcp_srv);
+    }
+    //  else if let Some(tcp_srv) = &conf.server.tcp {
+    //     log::info!("tcp server: {:?}", tcp_srv);
+    // }
+    // log::info!("server.ip_addr: {:?}", ip_addr);
+    // log::info!("server.port: {:?}", &conf.server.port);
 
     let conf = Box::new(conf);
     let mut bms = BaseMgmtSys::from_conf(Box::leak(conf)).unwrap();
@@ -216,7 +222,7 @@ impl<'a> BaseMgmtSys<'a> {
         let meta_store =
             MetaStore::new(ms_path).map_err(|e| BaseRtError::WrappingMetaError(e))?;
         let part_store = PartStore::new(ms_path, &conf.system.data_dirs)?;
-        let timezone = match &conf.server.timezone {
+        let timezone = match &conf.system.timezone {
             Some(tz_name) => TimeZoneId::from_str(&tz_name)?,
             _ => TimeZoneId::from_local().unwrap_or_default(),
         };
