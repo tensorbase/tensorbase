@@ -11,7 +11,7 @@ actix-server = "1.0.4"
 actix-service = "1.0.6"
 actix-tls = { version = "2", features = ["rustls"] }
 rustls = { version = "0.18.0" }
-bytes = "0.5.6"
+bytes = "1.0.1"
 log = "0.4"
 futures = "0.3"
 thiserror = "1.0"
