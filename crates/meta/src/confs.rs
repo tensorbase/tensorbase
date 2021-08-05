@@ -25,7 +25,13 @@ pub struct Conf {
     #[serde(default)]
     pub storage: Storage,
     pub server: Server,
+    pub remote_tables: Option<RemoteTables>,
+}
+
+#[derive(Serialize, Deserialize, PartialEq, Debug)]
+pub struct RemoteTables {
     pub clickhouse: Option<CHGroup>,
+    pub mysql: Option<MySqlGroup>,
 }
 
 // impl Deref for Conf {
@@ -68,6 +74,44 @@ pub struct Tls {
 #[derive(Serialize, Deserialize, PartialEq, Debug)]
 pub struct CHGroup {
     pub members: Vec<CHConfig>,
+}
+
+#[derive(Serialize, Deserialize, PartialEq, Debug)]
+pub struct MySqlGroup {
+    pub members: Vec<MySqlConfig>,
+}
+
+#[derive(Serialize, Deserialize, PartialEq, Debug)]
+pub struct MySqlConfig {
+    pub ip_addr: Option<String>,
+    pub host: Option<String>,
+    #[serde(default = "MySqlConfig::default_port")]
+    pub port: u16,
+    pub username: Option<String>,
+    pub password: Option<String>,
+    pub database: Option<String>,
+    pub compress: Option<u32>,
+    #[serde(default = "MySqlConfig::default_secure_auth")]
+    pub secure_auth: bool,
+    pub read_timeout: Option<u64>,
+    pub tcp_keepalive: Option<u32>,
+    #[serde(default = "MySqlConfig::default_tcp_nodelay")]
+    pub tcp_nodelay: bool,
+    pub ssl_pkcs12_path: Option<String>,
+    pub ssl_root_ca_path: Option<String>,
+    pub ssl_password: Option<String>,
+}
+
+impl MySqlConfig {
+    fn default_port() -> u16 {
+        3306
+    }
+    fn default_secure_auth() -> bool {
+        true
+    }
+    fn default_tcp_nodelay() -> bool {
+        true
+    }
 }
 
 #[derive(Serialize, Deserialize, PartialEq, Debug)]

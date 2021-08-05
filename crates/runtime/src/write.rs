@@ -424,8 +424,8 @@ mod unit_tests {
         mem::{shape_slice, shape_vec_u8},
         with_timer_print,
     };
-    use baselog::{Config, ConfigBuilder, LevelFilter, TermLogger, TerminalMode};
     use basejit::builtins::to_fn1;
+    use baselog::{Config, ConfigBuilder, LevelFilter, TermLogger, TerminalMode};
     use meta::{
         confs::Conf,
         types::{BaseChunk, BqlType, ColumnInfo, EngineType, Table, TableInfo},

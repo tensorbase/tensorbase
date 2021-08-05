@@ -131,7 +131,11 @@ from = { ^"from" ~ ( remote_func | join_tables | compound_select ) }
 select_remote = {remote_func ~ (select | ("values" ~ rows*)) }
 
 remote_func = {
-    ^"remote" ~ "(" ~ remote_addresses ~ "," ~ remote_table ~ ("," ~ username_lit ~ "," ~ password_lit)? ~ ")"
+    ^"remote" ~ "(" ~ (database_type ~ ",")? ~ remote_addresses ~ "," ~ remote_table ~ ("," ~ username_lit ~ "," ~ password_lit)? ~ ")"
+}
+
+database_type = {
+   "mysql" | "clickhouse" | "tensorbase"
 }
 
 remote_table = ${
