@@ -10,10 +10,10 @@ use runtime::ch::{
 };
 use runtime::errs::BaseRtError;
 
-use actix_codec::{AsyncRead, AsyncWrite};
-use actix_rt::net::TcpStream;
-
 use bytes::{Buf, BytesMut};
+use tokio::io::AsyncWrite;
+use tokio::net::TcpStream;
+use tokio_util::io::poll_read_buf;
 
 pub struct BaseSrvConn {
     pub io: TcpStream,
@@ -49,8 +49,7 @@ impl Future for BaseSrvConn {
             }
             this.read_buf
                 .ensure_enough_bytes_to_write(this.read_buf.len());
-            let read = Pin::new(&mut this.io).poll_read_buf(cx, &mut this.read_buf);
-            match read {
+            match poll_read_buf(Pin::new(&mut this.io), cx, &mut this.read_buf) {
                 Poll::Pending => {
                     if !this.read_buf.is_empty() {
                         // this.write_buf.ensure_enough_bytes_to_write(32 * 1024);
