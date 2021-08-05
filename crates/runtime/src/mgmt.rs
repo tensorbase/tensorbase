@@ -4,7 +4,9 @@ use base::{
     mem::SyncPointer,
     strings::s,
 };
+use basejit::jit;
 use bytes::BytesMut;
+use clap::{App, Arg};
 use client::prelude::Pool;
 use client::prelude::PoolBuilder;
 use dashmap::DashMap;
@@ -15,7 +17,6 @@ use lang::parse::{
     parse_show_create_table, parse_table_place, seek_to_sub_cmd, Pair, Rule,
     TablePlaceKind, TablePlaceKindContext,
 };
-use basejit::jit;
 use meta::{
     confs::Conf,
     errs::MetaError,
@@ -23,20 +24,20 @@ use meta::{
     toml,
     types::{BaseChunk, BqlType, Id},
 };
+use mysql::{Compression, OptsBuilder, Pool as MyPool, SslOpts};
 use std::net::IpAddr;
+use std::time::Duration;
 use std::{
     env,
     fs::remove_dir_all,
     lazy::{SyncLazy, SyncOnceCell},
     panic::panic_any,
-    path::Path,
+    path::{Path, PathBuf},
     pin::Pin,
     str::FromStr,
     sync::Mutex,
     time::Instant,
 };
-
-use clap::{App, Arg};
 
 use crate::{
     ch::{
@@ -171,6 +172,7 @@ pub static BMS: SyncLazy<BaseMgmtSys> = SyncLazy::new(|| {
     let conf = Box::new(conf);
     let mut bms = BaseMgmtSys::from_conf(Box::leak(conf)).unwrap();
     bms.build_remote_db_pool();
+    bms.build_mysql_db_pool();
     bms
 });
 
@@ -211,6 +213,7 @@ pub struct BaseMgmtSys<'a> {
     pub meta_store: MetaStore,
     pub part_store: PartStore<'a>,
     pub remote_db_pool: DashMap<RemoteAddr, Pool>,
+    pub remote_mysql_pool: DashMap<RemoteAddr, MyPool>,
     pub ptk_exprs_reg: DashMap<Id, SyncPointer<u8>, BuildPtkExprsHasher>,
     pub timezone: TimeZoneId,
     pub timezone_name: String,
@@ -277,56 +280,130 @@ impl<'a> BaseMgmtSys<'a> {
             meta_store,
             part_store,
             remote_db_pool: DashMap::new(),
+            remote_mysql_pool: DashMap::new(),
             ptk_exprs_reg,
             timezone,
             timezone_name,
         })
     }
 
+    pub fn build_mysql_db_pool(&mut self) {
+        if let Some(remote_tables) = self.conf.remote_tables.as_ref() {
+            if let Some(my) = remote_tables.mysql.as_ref() {
+                for conf in &my.members {
+                    let mut opt = OptsBuilder::new();
+
+                    opt =
+                        opt.ip_or_hostname(conf.ip_addr.as_ref().or(conf.host.as_ref()));
+
+                    opt = opt.tcp_port(conf.port);
+
+                    if let Some(username) = conf.username.as_ref() {
+                        opt = opt.user(username.into());
+                    }
+
+                    if let Some(password) = conf.password.as_ref() {
+                        opt = opt.pass(password.into());
+                    }
+
+                    if let Some(db) = conf.database.as_ref() {
+                        opt = opt.db_name(db.into());
+                    }
+
+                    opt = opt.compress(conf.compress.map(|c| Compression::new(c)));
+
+                    opt = opt.secure_auth(conf.secure_auth);
+
+                    opt = opt.read_timeout(
+                        conf.read_timeout.map(|n| Duration::from_millis(n)),
+                    );
+
+                    opt = opt.tcp_keepalive_time_ms(conf.tcp_keepalive);
+                    opt = opt.tcp_nodelay(conf.tcp_nodelay);
+
+                    match (
+                        conf.ssl_pkcs12_path.as_ref(),
+                        conf.ssl_root_ca_path.as_ref(),
+                        conf.ssl_password.as_ref(),
+                    ) {
+                        (Some(pk), Some(ca), pass) => {
+                            let mut ssl_opt = SslOpts::default();
+                            let mut pk_path = PathBuf::new();
+                            pk_path.push(pk);
+                            let mut ca_path = PathBuf::new();
+                            ca_path.push(ca);
+                            ssl_opt = ssl_opt.with_pkcs12_path(Some(pk_path));
+                            ssl_opt = ssl_opt.with_root_cert_path(Some(ca_path));
+                            ssl_opt = ssl_opt.with_password(pass.map(|s| s.to_string()));
+                            opt = opt.ssl_opts(ssl_opt);
+                        }
+                        _ => {}
+                    };
+
+                    let remote_addr = RemoteAddr {
+                        ip_addr: conf.ip_addr.as_ref().map(|s| {
+                            s.parse::<IpAddr>().expect("correct ipv4 or ipv6 address")
+                        }),
+                        host_name: conf.host.clone(),
+                        port: Some(conf.port),
+                    };
+
+                    let pool =
+                        MyPool::new(opt).expect("connect the remote mysql database");
+                    log::info!("connect remote mysql database: {:?}", remote_addr);
+
+                    self.remote_mysql_pool.insert(remote_addr, pool);
+                }
+            }
+        }
+    }
+
     pub fn build_remote_db_pool(&mut self) {
-        if let Some(ch) = self.conf.clickhouse.as_ref() {
-            for conf in &ch.members {
-                let mut builder = PoolBuilder::default();
+        if let Some(remote_tables) = self.conf.remote_tables.as_ref() {
+            if let Some(ch) = remote_tables.clickhouse.as_ref() {
+                for conf in &ch.members {
+                    let mut builder = PoolBuilder::default();
 
-                if conf.ping {
-                    builder = builder.with_ping();
+                    if conf.ping {
+                        builder = builder.with_ping();
+                    }
+
+                    if let Some(comp) = &conf.compression {
+                        builder = builder.with_compression();
+                    }
+
+                    builder = builder.with_pool(conf.pool_min_size, conf.pool_max_size);
+
+                    if let Some(username) = &conf.username {
+                        builder = builder.with_username(username);
+                    }
+
+                    if let Some(password) = &conf.password {
+                        builder = builder.with_password(password);
+                    }
+
+                    let addr = conf
+                        .ip_addr
+                        .as_ref()
+                        .map(|i| i.to_string())
+                        .or(conf.host.as_ref().map(|h| h.to_string()))
+                        .map(|s| format!("{}:{}", s, conf.port))
+                        .unwrap_or("".into());
+
+                    builder = builder.add_addr(addr);
+                    let pool = builder
+                        .build()
+                        .expect("initial remote connection pool failed");
+                    let remote_addr = RemoteAddr {
+                        ip_addr: conf.ip_addr.as_ref().map(|s| {
+                            s.parse::<IpAddr>().expect("correct ipv4 or ipv6 address")
+                        }),
+                        host_name: conf.host.clone(),
+                        port: Some(conf.port),
+                    };
+                    log::info!("connect remote ch/tb database: {:?}", remote_addr);
+                    self.remote_db_pool.insert(remote_addr, pool);
                 }
-
-                if let Some(comp) = &conf.compression {
-                    builder = builder.with_compression();
-                }
-
-                builder = builder.with_pool(conf.pool_min_size, conf.pool_max_size);
-
-                if let Some(username) = &conf.username {
-                    builder = builder.with_username(username);
-                }
-
-                if let Some(password) = &conf.password {
-                    builder = builder.with_password(password);
-                }
-
-                let addr = conf
-                    .ip_addr
-                    .as_ref()
-                    .map(|i| i.to_string())
-                    .or(conf.host.as_ref().map(|h| h.to_string()))
-                    .map(|s| format!("{}:{}", s, conf.port))
-                    .unwrap_or("".into());
-
-                builder = builder.add_addr(addr);
-                let pool = builder
-                    .build()
-                    .expect("initial remote connection pool failed");
-                let remote_addr = RemoteAddr {
-                    ip_addr: conf.ip_addr.as_ref().map(|s| {
-                        s.parse::<IpAddr>().expect("correct ipv4 or ipv6 address")
-                    }),
-                    host_name: conf.host.clone(),
-                    port: Some(conf.port),
-                };
-                log::info!("connect remote database: {:?}", remote_addr);
-                self.remote_db_pool.insert(remote_addr, pool);
             }
         }
     }

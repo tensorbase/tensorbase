@@ -8,7 +8,7 @@ use std::{
 
 use actix_rt::net::TcpStream;
 use actix_server::Server;
-use actix_service::{fn_service};
+use actix_service::fn_service;
 use baselog::{ConfigBuilder, LevelFilter, TermLogger, TerminalMode};
 use bytes::BytesMut;
 use futures::future;

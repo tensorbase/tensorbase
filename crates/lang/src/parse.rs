@@ -980,7 +980,15 @@ fn seek_to_tree<'a, R: pest::RuleType>(
 }
 
 #[derive(Debug, PartialEq, Clone)]
+pub enum RemoteDbType {
+    TensorBase,
+    ClickHouse,
+    Mysql,
+}
+
+#[derive(Debug, PartialEq, Clone)]
 pub struct RemoteTableInfo {
+    pub database_type: RemoteDbType,
     pub addrs: Vec<RemoteAddr>,
     pub username: Option<String>,
     pub password: Option<String>,
@@ -998,6 +1006,7 @@ pub struct RemoteAddr {
 impl Default for RemoteTableInfo {
     fn default() -> Self {
         Self {
+            database_type: RemoteDbType::TensorBase,
             addrs: vec![],
             username: None,
             password: None,
@@ -1203,6 +1212,19 @@ impl TablePlaceKindContext {
             Rule::remote_func => {
                 self.place_kind = TablePlaceKind::Remote(Default::default())
             }
+            Rule::database_type => match &mut self.place_kind {
+                TablePlaceKind::Remote(info) => {
+                    let db_type = match pair.as_str() {
+                        "clickhouse" => RemoteDbType::ClickHouse,
+                        "tensorbase" => RemoteDbType::TensorBase,
+                        "mysql" => RemoteDbType::Mysql,
+                        _ => RemoteDbType::TensorBase,
+                    };
+
+                    info.database_type = db_type;
+                }
+                _ => {}
+            },
             _ => {}
         }
 
@@ -1267,7 +1289,7 @@ mod unit_tests {
     use super::{
         parse_create_database, parse_create_table, parse_host_comma_expr,
         parse_host_range_expr, pretty_parse_tree, seek_to, BqlParser, RemoteAddr,
-        RemoteTableInfo, Rule, TablePlaceKind,
+        RemoteDbType, RemoteTableInfo, Rule, TablePlaceKind,
     };
     use base::datetimes::TimeZoneId;
     use meta::types::BqlType;
@@ -1455,6 +1477,7 @@ LIMIT 100;
         assert_eq!(
             r,
             TablePlaceKind::Remote(RemoteTableInfo {
+                database_type: RemoteDbType::TensorBase,
                 database_name: Some("default".into()),
                 table_name: "test".into(),
                 addrs: vec![RemoteAddr {
@@ -1475,6 +1498,7 @@ LIMIT 100;
         assert_eq!(
             r,
             TablePlaceKind::Remote(RemoteTableInfo {
+                database_type: RemoteDbType::TensorBase,
                 database_name: None,
                 table_name: "test".into(),
                 addrs: vec![RemoteAddr {
@@ -1497,6 +1521,7 @@ LIMIT 100;
         assert_eq!(
             r,
             TablePlaceKind::Remote(RemoteTableInfo {
+                database_type: RemoteDbType::TensorBase,
                 database_name: None,
                 table_name: "test".into(),
                 addrs: vec![RemoteAddr {
@@ -1519,6 +1544,7 @@ LIMIT 100;
         assert_eq!(
             r,
             TablePlaceKind::Remote(RemoteTableInfo {
+                database_type: RemoteDbType::TensorBase,
                 database_name: None,
                 table_name: "test".into(),
                 addrs: vec![RemoteAddr {
@@ -1541,6 +1567,7 @@ LIMIT 100;
         assert_eq!(
             r,
             TablePlaceKind::Remote(RemoteTableInfo {
+                database_type: RemoteDbType::TensorBase,
                 database_name: None,
                 table_name: "test".into(),
                 addrs: vec![RemoteAddr {
@@ -1563,6 +1590,7 @@ LIMIT 100;
         assert_eq!(
             r,
             TablePlaceKind::Remote(RemoteTableInfo {
+                database_type: RemoteDbType::TensorBase,
                 database_name: Some("default".into()),
                 table_name: "test".into(),
                 addrs: vec![RemoteAddr {
@@ -1584,6 +1612,7 @@ LIMIT 100;
         assert_eq!(
             r,
             TablePlaceKind::Remote(RemoteTableInfo {
+                database_type: RemoteDbType::TensorBase,
                 database_name: Some("cloud".into()),
                 table_name: "test".into(),
                 addrs: vec![
@@ -1624,6 +1653,7 @@ LIMIT 100;
             port: Some(9000),
         }];
         let info = RemoteTableInfo {
+            database_type: RemoteDbType::TensorBase,
             addrs,
             username: None,
             password: None,
