@@ -22,15 +22,15 @@ use meta::{
     },
     types::{BqlType, Id},
 };
-use tokio::runtime::{self, Runtime};
+use tokio::runtime::{self, Handle, Runtime};
 
 use crate::{
     errs::{EngineError, EngineResult},
     types::QueryState,
 };
 
-static TOKIO_RT: SyncLazy<Runtime> =
-    SyncLazy::new(|| runtime::Builder::new_multi_thread().build().unwrap());
+// static POOL: SyncLazy<Runtime> =
+//     SyncLazy::new(|| runtime::Builder::new_multi_thread().build().unwrap());
 
 fn btype_to_arrow_type(typ: BqlType) -> EngineResult<DataType> {
     match typ {
@@ -183,10 +183,20 @@ pub(crate) fn run(
     //FIXME copa prunning
 
     let df = ctx.sql(raw_query)?;
-    let res: Result<Vec<RecordBatch>> = TOKIO_RT.block_on(async move {
-        let result = df.collect().await?;
-        // arrow::util::pretty::print_batches(&result)?;
-        Ok(result)
+    // let res: Result<Vec<RecordBatch>> = TOKIO_RT.block_on(async move {
+    //     let result = df.collect().await?;
+    //     // arrow::util::pretty::print_batches(&result)?;
+    //     Ok(result)
+    // });
+    // let res: Result<_> = Handle::current().block_on(async move {
+    //     let result = df.collect().await?;
+    //     Ok(result)
+    // });
+    // let handle = Handle::current();
+    // handle.enter();
+    // let res = futures::executor::block_on(df.collect())?;
+    let res = tokio::task::block_in_place(|| {
+        Handle::current().block_on(df.collect())
     });
     Ok(res?)
 }

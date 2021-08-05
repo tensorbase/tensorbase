@@ -5,13 +5,9 @@ authors = ["TensorBase, and its contributors"]
 edition = "2018"
 
 [dependencies]
-actix-codec = "0.3.0"
-actix-rt = "1.1.1"
-actix-server = "1.0.4"
-actix-service = "1.0.6"
-actix-tls = { version = "2", features = ["rustls"] }
-rustls = { version = "0.18.0" }
-bytes = "0.5.6"
+tokio = { version = "1.0", features = ["full"] }
+tokio-util = "0.6"
+bytes = "1.0"
 log = "0.4"
 futures = "0.3"
 thiserror = "1.0"
