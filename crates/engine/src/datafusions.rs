@@ -86,12 +86,12 @@ pub(crate) fn run(
                 log::debug!("--- pc: {:?}", pc);
                 if (&cols).contains(pc) {
                     match ms.get_table_info_partition_keys_expr(tid)? {
-                        Some(iv) => {
+                        Some(iv) if !tctx.where_str.is_empty() => {
                             let ptk_expr = unsafe { std::str::from_utf8_unchecked(&*iv) };
                             log::debug!("ptk_expr: {:?}", ptk_expr);
                             parse_where(tctx.where_str, ptk_expr)?
                         }
-                        None => {
+                        _ => {
                             vec![0..=u64::MAX]
                         }
                     }
