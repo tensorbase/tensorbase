@@ -62,7 +62,7 @@ async fn main() -> io::Result<()> {
         log::info!("server: {:?}", tcp_srv);
         let srv_addr =
             [tcp_srv.ip_addr.as_str(), tcp_srv.port.to_string().as_str()].join(":");
-        let mut listener = TcpListener::bind(srv_addr).await?;
+        let listener = TcpListener::bind(srv_addr).await?;
 
         loop {
             let (io, _) = listener.accept().await?;

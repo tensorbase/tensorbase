@@ -1,4 +1,4 @@
-use std::{lazy::SyncLazy, sync::Arc};
+use std::sync::Arc;
 
 use arrow::{
     array::{
@@ -13,7 +13,7 @@ use arrow::{
     record_batch::RecordBatch,
 };
 use base::contract;
-use datafusion::{datasource::MemTable, error::Result, prelude::ExecutionContext};
+use datafusion::{datasource::MemTable, prelude::ExecutionContext};
 use lang::parse::{parse_where, TablesContext};
 use meta::{
     store::{
@@ -22,15 +22,12 @@ use meta::{
     },
     types::{BqlType, Id},
 };
-use tokio::runtime::{self, Handle, Runtime};
+use tokio::runtime::Handle;
 
 use crate::{
     errs::{EngineError, EngineResult},
     types::QueryState,
 };
-
-// static POOL: SyncLazy<Runtime> =
-//     SyncLazy::new(|| runtime::Builder::new_multi_thread().build().unwrap());
 
 fn btype_to_arrow_type(typ: BqlType) -> EngineResult<DataType> {
     match typ {
@@ -180,24 +177,8 @@ pub(crate) fn run(
     }
     // log::info!("query setup runtime(ms): {}", t.elapsed().as_millis());
 
-    //FIXME copa prunning
-
     let df = ctx.sql(raw_query)?;
-    // let res: Result<Vec<RecordBatch>> = TOKIO_RT.block_on(async move {
-    //     let result = df.collect().await?;
-    //     // arrow::util::pretty::print_batches(&result)?;
-    //     Ok(result)
-    // });
-    // let res: Result<_> = Handle::current().block_on(async move {
-    //     let result = df.collect().await?;
-    //     Ok(result)
-    // });
-    // let handle = Handle::current();
-    // handle.enter();
-    // let res = futures::executor::block_on(df.collect())?;
-    let res = tokio::task::block_in_place(|| {
-        Handle::current().block_on(df.collect())
-    });
+    let res = tokio::task::block_in_place(|| Handle::current().block_on(df.collect()));
     Ok(res?)
 }
 
