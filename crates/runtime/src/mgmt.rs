@@ -160,14 +160,6 @@ pub static BMS: SyncLazy<BaseMgmtSys> = SyncLazy::new(|| {
     log::info!("confs to use:");
     log::info!("system.meta_dirs: {:?}", &conf.system.meta_dirs);
     log::info!("system.data_dirs: {:?}", &conf.system.data_dirs);
-    if let Some(tcp_srv) = &conf.server.tcp {
-        log::info!("tcp server: {:?}", tcp_srv);
-    }
-    //  else if let Some(tcp_srv) = &conf.server.tcp {
-    //     log::info!("tcp server: {:?}", tcp_srv);
-    // }
-    // log::info!("server.ip_addr: {:?}", ip_addr);
-    // log::info!("server.port: {:?}", &conf.server.port);
 
     let conf = Box::new(conf);
     let mut bms = BaseMgmtSys::from_conf(Box::leak(conf)).unwrap();

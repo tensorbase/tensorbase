@@ -6,7 +6,7 @@ use url::Url;
 
 pub fn db_url() -> String {
     env::var("DATABASE_URL").unwrap_or_else(|_| {
-        "tcp://127.0.0.1:9528?execute_timeout=5s&query_timeout=20s&pool_max=4&compression=lz4".into()
+        "tcp://localhost:9528?execute_timeout=5s&query_timeout=20s&pool_max=4&compression=lz4".into()
     })
 }
 

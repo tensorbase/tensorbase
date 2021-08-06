@@ -11,26 +11,19 @@ use runtime::ch::{
 use runtime::errs::BaseRtError;
 
 use bytes::{Buf, BytesMut};
-use tokio::io::AsyncWrite;
-use tokio::net::TcpStream;
+use tokio::io::{AsyncRead, AsyncWrite};
 use tokio_util::io::poll_read_buf;
 
-pub struct BaseSrvConn {
-    pub io: TcpStream,
+pub struct BaseSrvConn<S: AsyncRead + AsyncWrite + Unpin> {
+    pub io: S,
     pub read_buf: BytesMut,
     pub write_buf: BytesMut,
     pub conn_ctx: ConnCtx,
-    // data_packets_processed: bool,
-    // use_db: String,
 }
-
-// impl BaseSrv {
-//     fn handle_request(&mut self, req: Request) {}
-// }
 
 const MAX_MSG_SIZE_BYTES: usize = 100 * 1024 * 1024; //TODO favor smaller
 
-impl Future for BaseSrvConn {
+impl<S: AsyncRead + AsyncWrite + Unpin> Future for BaseSrvConn<S> {
     type Output = Result<(), BaseRtError>;
 
     //FIXME check timeout mech
