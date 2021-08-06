@@ -8,7 +8,7 @@ edition = "2018"
 clap = "3.0.0-beta.2"
 client = { path = "../client" }
 url = "^2"
-tokio = { version = "1.0", features = ["macros", "rt", "rt-multi-thread", "sync", "io-util", "time", "net"] }
+tokio = { version = "1.0", features = ["full"] }
 rand = { version = "0.8.0", features = ["small_rng"] }
 base = { path = "../base" }
 

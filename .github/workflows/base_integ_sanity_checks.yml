@@ -34,7 +34,7 @@ jobs:
             [storage]                          
             data_dirs_clickhouse = ""          
             [server.tcp]                           
-            ip_addr = "localhost"              
+            ip_addr = "0.0.0.0"              
             port = 9528
     - name: TensorBase wait for server up 01
       run: cargo install wait-for-them
