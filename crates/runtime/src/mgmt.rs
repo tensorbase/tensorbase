@@ -1,3 +1,4 @@
+use base::bytes_cat;
 use base::{
     codec::encode_ascii_bytes_vec_short,
     datetimes::{parse_to_epoch, TimeZoneId},
@@ -10,13 +11,13 @@ use clap::{App, Arg};
 use client::prelude::Pool;
 use client::prelude::PoolBuilder;
 use dashmap::DashMap;
+use lang::parse::RemoteAddr;
 use lang::parse::{
     parse_command, parse_create_database, parse_create_table, parse_desc_table,
     parse_drop_database, parse_drop_table, parse_insert_into, parse_optimize_table,
     parse_show_create_table, parse_table_place, seek_to_sub_cmd, Pair, Rule,
     TablePlaceKind, TablePlaceKindContext,
 };
-use lang::parse::RemoteAddr;
 use meta::{
     confs::Conf,
     errs::MetaError,
@@ -564,7 +565,12 @@ impl<'a> BaseMgmtSys<'a> {
         let mut name = Vec::with_capacity(len);
         let mut dtype = Vec::with_capacity(len * 3);
         for (name0, _, col_info) in col_infos.into_iter() {
-            let data = col_info.data_type.to_vec()?;
+            let mut data = col_info.data_type.to_vec()?;
+            data = if col_info.is_nullable {
+                bytes_cat!(b"Nullable(", &data, b")")
+            } else {
+                data
+            };
             encode_ascii_bytes_vec_short(name0.as_bytes(), &mut name)?;
             encode_ascii_bytes_vec_short(&data, &mut dtype)?;
         }

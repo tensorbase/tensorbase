@@ -33,15 +33,13 @@ pub fn query(
         query_id.as_str(),
         &mut qs,
     )?;
-    log::debug!("query run time cost {:?}", timer.elapsed());
 
-    // log::debug!("res: {:?}", res);
-    // arrow::util::pretty::print_batches(&res)?;
+    log::debug!("query run time cost {:?}", timer.elapsed());
 
     let mut blks = Vec::with_capacity(res.len());
     for rb in res {
         let blk = Block::try_from(rb)?;
-        log::debug!("blk: {:?}", blk);
+
         blks.push(blk);
     }
 

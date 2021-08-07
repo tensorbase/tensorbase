@@ -541,28 +541,60 @@ impl TryFrom<RecordBatch> for Block {
                 &col.data().buffers()[0]
             };
             // log::debug!("cd.get_array_memory_size(): {}", cd.get_array_memory_size());
-            let (len_in_bytes, offsets) = if matches!(btype, BqlType::String) {
-                let arr = col
-                    .as_any()
-                    .downcast_ref::<array::LargeStringArray>()
-                    .unwrap();
-                let ofs = arr
-                    .value_offsets()
-                    .last()
-                    .copied()
-                    .ok_or(BaseRtError::FailToUnwrapOpt)?;
+            let (len_in_bytes, offsets): (usize, Option<Vec<u32>>) =
+                if matches!(btype, BqlType::String) {
+                    let arr = col
+                        .as_any()
+                        .downcast_ref::<array::LargeStringArray>()
+                        .unwrap();
+                    let ofs = arr
+                        .value_offsets()
+                        .last()
+                        .copied()
+                        .ok_or(BaseRtError::FailToUnwrapOpt)?;
 
-                (
-                    ofs as usize,
-                    Some(arr.value_offsets().iter().map(|o| *o as u32).collect()),
-                )
-            } else {
-                (btype.size_in_usize()? * col.len(), None)
-            };
+                    (
+                        ofs as usize,
+                        Some(arr.value_offsets().iter().map(|o| *o as u32).collect()),
+                    )
+                } else {
+                    (btype.size_in_usize()? * col.len(), None)
+                };
             let data = unsafe {
                 std::slice::from_raw_parts(buf.as_ptr(), len_in_bytes).to_vec()
             };
             blk.nrows = col.len(); //FIXME all rows are in same size
+
+            let null_map = if !matches!(btype, BqlType::String) {
+                // Todo: need to improve the performance
+                if fields[i].is_nullable() {
+                    Some(
+                        data.chunks(btype.size_in_usize()?)
+                            .map(|c| if c.into_iter().all(|&b| b == 0) { 1 } else { 0 })
+                            .collect::<Vec<_>>(),
+                    )
+                } else {
+                    None
+                }
+            } else {
+                if fields[i].is_nullable() {
+                    let offsets = offsets.as_ref().unwrap();
+                    let null_map = offsets[..(offsets.len() - 1)]
+                        .iter()
+                        .map(|offset| {
+                            let offset = *offset as usize;
+                            if data[offset..offset + 1][0] == 0 {
+                                1
+                            } else {
+                                0
+                            }
+                        })
+                        .collect::<Vec<_>>();
+                    Some(null_map)
+                } else {
+                    None
+                }
+            };
 
             blk.columns.push(Column {
                 name,
@@ -572,7 +604,7 @@ impl TryFrom<RecordBatch> for Block {
                     // data: Vec::from_raw_parts(qcs.data, qclen_bytes, qclen_bytes),
                     // data: Vec::<u8>::with_capacity(qclen_bytes),
                     data,
-                    null_map: None,
+                    null_map,
                     offset_map: offsets,
                     // pub lc_dict_size: usize,
                     lc_dict_data: None,
@@ -605,6 +637,7 @@ impl BytesEncoder for Column {
             bs.write_varbytes(
                 bytes_cat!(b"Nullable(", bs_nlltyp.as_slice(), b")").as_slice(),
             );
+            bs.extend_from_slice(&self.data.null_map.as_ref().unwrap());
         }
         bs.extend_from_slice(&self.data.data);
 
