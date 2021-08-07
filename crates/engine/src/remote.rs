@@ -42,7 +42,7 @@ pub fn mysql_run(
                         btype,
                         size: 0,
                         data: vec![],
-                        null_map: None,
+                        null_map: Some(vec![]),
                         offset_map: None,
                         lc_dict_data: None,
                     },
@@ -52,11 +52,13 @@ pub fn mysql_run(
             for row in res {
                 let r = row?;
                 for c in cols.iter_mut() {
-                    c.1.data.extend(get_val_bytes_from_row(
+                    let data = get_val_bytes_from_row(
                         &r,
                         &mut c.1.offset_map,
+                        &mut c.1.null_map.as_mut().unwrap(),
                         &mut c.1.size,
-                    )?);
+                    )?;
+                    c.1.data.extend(data);
                 }
                 nrows += 1;
             }
