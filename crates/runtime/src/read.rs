@@ -1,13 +1,14 @@
 use crate::{
-    ch::blocks::Block,
+    ch::blocks::{Block, Column},
     errs::{BaseRtError, BaseRtResult},
     mgmt::BMS,
 };
 use client::prelude::{errors::Error as ClientError, PoolBuilder};
 use engine::remote;
 use engine::types::QueryState;
-use lang::parse::{Pair, RemoteAddr, RemoteTableInfo, Rule};
+use lang::parse::{Pair, RemoteAddr, RemoteDbType, RemoteTableInfo, Rule};
 use meta::store::{parts::PartStore, sys::MetaStore};
+use mysql::{OptsBuilder, Pool as MyPool};
 use std::{convert::TryFrom, time::Instant};
 
 pub fn query(
@@ -102,13 +103,63 @@ fn update_remote_db_pools(remote_tb_info: &RemoteTableInfo) -> BaseRtResult<()> 
     Ok(())
 }
 
+pub fn update_mysql_db_pools(remote_tb_info: &RemoteTableInfo) -> BaseRtResult<()> {
+    let ps = &BMS.remote_mysql_pool;
+    let RemoteTableInfo {
+        addrs,
+        username,
+        password,
+        database_name,
+        ..
+    } = remote_tb_info;
+    for remote_addr in addrs {
+        if let Some(pool) = ps.get(&remote_addr) {
+            continue;
+        }
+
+        let RemoteAddr {
+            ip_addr,
+            host_name,
+            port,
+        } = remote_addr.clone();
+        let mut opt = OptsBuilder::new();
+
+        opt = opt.ip_or_hostname(ip_addr.map(|ip| ip.to_string()).or(host_name));
+
+        opt = opt.tcp_port(port.unwrap_or(3306));
+
+        if let Some(username) = username.as_ref() {
+            opt = opt.user(username.into());
+        }
+
+        if let Some(password) = password.as_ref() {
+            opt = opt.pass(password.into());
+        }
+
+        if let Some(db) = database_name.as_ref() {
+            opt = opt.db_name(db.into());
+        }
+
+        let pool = MyPool::new(opt)?;
+        ps.insert(remote_addr.clone(), pool);
+    }
+
+    Ok(())
+}
+
 pub fn remote_query(
     remote_tb_info: RemoteTableInfo,
     raw_query: &str,
     is_local: bool,
 ) -> BaseRtResult<Vec<Block>> {
-    let ps = &BMS.remote_db_pool;
-    update_remote_db_pools(&remote_tb_info)?;
+    match remote_tb_info.database_type {
+        RemoteDbType::ClickHouse | RemoteDbType::TensorBase => {
+            update_remote_db_pools(&remote_tb_info)?;
+        }
+        RemoteDbType::Mysql => {
+            update_mysql_db_pools(&remote_tb_info)?;
+        }
+    }
 
     let sql = if !is_local {
         remote_tb_info
@@ -117,20 +168,54 @@ pub fn remote_query(
     } else {
         raw_query.to_owned()
     };
-    let blks = remote_tb_info
-        .addrs
-        .into_iter()
-        .map(|addr| {
-            let pool = &*ps.get(&addr).unwrap();
-            match remote::run(pool, &sql) {
-                Ok(blks) => Ok(blks.into_iter().map(|b| b.into())),
-                Err(err) => Err(BaseRtError::WrappingEngineError(err)),
-            }
-        })
-        .collect::<Result<Vec<_>, _>>()?
-        .into_iter()
-        .flatten()
-        .collect();
 
-    Ok(blks)
+    match remote_tb_info.database_type {
+        RemoteDbType::ClickHouse | RemoteDbType::TensorBase => {
+            let ps = &BMS.remote_db_pool;
+
+            let blks = remote_tb_info
+                .addrs
+                .into_iter()
+                .map(|addr| {
+                    let pool = &*ps.get(&addr).unwrap();
+                    match remote::run(pool, &sql) {
+                        Ok(blks) => Ok(blks.into_iter().map(|b| b.into())),
+                        Err(err) => Err(BaseRtError::WrappingEngineError(err)),
+                    }
+                })
+                .collect::<Result<Vec<_>, _>>()?
+                .into_iter()
+                .flatten()
+                .collect();
+
+            Ok(blks)
+        }
+        RemoteDbType::Mysql => {
+            let ps = &BMS.remote_mysql_pool;
+            let blks = remote_tb_info
+                .addrs
+                .into_iter()
+                .map(|addr| {
+                    let pool = &*ps.get(&addr).unwrap();
+                    let (ncols, nrows, cols) = remote::mysql_run(pool, &sql).unwrap();
+                    let mut blk = Block {
+                        name: "".into(),
+                        has_header_decoded: true,
+                        overflow: false,
+                        bucket: -1,
+                        ncols,
+                        nrows,
+                        columns: vec![],
+                    };
+                    cols.into_iter().for_each(|(name, chunk)| {
+                        let col = Column { name, data: chunk };
+                        blk.columns.push(col);
+                    });
+                    blk
+                })
+                .collect::<Vec<_>>();
+
+            Ok(blks)
+        }
+    }
 }

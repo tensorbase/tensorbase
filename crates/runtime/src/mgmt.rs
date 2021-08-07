@@ -10,13 +10,13 @@ use clap::{App, Arg};
 use client::prelude::Pool;
 use client::prelude::PoolBuilder;
 use dashmap::DashMap;
-use lang::parse::RemoteAddr;
 use lang::parse::{
     parse_command, parse_create_database, parse_create_table, parse_desc_table,
     parse_drop_database, parse_drop_table, parse_insert_into, parse_optimize_table,
     parse_show_create_table, parse_table_place, seek_to_sub_cmd, Pair, Rule,
     TablePlaceKind, TablePlaceKindContext,
 };
+use lang::parse::RemoteAddr;
 use meta::{
     confs::Conf,
     errs::MetaError,

@@ -42,4 +42,10 @@ pub enum EngineError {
 
     #[error(transparent)]
     WrappingClientError(#[from] client::prelude::errors::Error),
+
+    #[error(transparent)]
+    WrappingMySQLClientError(#[from] mysql::Error),
+
+    #[error(transparent)]
+    WrappingMySQLClientFromError(#[from] mysql::FromValueError),
 }

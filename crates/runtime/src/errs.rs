@@ -154,6 +154,9 @@ pub enum BaseRtError {
 
     #[error(transparent)]
     WrappingClientError(#[from] client::prelude::errors::Error),
+
+    #[error(transparent)]
+    WrappingMySQLClientError(#[from] mysql::Error),
 }
 
 impl BaseRtError {
@@ -170,6 +173,7 @@ impl BaseRtError {
             BaseRtError::WrappingBaseError(_) => 8,
             BaseRtError::WrappingArrowError(_) => 9,
             BaseRtError::WrappingClientError(_) => 10,
+            BaseRtError::WrappingMySQLClientError(_) => 11,
 
             BaseRtError::UnsupportedClientMessage => 21,
             BaseRtError::UnsupportedClientVersion => 22,
