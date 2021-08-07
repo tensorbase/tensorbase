@@ -232,11 +232,21 @@ impl From<ServerBlock> for Block {
             let btype = sqltype_to_bqltype(c.header.field.get_sqltype());
             let offset_map = c.data.offset_map();
             let data = unsafe { c.data.into_bytes() };
+            let field = c.header.field;
+            let null_map = if field.is_nullable() {
+                if !matches!(btype, BqlType::String) {
+                    Block::null_map_from_data(&btype, None, &data)
+                } else {
+                    Block::null_map_from_data(&btype, offset_map.as_ref(), &data)
+                }
+            } else {
+                None
+            };
             let chunk = BaseChunk {
                 btype,
                 size: nrows,
                 data,
-                null_map: None,
+                null_map,
                 offset_map,
                 lc_dict_data: None,
             };
@@ -480,6 +490,36 @@ impl Block {
     pub fn has_decoded(&self) -> bool {
         self.has_header_decoded && (self.columns.len() == self.ncols)
     }
+
+    #[inline(always)]
+    pub fn null_map_from_data(
+        btype: &BqlType,
+        offsets: Option<&Vec<u32>>,
+        data: &Vec<u8>,
+    ) -> Option<Vec<u8>> {
+        if !matches!(btype, BqlType::String) {
+            Some(
+                data.chunks(btype.size_in_usize().unwrap())
+                    .map(|c| if c.into_iter().all(|&b| b == 0) { 1 } else { 0 })
+                    .collect::<Vec<_>>(),
+            )
+        } else {
+            // Todo: test the performance
+            let offsets = offsets.as_ref().unwrap();
+            let null_map = offsets[..(offsets.len() - 1)]
+                .iter()
+                .map(|offset| {
+                    let offset = *offset as usize;
+                    if data[offset..offset + 1][0] == 0 {
+                        1
+                    } else {
+                        0
+                    }
+                })
+                .collect::<Vec<_>>();
+            Some(null_map)
+        }
+    }
 }
 
 impl std::fmt::Debug for Block {
@@ -566,31 +606,14 @@ impl TryFrom<RecordBatch> for Block {
             blk.nrows = col.len(); //FIXME all rows are in same size
 
             let null_map = if !matches!(btype, BqlType::String) {
-                // Todo: need to improve the performance
                 if fields[i].is_nullable() {
-                    Some(
-                        data.chunks(btype.size_in_usize()?)
-                            .map(|c| if c.into_iter().all(|&b| b == 0) { 1 } else { 0 })
-                            .collect::<Vec<_>>(),
-                    )
+                    Block::null_map_from_data(&btype, offsets.as_ref(), &data)
                 } else {
                     None
                 }
             } else {
                 if fields[i].is_nullable() {
-                    let offsets = offsets.as_ref().unwrap();
-                    let null_map = offsets[..(offsets.len() - 1)]
-                        .iter()
-                        .map(|offset| {
-                            let offset = *offset as usize;
-                            if data[offset..offset + 1][0] == 0 {
-                                1
-                            } else {
-                                0
-                            }
-                        })
-                        .collect::<Vec<_>>();
-                    Some(null_map)
+                    Block::null_map_from_data(&btype, offsets.as_ref(), &data)
                 } else {
                     None
                 }
