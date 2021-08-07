@@ -80,7 +80,7 @@ pub(crate) fn run(
                 } else {
                     &ptc
                 };
-                log::debug!("--- pc: {:?}", pc);
+                log::debug!("pc: {:?}", pc);
                 if (&cols).contains(pc) {
                     match ms.get_table_info_partition_keys_expr(tid)? {
                         Some(iv) if !tctx.where_str.is_empty() => {
@@ -122,7 +122,7 @@ pub(crate) fn run(
                             fields.push(Field::new(
                                 cn,
                                 btype_to_arrow_type(ci.data_type)?,
-                                false,
+                                ci.is_nullable,
                             ));
                         } else {
                             return Err(EngineError::ColumnInfoNotExist);
@@ -148,14 +148,14 @@ pub(crate) fn run(
                     fields.push(Field::new(
                         cn.as_str(),
                         btype_to_arrow_type(ci.data_type)?,
-                        false,
+                        ci.is_nullable,
                     ));
                 }
             } else {
                 return Err(EngineError::UnsupportedQuery);
             }
         }
-        //log::debug!("[df][Schema] - fields: {:?}", fields);
+
         let schema = Arc::new(Schema::new(fields));
         let copasss = &mut qs.copasss;
         let mut copass = Vec::new();
@@ -175,7 +175,6 @@ pub(crate) fn run(
         let res: Vec<RecordBatch> = Vec::new();
         return Ok(res);
     }
-    // log::info!("query setup runtime(ms): {}", t.elapsed().as_millis());
 
     let df = ctx.sql(raw_query)?;
     let res = tokio::task::block_in_place(|| Handle::current().block_on(df.collect()));
