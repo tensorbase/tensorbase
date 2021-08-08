@@ -7,19 +7,24 @@ use crate::error::{DataFusionError, Result};
 use crate::physical_plan::functions::{ScalarFunctionImplementation, Signature};
 use arrow::{
     array::{
-        ArrayRef, BooleanArray, Date16Array, GenericStringArray, Int64Array,
-        PrimitiveArray, StringOffsetSizeTrait, Timestamp32Array, UInt16Array, UInt8Array,
+        Array, ArrayRef, BooleanArray, Date16Array, FixedSizeBinaryArray,
+        GenericStringArray, Int64Array, PrimitiveArray, StringOffsetSizeTrait,
+        Timestamp32Array, UInt16Array, UInt8Array,
     },
     datatypes::{ArrowPrimitiveType, DataType, Schema},
 };
 use fmt::{Debug, Formatter};
 use std::{any::type_name, fmt, lazy::SyncOnceCell, str::FromStr, sync::Arc};
 
-use base::datetimes::{
-    days_to_ordinal, days_to_unixtime, days_to_weekday, days_to_year, days_to_ymd,
-    parse_to_days, parse_to_epoch, unixtime_to_days, unixtime_to_hms,
-    unixtime_to_ordinal, unixtime_to_second, unixtime_to_weekday, unixtime_to_year,
-    unixtime_to_ymd, TimeZoneId,
+use base::uuid::to_hyphenated_lower;
+use base::{
+    datetimes::{
+        days_to_ordinal, days_to_unixtime, days_to_weekday, days_to_year, days_to_ymd,
+        parse_to_days, parse_to_epoch, unixtime_to_days, unixtime_to_hms,
+        unixtime_to_ordinal, unixtime_to_second, unixtime_to_weekday, unixtime_to_year,
+        unixtime_to_ymd, TimeZoneId,
+    },
+    uuid::{parse_uuid, uuid},
 };
 
 /// The default timezone is specified at the server's startup stage.
@@ -53,11 +58,53 @@ pub enum BuiltinScalarFunction {
     ToSecond,
     /// endsWith,
     EndsWith,
+    /// generateUUIDv4
+    GenerateUUIDv4,
+    /// toUUID
+    ToUUID(TreatNonUUIDAs),
+    /// UUIDStringToNum
+    UUIDStringToNum,
+    /// UUIDNumToString
+    UUIDNumToString,
+}
+
+/// Enum as which to treat the uuid when error in parsing uuid string
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub enum TreatNonUUIDAs {
+    /// treat as error
+    Error,
+    /// treat as null
+    Null,
+    /// treat as zero
+    Zero,
 }
 
 impl fmt::Display for BuiltinScalarFunction {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", format!("{:?}", self).to_lowercase())
+        match self {
+            BuiltinScalarFunction::ToYear => write!(f, "toYear"),
+            BuiltinScalarFunction::ToQuarter => write!(f, "toQuarter"),
+            BuiltinScalarFunction::ToMonth => write!(f, "toMonth"),
+            BuiltinScalarFunction::ToDayOfYear => write!(f, "toDayOfYear"),
+            BuiltinScalarFunction::ToDayOfMonth => write!(f, "toDayOfMonth"),
+            BuiltinScalarFunction::ToDayOfWeek => write!(f, "toDayOfWeek"),
+            BuiltinScalarFunction::ToDate => write!(f, "toDate"),
+            BuiltinScalarFunction::ToDateTime => write!(f, "toDateTime"),
+            BuiltinScalarFunction::ToHour => write!(f, "toHour"),
+            BuiltinScalarFunction::ToMinute => write!(f, "toMinute"),
+            BuiltinScalarFunction::ToSecond => write!(f, "toSecond"),
+            BuiltinScalarFunction::EndsWith => write!(f, "endsWith"),
+            BuiltinScalarFunction::GenerateUUIDv4 => write!(f, "generateUUIDv4"),
+            BuiltinScalarFunction::ToUUID(TreatNonUUIDAs::Error) => write!(f, "toUUID"),
+            BuiltinScalarFunction::ToUUID(TreatNonUUIDAs::Null) => {
+                write!(f, "toUUIDOrNull")
+            }
+            BuiltinScalarFunction::ToUUID(TreatNonUUIDAs::Zero) => {
+                write!(f, "toUUIDOrZero")
+            }
+            BuiltinScalarFunction::UUIDStringToNum => write!(f, "UUIDStringToNum"),
+            BuiltinScalarFunction::UUIDNumToString => write!(f, "UUIDNumToString"),
+        }
     }
 }
 
@@ -79,6 +126,12 @@ impl FromStr for BuiltinScalarFunction {
             "toMinute" => BuiltinScalarFunction::ToMinute,
             "toSecond" => BuiltinScalarFunction::ToSecond,
             "endsWith" => BuiltinScalarFunction::EndsWith,
+            "generateUUIDv4" => BuiltinScalarFunction::GenerateUUIDv4,
+            "toUUID" => BuiltinScalarFunction::ToUUID(TreatNonUUIDAs::Error),
+            "toUUIDOrNull" => BuiltinScalarFunction::ToUUID(TreatNonUUIDAs::Null),
+            "toUUIDOrZero" => BuiltinScalarFunction::ToUUID(TreatNonUUIDAs::Zero),
+            "UUIDStringToNum" => BuiltinScalarFunction::UUIDStringToNum,
+            "UUIDNumToString" => BuiltinScalarFunction::UUIDNumToString,
 
             _ => {
                 return Err(DataFusionError::Plan(format!(
@@ -141,8 +194,8 @@ macro_rules! wrap_datetime_fn {
 }
 /// wrap string function calls from [`ArrayRef`] to primitive array
 macro_rules! wrap_string_fn {
-    ( fn $OP:ident -> $OUTPUT_TY:ty ) => {
-        Arc::new(|args: &[ColumnarValue]| {
+    ( fn $OP:ident $( ( $($ARG:expr),+ ) )? -> $OUTPUT_TY:ty ) => {
+        Arc::new(move |args: &[ColumnarValue]| {
             let len = args
                 .iter()
                 .fold(Option::<usize>::None, |acc, arg| match arg {
@@ -156,7 +209,7 @@ macro_rules! wrap_string_fn {
                 .map(|arg| arg.clone().into_array(len.unwrap_or(1)))
                 .collect::<Vec<ArrayRef>>();
 
-            let res = $OP(&args)?;
+            let res = $OP(&args $( $(, $ARG)+ )? )?;
             Ok(ColumnarValue::Array(Arc::new(res)))
         })
     };
@@ -194,6 +247,10 @@ impl BuiltinScalarFunction {
             BuiltinScalarFunction::ToMinute => Ok(DataType::UInt8),
             BuiltinScalarFunction::ToSecond => Ok(DataType::UInt8),
             BuiltinScalarFunction::EndsWith => Ok(DataType::Boolean),
+            BuiltinScalarFunction::GenerateUUIDv4
+            | BuiltinScalarFunction::ToUUID(_)
+            | BuiltinScalarFunction::UUIDStringToNum => Ok(DataType::FixedSizeBinary(16)),
+            BuiltinScalarFunction::UUIDNumToString => Ok(DataType::LargeUtf8),
         }
     }
 
@@ -315,6 +372,39 @@ impl BuiltinScalarFunction {
                 }
                 other => wrap_type_err!(other, "endsWith"),
             },
+            BuiltinScalarFunction::GenerateUUIDv4 => Arc::new(|_| {
+                Ok(ColumnarValue::Array(Arc::new(
+                    FixedSizeBinaryArray::try_from_iter(vec![uuid()].into_iter())
+                        .map_err(DataFusionError::ArrowError)?,
+                )))
+            }),
+            BuiltinScalarFunction::ToUUID(treat_non_uuid_as) => {
+                let &treat_non_uuid_as = treat_non_uuid_as;
+                match args[0].data_type(schema) {
+                    Ok(DataType::Utf8) => {
+                        wrap_string_fn!(fn utf8_to_uuid(treat_non_uuid_as) -> FixedSizedBinary)
+                    }
+                    Ok(DataType::LargeUtf8) => wrap_string_fn!(
+                        fn large_utf8_to_uuid(treat_non_uuid_as) -> FixedSizeBinaryArray
+                    ),
+                    other => wrap_type_err!(other, "toUUID"),
+                }
+            }
+            BuiltinScalarFunction::UUIDStringToNum => match args[0].data_type(schema) {
+                Ok(DataType::Utf8) => {
+                    wrap_string_fn!(fn utf8_to_uuid(TreatNonUUIDAs::Error) -> FixedSizedBinary)
+                }
+                Ok(DataType::LargeUtf8) => wrap_string_fn!(
+                    fn large_utf8_to_uuid(TreatNonUUIDAs::Error) -> FixedSizeBinaryArray
+                ),
+                other => wrap_type_err!(other, "UUIDStringToNum"),
+            },
+            BuiltinScalarFunction::UUIDNumToString => match args[0].data_type(schema) {
+                Ok(DataType::FixedSizeBinary(16)) => {
+                    wrap_datetime_fn!(fn uuid_to_large_utf(FixedSizeBinaryArray) -> GenericStringArray<i64>)
+                }
+                other => wrap_type_err!(other, "UUIDNumToString"),
+            },
         };
 
         Ok(func)
@@ -352,6 +442,13 @@ impl BuiltinScalarFunction {
                 Signature::Uniform(1, vec![DataType::Timestamp32(None)])
             }
             BuiltinScalarFunction::EndsWith => Signature::Any(2),
+            BuiltinScalarFunction::GenerateUUIDv4 => Signature::Any(0),
+            BuiltinScalarFunction::ToUUID(_) | BuiltinScalarFunction::UUIDStringToNum => {
+                Signature::Uniform(1, vec![DataType::Utf8, DataType::LargeUtf8])
+            }
+            BuiltinScalarFunction::UUIDNumToString => {
+                Signature::Uniform(1, vec![DataType::FixedSizeBinary(16)])
+            }
         }
     }
 }
@@ -385,14 +482,10 @@ where
     Ok(array.iter().map(|x| f(x, tz)).collect())
 }
 
-fn handle_string_unary_fn<T, U, F>(args: &[ArrayRef], f: F) -> Result<PrimitiveArray<U>>
-where
-    T: StringOffsetSizeTrait,
-    U: ArrowPrimitiveType,
-    F: Clone + Fn(&str) -> Result<U::Native>,
-    PrimitiveArray<U>: From<Vec<Option<U::Native>>>,
-{
-    let string_array = downcast_string_arg!(args[0], "string", T);
+fn downcast_string<T: StringOffsetSizeTrait>(
+    arg: &ArrayRef,
+) -> Result<(&GenericStringArray<T>, usize)> {
+    let string_array = downcast_string_arg!(arg, "string", T);
     let start_idx = match T::DATA_TYPE {
         DataType::Utf8 => 0,
         DataType::LargeUtf8 => 1, //FIXME for TB string, len header is varied, not 1
@@ -402,6 +495,17 @@ where
             ))
         }
     };
+    Ok((string_array, start_idx))
+}
+
+fn handle_string_unary_fn<T, U, F>(arg: &ArrayRef, f: F) -> Result<PrimitiveArray<U>>
+where
+    T: StringOffsetSizeTrait,
+    U: ArrowPrimitiveType,
+    F: Clone + Fn(&str) -> Result<U::Native>,
+    PrimitiveArray<U>: From<Vec<Option<U::Native>>>,
+{
+    let (string_array, start_idx) = downcast_string::<T>(arg)?;
     let result_array: Result<Vec<Option<U::Native>>> =
         string_array
             .iter()
@@ -548,22 +652,66 @@ pub fn large_utf8_ends_with(args: &[ArrayRef]) -> Result<BooleanArray> {
 
 /// Returns Date16Array if large utf string is formatted with '%Y-%m-%d' style.
 pub fn large_utf8_to_date(args: &[ArrayRef]) -> Result<Date16Array> {
-    handle_string_unary_fn::<i64, _, _>(args, str_to_date16)
+    handle_string_unary_fn::<i64, _, _>(&args[0], str_to_date16)
+}
+
+/// Returns Timestamp32 if large utf string is formatted with '%Y-%m-%d %H:%M:%S' style.
+pub fn utf8_to_datetime(args: &[ArrayRef]) -> Result<Timestamp32Array> {
+    handle_string_unary_fn::<i32, _, _>(&args[0], str_to_timestamp32)
 }
 
 /// Returns Timestamp32 if large utf string is formatted with '%Y-%m-%d %H:%M:%S' style.
 pub fn large_utf8_to_datetime(args: &[ArrayRef]) -> Result<Timestamp32Array> {
-    handle_string_unary_fn::<i64, _, _>(args, str_to_timestamp32)
+    handle_string_unary_fn::<i64, _, _>(&args[0], str_to_timestamp32)
 }
 
 /// Returns Date16Array if utf8 string is formatted with '%Y-%m-%d' style.
 pub fn utf8_to_date(args: &[ArrayRef]) -> Result<Date16Array> {
-    handle_string_unary_fn::<i32, _, _>(args, str_to_date16)
+    handle_string_unary_fn::<i32, _, _>(&args[0], str_to_date16)
 }
 
-/// Returns Timestamp32 if utf string is formatted with '%Y-%m-%d %H:%M:%S' style.
-pub fn utf8_to_datetime(args: &[ArrayRef]) -> Result<Timestamp32Array> {
-    handle_string_unary_fn::<i32, _, _>(args, str_to_timestamp32)
+fn utf8_to_uuid(
+    args: &[ArrayRef],
+    treat_non_uuid_as: TreatNonUUIDAs,
+) -> Result<FixedSizeBinaryArray> {
+    str_to_uuid::<i32>(&args[0], treat_non_uuid_as)
+}
+
+/// Returns UUID if utf string is a valid UUID string.
+pub fn utf8_to_uuid_or_error(args: &[ArrayRef]) -> Result<FixedSizeBinaryArray> {
+    utf8_to_uuid(args, TreatNonUUIDAs::Error)
+}
+
+/// Returns UUID if utf string is a valid UUID string, or returns null.
+pub fn utf8_to_uuid_or_null(args: &[ArrayRef]) -> Result<FixedSizeBinaryArray> {
+    utf8_to_uuid(args, TreatNonUUIDAs::Null)
+}
+
+/// Returns UUID if utf string is a valid UUID string, or returns zero uuid.
+pub fn utf8_to_uuid_or_zero(args: &[ArrayRef]) -> Result<FixedSizeBinaryArray> {
+    utf8_to_uuid(args, TreatNonUUIDAs::Zero)
+}
+
+fn large_utf8_to_uuid(
+    args: &[ArrayRef],
+    treat_non_uuid_as: TreatNonUUIDAs,
+) -> Result<FixedSizeBinaryArray> {
+    str_to_uuid::<i64>(&args[0], treat_non_uuid_as)
+}
+
+/// Returns UUID if large utf string is a valid UUID string.
+pub fn large_utf8_to_uuid_or_error(args: &[ArrayRef]) -> Result<FixedSizeBinaryArray> {
+    large_utf8_to_uuid(args, TreatNonUUIDAs::Error)
+}
+
+/// Returns UUID if large utf string is a valid UUID string, or returns null.
+pub fn large_utf8_to_uuid_or_null(args: &[ArrayRef]) -> Result<FixedSizeBinaryArray> {
+    large_utf8_to_uuid(args, TreatNonUUIDAs::Null)
+}
+
+/// Returns UUID if large utf string is a valid UUID string, or returns zero uuid.
+pub fn large_utf8_to_uuid_or_zero(args: &[ArrayRef]) -> Result<FixedSizeBinaryArray> {
+    large_utf8_to_uuid(args, TreatNonUUIDAs::Zero)
 }
 
 /// Returns true if string ends with prefix.
@@ -603,4 +751,54 @@ fn str_to_timestamp32(s: &str) -> Result<i32> {
                 s
             ))
         })
+}
+
+fn str_to_uuid<T: StringOffsetSizeTrait>(
+    arg: &ArrayRef,
+    treat_non_uuid_as: TreatNonUUIDAs,
+) -> Result<FixedSizeBinaryArray> {
+    let (string_array, start_idx) = downcast_string::<T>(arg)?;
+    let result_array: Result<Vec<Option<[u8; 16]>>> =
+        string_array
+            .iter()
+            .try_fold(Vec::new(), |mut result, string| {
+                result.push(
+                    string
+                        .map(|string| &string[start_idx..])
+                        .map(|s| match (treat_non_uuid_as, parse_uuid(s)) {
+                            (_, Ok(uuid)) => Ok(Some(uuid)),
+                            (TreatNonUUIDAs::Error, Err(_)) => {
+                                Err(DataFusionError::Execution(format!(
+                                    "Error parsing '{}' as UUID",
+                                    s
+                                )))
+                            }
+                            (TreatNonUUIDAs::Null, Err(_)) => Ok(None),
+                            (TreatNonUUIDAs::Zero, Err(_)) => Ok(Some([0; 16])),
+                        })
+                        .transpose()?
+                        .flatten(),
+                );
+                Ok(result)
+            });
+    FixedSizeBinaryArray::try_from_sparse_iter(result_array?.into_iter())
+        .map_err(DataFusionError::ArrowError)
+}
+
+/// Convert uuid bytes to a large utf8 string
+pub fn uuid_to_large_utf(arg: &FixedSizeBinaryArray) -> Result<GenericStringArray<i64>> {
+    if arg.value_length() != 16 {
+        return Err(DataFusionError::Execution(format!(
+            "Invalid byte length {} of uuid",
+            arg.value_length()
+        )));
+    }
+    let ret = Ok((0..arg.data().len())
+        .map(|i| {
+            let bytes = unsafe { std::mem::transmute(arg.value(i).as_ptr()) };
+            Some(format!("\u{24}{}", to_hyphenated_lower(bytes)))
+        })
+        .collect());
+    log::debug!("ret: {:?}", ret);
+    ret
 }
