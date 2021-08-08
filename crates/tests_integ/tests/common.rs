@@ -3,11 +3,24 @@ use client::prelude::{Options, Pool};
 use std::convert::TryInto;
 use std::env;
 use url::Url;
+use mysql::prelude::*;
+use mysql::*;
+use mysql::{Opts as MyOpts, Pool as MyPool};
 
 pub fn db_url() -> String {
     env::var("DATABASE_URL").unwrap_or_else(|_| {
         "tcp://localhost:9528?execute_timeout=5s&query_timeout=20s&pool_max=4&compression=lz4".into()
     })
+}
+
+pub fn get_mysql_pool() -> MyPool {
+    let mut opt = OptsBuilder::new();
+    opt = opt.ip_or_hostname("localhost".into());
+    opt = opt.tcp_port(3306);
+    opt = opt.user("test".into());
+    opt = opt.pass("test".into());
+    opt = opt.db_name("test".into());
+    MyPool::new(opt).expect("mysql pool")
 }
 
 pub fn get_config() -> Options {
