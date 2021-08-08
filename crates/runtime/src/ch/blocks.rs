@@ -209,9 +209,9 @@ fn sqltype_to_bqltype(sqltype: SqlType) -> BqlType {
         }
         SqlType::Decimal(x, y) => BqlType::Decimal(x, y),
         SqlType::LowCardinality => BqlType::LowCardinalityTinyText,
+        SqlType::Uuid => BqlType::Uuid,
         SqlType::Ipv4
         | SqlType::Ipv6
-        | SqlType::Uuid
         | SqlType::Enum8
         | SqlType::Enum16
         | SqlType::Array => unimplemented!(),

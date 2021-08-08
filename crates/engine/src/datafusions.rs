@@ -50,6 +50,7 @@ fn btype_to_arrow_type(typ: BqlType) -> EngineResult<DataType> {
         BqlType::LowCardinalityString => Ok(DataType::UInt32),
         BqlType::LowCardinalityTinyText => Ok(DataType::UInt8),
         BqlType::FixedString(len) => Ok(DataType::FixedSizeBinary(len as i32)),
+        BqlType::Uuid => Ok(DataType::FixedSizeBinary(16)),
         _ => Err(EngineError::UnsupportedBqlType),
     }
 }
@@ -171,10 +172,10 @@ pub(crate) fn run(
             copasss.push(copass);
         }
     }
-    if qs.copasss.len() == 0 {
-        let res: Vec<RecordBatch> = Vec::new();
-        return Ok(res);
-    }
+    // if qs.copasss.len() == 0 {
+    //     let res: Vec<RecordBatch> = Vec::new();
+    //     return Ok(res);
+    // }
 
     let df = ctx.sql(raw_query)?;
     let res = tokio::task::block_in_place(|| Handle::current().block_on(df.collect()));
