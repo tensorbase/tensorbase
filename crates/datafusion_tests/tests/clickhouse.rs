@@ -2,6 +2,7 @@
 
 #[cfg(test)]
 mod tests {
+    use arrow::array::FixedSizeBinaryArray;
     use arrow::{
         array::{Array, LargeStringArray, PrimitiveArray, StringArray},
         datatypes::{Date16Type, Int64Type, Timestamp32Type},
@@ -75,6 +76,56 @@ mod tests {
         assert_eq!(0, b.value(0));
         assert_eq!(6209, b.value(1));
         assert_eq!(18628, b.value(2));
+    }
+
+    #[test]
+    fn test_uuid() {
+        // utf8 to uuid (error)
+        let a: StringArray =
+            vec![Some("err"), Some("612f3c40-5d3b-217e-707b-6a546a3d7b29")].into();
+        let a = Arc::new(a);
+        assert!(utf8_to_uuid_or_error(&[a.clone()]).is_err());
+        let b = utf8_to_uuid_or_null(&[a.clone()]).unwrap();
+        assert!(b.is_null(0));
+        assert_eq!(b"a/<@];!~p{jTj={)", b.value(1));
+        let b = utf8_to_uuid_or_zero(&[a.clone()]).unwrap();
+        assert_eq!(&[0; 16], b.value(0));
+        assert_eq!(b"a/<@];!~p{jTj={)", b.value(1));
+
+        // large utf8 to uuid (error)
+        let a: LargeStringArray = vec![
+            Some("\u{3}err"),
+            Some("\u{24}612f3c40-5d3b-217e-707b-6a546a3d7b29"),
+        ]
+        .into();
+        let a = Arc::new(a);
+        assert!(large_utf8_to_uuid_or_error(&[a.clone()]).is_err());
+        let b = large_utf8_to_uuid_or_null(&[a.clone()]).unwrap();
+        assert!(b.is_null(0));
+        assert_eq!(b"a/<@];!~p{jTj={)", b.value(1));
+        let b = large_utf8_to_uuid_or_zero(&[a.clone()]).unwrap();
+        assert_eq!(&[0; 16], b.value(0));
+        assert_eq!(b"a/<@];!~p{jTj={)", b.value(1));
+
+        // utf8 to uuid
+        let a: StringArray = vec![Some("612f3c40-5d3b-217e-707b-6a546a3d7b29")].into();
+        let a = Arc::new(a);
+        let b = utf8_to_uuid_or_error(&[a]).unwrap();
+        assert_eq!(b"a/<@];!~p{jTj={)", b.value(0));
+
+        // large utf8 to uuid
+        let a: LargeStringArray =
+            vec![Some("\u{24}612f3c40-5d3b-217e-707b-6a546a3d7b29")].into();
+        let a = Arc::new(a);
+        let b = large_utf8_to_uuid_or_error(&[a]).unwrap();
+        assert_eq!(b"a/<@];!~p{jTj={)", b.value(0));
+
+        // uuid to large utf8
+        let a =
+            FixedSizeBinaryArray::try_from_iter(vec![b"a/<@];!~p{jTj={)"].into_iter())
+                .unwrap();
+        let b = uuid_to_large_utf(&a).unwrap();
+        assert_eq!("\u{24}612f3c40-5d3b-217e-707b-6a546a3d7b29", b.value(0));
     }
 
     #[test]
