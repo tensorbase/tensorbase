@@ -205,8 +205,11 @@ pub fn remote_query(
                         nrows,
                         columns: vec![],
                     };
-                    cols.into_iter().for_each(|(name, chunk)| {
-                        let col = Column { name, data: chunk };
+                    cols.into_iter().for_each(|col| {
+                        let col = Column {
+                            name: col.col_name,
+                            data: col.data,
+                        };
                         blk.columns.push(col);
                     });
                     blk
