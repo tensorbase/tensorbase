@@ -92,6 +92,7 @@ impl_null!(Decimal128, Default::default());
 impl_null!(Date<Utc>, chrono::MIN_DATE);
 impl_null!(DateTime<Utc>, chrono::MIN_DATE.and_hms(0, 0, 0));
 impl_null!(&str, Default::default());
+impl_null!(&[u8], Default::default());
 impl_null!(String, Default::default());
 
 impl<T, F> AsOutColumn for SimpleOutputColumn<Option<T>, F>
@@ -152,7 +153,17 @@ impl WriteColumn for String {
         }
     }
 }
-
+impl WriteColumn for &[u8] {
+    #[inline]
+    fn write_column(&self, field: &Field, writer: &mut dyn Write) -> Result<()> {
+        let slice = std::slice::from_ref(self);
+        match field.sql_type {
+            SqlType::Uuid => encode_fixedstring(slice, 16, writer),
+            SqlType::FixedString(val) => encode_fixedstring(slice, val, writer),
+            _ => unreachable!(),
+        }
+    }
+}
 /// Encode string array. Column `String` in `Native Format`
 /// |StringLength as VarInt (0..9 bytes)|String byte array  | ... next item
 fn encode_string<T: AsRef<[u8]>>(data: &[T], writer: &mut dyn Write) -> Result<()> {
@@ -227,6 +238,7 @@ where
         match field.sql_type {
             SqlType::String => encode_string(self.data.as_ref(), writer),
             SqlType::FixedString(v) => encode_fixedstring(self.data.as_ref(), v, writer),
+            SqlType::Uuid => encode_fixedstring(self.data.as_ref(), 16, writer),
             SqlType::Enum8 => encode_enum8(
                 self.data.as_ref(),
                 field.get_meta().expect("enum index corrupted"),
@@ -244,7 +256,11 @@ where
     fn is_compatible(&self, field: &Field) -> bool {
         matches!(
             field.sql_type,
-            SqlType::String | SqlType::FixedString(_) | SqlType::Enum8 | SqlType::Enum16
+            SqlType::String
+                | SqlType::Uuid
+                | SqlType::FixedString(_)
+                | SqlType::Enum8
+                | SqlType::Enum16
         )
     }
 }
@@ -477,6 +493,10 @@ impl_intocolumn_simple!(DateTime<Utc>, |f| matches!(
 ));
 
 impl_intocolumn_simple!(Uuid, |f| f.sql_type == SqlType::Uuid);
+impl_intocolumn_simple!(&'b [u8], |f| matches!(
+    f.sql_type,
+    SqlType::Uuid | SqlType::FixedString(_)
+));
 impl_intocolumn_string!(&'b str);
 impl_intocolumn_string!(String);
 
