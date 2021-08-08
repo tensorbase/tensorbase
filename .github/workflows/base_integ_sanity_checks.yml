@@ -15,6 +15,20 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+    - name: Install ClickHouse and start
+      run: |
+        sudo apt update -q
+        sudo apt install -y clickhouse-server clickhouse-client
+        service clickhouse-server start
+        service clickhouse-server status
+    - uses: mirromutth/mysql-action@v1.1
+    - name: Install MySQL and start
+      with:
+        mysql version: '8.0'
+        mysql database: 'test'
+        mysql root password: 'test'
+        mysql user: 'test'
+        mysql password: 'test'
     - uses: actions/checkout@v2
     - name: Install latest nightly
       uses: actions-rs/toolchain@v1
