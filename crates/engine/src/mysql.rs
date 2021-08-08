@@ -43,9 +43,7 @@ pub fn col_to_bql_type(
         }
         ColumnType::MYSQL_TYPE_FLOAT => BqlType::Float(32),
         ColumnType::MYSQL_TYPE_DOUBLE => BqlType::Float(64),
-        ColumnType::MYSQL_TYPE_NULL => {
-            unimplemented!()
-        }
+
         ColumnType::MYSQL_TYPE_TIMESTAMP | ColumnType::MYSQL_TYPE_TIMESTAMP2 => {
             BqlType::DateTime
         }
@@ -73,19 +71,22 @@ pub fn col_to_bql_type(
         ColumnType::MYSQL_TYPE_YEAR => BqlType::UInt(16),
         ColumnType::MYSQL_TYPE_VARCHAR
         | ColumnType::MYSQL_TYPE_STRING
-        | ColumnType::MYSQL_TYPE_VAR_STRING => BqlType::String,
+        | ColumnType::MYSQL_TYPE_VAR_STRING
+        | ColumnType::MYSQL_TYPE_TINY_BLOB
+        | ColumnType::MYSQL_TYPE_MEDIUM_BLOB
+        | ColumnType::MYSQL_TYPE_LONG_BLOB
+        | ColumnType::MYSQL_TYPE_BLOB => BqlType::String,
         ColumnType::MYSQL_TYPE_BIT
+        | ColumnType::MYSQL_TYPE_NULL
         | ColumnType::MYSQL_TYPE_TYPED_ARRAY
         | ColumnType::MYSQL_TYPE_UNKNOWN
         | ColumnType::MYSQL_TYPE_JSON
         | ColumnType::MYSQL_TYPE_ENUM
         | ColumnType::MYSQL_TYPE_SET
-        | ColumnType::MYSQL_TYPE_TINY_BLOB
-        | ColumnType::MYSQL_TYPE_MEDIUM_BLOB
-        | ColumnType::MYSQL_TYPE_LONG_BLOB
-        | ColumnType::MYSQL_TYPE_BLOB
         | ColumnType::MYSQL_TYPE_GEOMETRY => {
-            unimplemented!()
+            return Err(EngineError::WrappingClientError(
+                "unsupport MySQL type".into(),
+            ))
         }
     };
 
@@ -212,11 +213,6 @@ pub fn get_val_bytes_from_row(
                     null_map.push(1);
                 }
             }
-            ColumnType::MYSQL_TYPE_NULL => {
-                return Err(EngineError::WrappingMySQLClientFromError(FromValueError(
-                    row[i].clone(),
-                )))
-            }
             ColumnType::MYSQL_TYPE_TIMESTAMP | ColumnType::MYSQL_TYPE_TIMESTAMP2 => {
                 let date_time: Option<NaiveDateTime> = get_val_from_row(row, i)?;
                 if let Some(date_time) = date_time {
@@ -306,7 +302,11 @@ pub fn get_val_bytes_from_row(
             }
             ColumnType::MYSQL_TYPE_VARCHAR
             | ColumnType::MYSQL_TYPE_STRING
-            | ColumnType::MYSQL_TYPE_VAR_STRING => {
+            | ColumnType::MYSQL_TYPE_VAR_STRING
+            | ColumnType::MYSQL_TYPE_TINY_BLOB
+            | ColumnType::MYSQL_TYPE_MEDIUM_BLOB
+            | ColumnType::MYSQL_TYPE_LONG_BLOB
+            | ColumnType::MYSQL_TYPE_BLOB => {
                 let n: Option<String> = get_val_from_row(row, i)?;
                 if let Some(n) = n {
                     if let Some(map) = offset_map {
@@ -331,15 +331,12 @@ pub fn get_val_bytes_from_row(
                 }
             }
             ColumnType::MYSQL_TYPE_BIT
+            | ColumnType::MYSQL_TYPE_NULL
             | ColumnType::MYSQL_TYPE_TYPED_ARRAY
             | ColumnType::MYSQL_TYPE_UNKNOWN
             | ColumnType::MYSQL_TYPE_JSON
             | ColumnType::MYSQL_TYPE_ENUM
             | ColumnType::MYSQL_TYPE_SET
-            | ColumnType::MYSQL_TYPE_TINY_BLOB
-            | ColumnType::MYSQL_TYPE_MEDIUM_BLOB
-            | ColumnType::MYSQL_TYPE_LONG_BLOB
-            | ColumnType::MYSQL_TYPE_BLOB
             | ColumnType::MYSQL_TYPE_GEOMETRY => {
                 return Err(EngineError::WrappingMySQLClientFromError(FromValueError(
                     row[i].clone(),
