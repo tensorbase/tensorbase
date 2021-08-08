@@ -1,7 +1,11 @@
 use crate::errs::{EngineError, EngineResult};
 use base::codec::encode_varint64;
 use meta::types::BqlType;
-use mysql::{consts::ColumnType, prelude::FromValue, Column, FromValueError, Row, Value};
+use mysql::{
+    consts::{ColumnFlags, ColumnType},
+    prelude::FromValue,
+    Column, FromValueError, Row, Value,
+};
 use mysql_common::{
     bigdecimal::BigDecimal,
     chrono::{Duration, NaiveDate, NaiveDateTime},
@@ -12,13 +16,31 @@ pub fn col_to_bql_type(c: &Column) -> EngineResult<BqlType> {
     let t = match c.column_type() {
         ColumnType::MYSQL_TYPE_DECIMAL | ColumnType::MYSQL_TYPE_NEWDECIMAL => {
             BqlType::Decimal(
-                8, // Maximum precision
+                9, // TODO: get the num precision
                 c.decimals(),
             )
         }
-        ColumnType::MYSQL_TYPE_TINY => BqlType::Int(8),
-        ColumnType::MYSQL_TYPE_SHORT => BqlType::Int(16),
-        ColumnType::MYSQL_TYPE_LONG => BqlType::Int(32),
+        ColumnType::MYSQL_TYPE_TINY => {
+            if c.flags().contains(ColumnFlags::UNSIGNED_FLAG) {
+                BqlType::UInt(8)
+            } else {
+                BqlType::Int(8)
+            }
+        }
+        ColumnType::MYSQL_TYPE_SHORT => {
+            if c.flags().contains(ColumnFlags::UNSIGNED_FLAG) {
+                BqlType::UInt(16)
+            } else {
+                BqlType::Int(16)
+            }
+        }
+        ColumnType::MYSQL_TYPE_LONG => {
+            if c.flags().contains(ColumnFlags::UNSIGNED_FLAG) {
+                BqlType::UInt(32)
+            } else {
+                BqlType::Int(32)
+            }
+        }
         ColumnType::MYSQL_TYPE_FLOAT => BqlType::Float(32),
         ColumnType::MYSQL_TYPE_DOUBLE => BqlType::Float(64),
         ColumnType::MYSQL_TYPE_NULL => {
@@ -28,8 +50,20 @@ pub fn col_to_bql_type(c: &Column) -> EngineResult<BqlType> {
             BqlType::DateTime
         }
 
-        ColumnType::MYSQL_TYPE_LONGLONG => BqlType::Int(64),
-        ColumnType::MYSQL_TYPE_INT24 => BqlType::Int(32),
+        ColumnType::MYSQL_TYPE_LONGLONG => {
+            if c.flags().contains(ColumnFlags::UNSIGNED_FLAG) {
+                BqlType::UInt(64)
+            } else {
+                BqlType::Int(64)
+            }
+        }
+        ColumnType::MYSQL_TYPE_INT24 => {
+            if c.flags().contains(ColumnFlags::UNSIGNED_FLAG) {
+                BqlType::UInt(32)
+            } else {
+                BqlType::Int(64)
+            }
+        }
         ColumnType::MYSQL_TYPE_DATE | ColumnType::MYSQL_TYPE_NEWDATE => BqlType::Date,
         ColumnType::MYSQL_TYPE_TIME | ColumnType::MYSQL_TYPE_TIME2 => BqlType::Int(64),
         ColumnType::MYSQL_TYPE_DATETIME | ColumnType::MYSQL_TYPE_DATETIME2 => {
@@ -87,33 +121,75 @@ pub fn get_val_bytes_from_row(
                 }
             }
             ColumnType::MYSQL_TYPE_TINY => {
-                let n: Option<i8> = get_val_from_row(row, i)?;
-                if let Some(n) = n {
-                    buf.extend(n.to_le_bytes());
-                    null_map.push(0);
+                if row.columns().as_ref()[i]
+                    .flags()
+                    .contains(ColumnFlags::UNSIGNED_FLAG)
+                {
+                    let n: Option<u8> = get_val_from_row(row, i)?;
+                    if let Some(n) = n {
+                        buf.extend(n.to_le_bytes());
+                        null_map.push(0);
+                    } else {
+                        buf.extend(0_i8.to_le_bytes());
+                        null_map.push(1);
+                    }
                 } else {
-                    buf.extend(0_i8.to_le_bytes());
-                    null_map.push(1);
+                    let n: Option<i8> = get_val_from_row(row, i)?;
+                    if let Some(n) = n {
+                        buf.extend(n.to_le_bytes());
+                        null_map.push(0);
+                    } else {
+                        buf.extend(0_i8.to_le_bytes());
+                        null_map.push(1);
+                    }
                 }
             }
             ColumnType::MYSQL_TYPE_SHORT => {
-                let n: Option<i16> = get_val_from_row(row, i)?;
-                if let Some(n) = n {
-                    buf.extend(n.to_le_bytes());
-                    null_map.push(0);
+                if row.columns().as_ref()[i]
+                    .flags()
+                    .contains(ColumnFlags::UNSIGNED_FLAG)
+                {
+                    let r: Option<u16> = get_val_from_row(row, i)?;
+                    if let Some(n) = r {
+                        buf.extend(n.to_le_bytes());
+                        null_map.push(0);
+                    } else {
+                        buf.extend(0_i16.to_le_bytes());
+                        null_map.push(1);
+                    }
                 } else {
-                    buf.extend(0_i16.to_le_bytes());
-                    null_map.push(1);
-                }
+                    let r: Option<i16> = get_val_from_row(row, i)?;
+                    if let Some(n) = r {
+                        buf.extend(n.to_le_bytes());
+                        null_map.push(0);
+                    } else {
+                        buf.extend(0_i16.to_le_bytes());
+                        null_map.push(1);
+                    }
+                };
             }
             ColumnType::MYSQL_TYPE_LONG => {
-                let n: Option<i32> = get_val_from_row(row, i)?;
-                if let Some(n) = n {
-                    buf.extend(n.to_le_bytes());
-                    null_map.push(0);
+                if row.columns().as_ref()[i]
+                    .flags()
+                    .contains(ColumnFlags::UNSIGNED_FLAG)
+                {
+                    let n: Option<u32> = get_val_from_row(row, i)?;
+                    if let Some(n) = n {
+                        buf.extend(n.to_le_bytes());
+                        null_map.push(0);
+                    } else {
+                        buf.extend(0_i32.to_le_bytes());
+                        null_map.push(1);
+                    }
                 } else {
-                    buf.extend(0_i32.to_le_bytes());
-                    null_map.push(1);
+                    let n: Option<i32> = get_val_from_row(row, i)?;
+                    if let Some(n) = n {
+                        buf.extend(n.to_le_bytes());
+                        null_map.push(0);
+                    } else {
+                        buf.extend(0_i32.to_le_bytes());
+                        null_map.push(1);
+                    }
                 }
             }
             ColumnType::MYSQL_TYPE_FLOAT => {
@@ -152,13 +228,27 @@ pub fn get_val_bytes_from_row(
                 }
             }
             ColumnType::MYSQL_TYPE_LONGLONG => {
-                let n: Option<i64> = get_val_from_row(row, i)?;
-                if let Some(n) = n {
-                    buf.extend(n.to_le_bytes());
-                    null_map.push(0);
+                if row.columns().as_ref()[i]
+                    .flags()
+                    .contains(ColumnFlags::UNSIGNED_FLAG)
+                {
+                    let n: Option<u64> = get_val_from_row(row, i)?;
+                    if let Some(n) = n {
+                        buf.extend(n.to_le_bytes());
+                        null_map.push(0);
+                    } else {
+                        buf.extend(0_i64.to_le_bytes());
+                        null_map.push(1);
+                    }
                 } else {
-                    buf.extend(0_i64.to_le_bytes());
-                    null_map.push(1);
+                    let n: Option<i64> = get_val_from_row(row, i)?;
+                    if let Some(n) = n {
+                        buf.extend(n.to_le_bytes());
+                        null_map.push(0);
+                    } else {
+                        buf.extend(0_i64.to_le_bytes());
+                        null_map.push(1);
+                    }
                 }
             }
             ColumnType::MYSQL_TYPE_INT24 => {
