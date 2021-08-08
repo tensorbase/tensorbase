@@ -12,13 +12,13 @@ use mysql_common::{
 };
 
 #[inline]
-pub fn col_to_bql_type(c: &Column) -> EngineResult<BqlType> {
+pub fn col_to_bql_type(
+    c: &Column,
+    prec_scale: &Option<(u8, u8)>,
+) -> EngineResult<BqlType> {
     let t = match c.column_type() {
         ColumnType::MYSQL_TYPE_DECIMAL | ColumnType::MYSQL_TYPE_NEWDECIMAL => {
-            BqlType::Decimal(
-                9, // TODO: get the num precision
-                c.decimals(),
-            )
+            BqlType::Decimal(prec_scale.unwrap().1, c.decimals())
         }
         ColumnType::MYSQL_TYPE_TINY => {
             if c.flags().contains(ColumnFlags::UNSIGNED_FLAG) {

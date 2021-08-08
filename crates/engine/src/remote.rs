@@ -2,7 +2,7 @@ use crate::errs::EngineResult;
 use crate::mysql::{col_to_bql_type, get_val_bytes_from_row};
 use client::prelude::{Pool, ServerBlock};
 use meta::types::BaseChunk;
-use mysql::{prelude::Queryable, Pool as MyPool};
+use mysql::{consts::ColumnType, prelude::Queryable, Pool as MyPool};
 use tokio::runtime::Handle;
 
 pub fn run(pool: &Pool, sql: &str) -> EngineResult<Vec<ServerBlock>> {
@@ -22,23 +22,57 @@ pub fn run(pool: &Pool, sql: &str) -> EngineResult<Vec<ServerBlock>> {
     Ok(res?)
 }
 
+fn query_decimal_precision_scale(
+    pool: &MyPool,
+    tab_name: &str,
+    col_name: &str,
+) -> EngineResult<Option<(u8, u8)>> {
+    let sql = format!(
+        "select NUMERIC_PRECISION, NUMERIC_SCALE \
+       from information_schema.columns \
+       where table_name='{}' and column_name='{}' limit 1;",
+        tab_name, col_name
+    );
+
+    let mut conn = pool.get_conn()?;
+    let res: Option<(u8, u8)> = conn.query_first(&sql)?;
+
+    Ok(res)
+}
+
+pub struct MySqlCol {
+    pub col_name: Vec<u8>,
+    pub data: BaseChunk,
+    pub prec_scale: Option<(u8, u8)>,
+}
+
 pub fn mysql_run(
     pool: &MyPool,
     sql: &str,
-) -> EngineResult<(usize, usize, Vec<(Vec<u8>, BaseChunk)>)> {
+) -> EngineResult<(usize, usize, Vec<MySqlCol>)> {
     let res: EngineResult<_> = tokio::task::block_in_place(|| {
         Handle::current().block_on(async move {
             let mut conn = pool.get_conn()?;
             let res = conn.query_iter(&sql)?;
             let ncols = res.columns().as_ref().len();
-            let mut cols: Vec<(Vec<u8>, BaseChunk)> = vec![];
+            let mut cols: Vec<MySqlCol> = vec![];
             let mut nrows = 0;
 
             for c in res.columns().as_ref() {
-                let btype = col_to_bql_type(&c)?;
-                cols.push((
-                    c.name_str().as_bytes().to_vec(),
-                    BaseChunk {
+                let prec_scale = match c.column_type() {
+                    ColumnType::MYSQL_TYPE_DECIMAL
+                    | ColumnType::MYSQL_TYPE_NEWDECIMAL => query_decimal_precision_scale(
+                        pool,
+                        c.table_str().as_ref(),
+                        c.name_str().as_ref(),
+                    )?,
+                    _ => None,
+                };
+                let btype = col_to_bql_type(&c, &prec_scale)?;
+
+                cols.push(MySqlCol {
+                    col_name: c.name_str().as_bytes().to_vec(),
+                    data: BaseChunk {
                         btype,
                         size: 0,
                         data: vec![],
@@ -46,7 +80,8 @@ pub fn mysql_run(
                         offset_map: None,
                         lc_dict_data: None,
                     },
-                ));
+                    prec_scale,
+                });
             }
 
             for row in res {
@@ -54,11 +89,11 @@ pub fn mysql_run(
                 for c in cols.iter_mut() {
                     let data = get_val_bytes_from_row(
                         &r,
-                        &mut c.1.offset_map,
-                        &mut c.1.null_map.as_mut().unwrap(),
-                        &mut c.1.size,
+                        &mut c.data.offset_map,
+                        &mut c.data.null_map.as_mut().unwrap(),
+                        &mut c.data.size,
                     )?;
-                    c.1.data.extend(data);
+                    c.data.data.extend(data);
                 }
                 nrows += 1;
             }
