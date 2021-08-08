@@ -105,6 +105,7 @@ pub enum BqlType {
     LowCardinalityTinyText,
     /// For backward compatibility, DateTime with timezone is appended here
     DateTimeTz(TimeZoneId),
+    Uuid,
 }
 
 impl Default for BqlType {
@@ -151,6 +152,7 @@ impl BqlType {
             BqlType::LowCardinalityString => Ok(4),
             BqlType::LowCardinalityTinyText => Ok(1),
             BqlType::FixedString(siz) => Ok(siz),
+            BqlType::Uuid => Ok(16),
             _ => Err(MetaError::NoFixedSizeDataTypeError),
         }
     }
@@ -198,6 +200,7 @@ impl BqlType {
                 let n = itoa::write(&mut bi[..], len)?;
                 Ok(bytes_cat!(b"FixedString(", &bi[..n], b")"))
             }
+            BqlType::Uuid => Ok(b"UUID".to_vec()),
         }
     }
 
@@ -220,6 +223,7 @@ impl BqlType {
             b"Float64" => Ok(BqlType::Float(64)),
             b"Date" => Ok(BqlType::Date),
             b"String" => Ok(BqlType::String),
+            b"UUID" => Ok(BqlType::Uuid),
             b"LowCardinality(String)" => Ok(BqlType::LowCardinalityString),
             b"LowCardinality(TinyText)" => Ok(BqlType::LowCardinalityTinyText),
             datetime_item if datetime_item.starts_with(b"DateTime") => {
@@ -658,6 +662,7 @@ mod unit_tests {
             BqlType::from_str("DateTime('Invalid timezone')"),
             Err(_)
         ));
+        assert_eq!(BqlType::from_str("UUID")?, BqlType::Uuid);
 
         Ok(())
     }
@@ -700,6 +705,7 @@ mod unit_tests {
             b"FixedString(255)".to_vec(),
             BqlType::FixedString(0xff).to_vec()?
         );
+        assert_eq!(b"UUID".to_vec(), BqlType::Uuid.to_vec()?);
 
         Ok(())
     }
