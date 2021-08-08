@@ -4,6 +4,9 @@ use std::io::BufReader;
 use std::{fs::File, path::Path};
 
 use client::prelude::{Options, Pool};
+use mysql::prelude::*;
+use mysql::*;
+use mysql::{Opts as MyOpts, Pool as MyPool};
 use std::convert::TryInto;
 use std::env;
 use url::Url;
@@ -14,6 +17,11 @@ pub fn db_url() -> String {
     env::var("DATABASE_URL").unwrap_or_else(|_| {
         "tcp://localhost:9528?execute_timeout=5s&query_timeout=20s&pool_max=4&compression=lz4".into()
     })
+}
+
+pub fn mysql_url() -> String {
+    env::var("MYSQL_DATABASE_URL")
+        .unwrap_or_else(|_| "mysql://test:test@localhost:3306/test".into())
 }
 
 pub fn get_config() -> Options {
@@ -36,6 +44,12 @@ pub fn get_pool() -> Pool {
     let url = db_url();
     Pool::create(url).expect("Pool::create err?")
 }
+
+pub fn get_mysql_pool() -> MyPool {
+    MyPool::new(MyOpts::from_url(mysql_url().as_str()).expect("MySQL URL"))
+        .expect("MySQL database url")
+}
+
 #[derive(Clap)]
 #[clap(version = "1.0")]
 struct Opts {
@@ -47,9 +61,6 @@ struct Opts {
 
 #[tokio::main]
 async fn main() -> std::io::Result<()> {
-    // let opts: Opts = Opts::parse();
-
-    // let tn_opt = opts.test_name;
     let tn_opt = Some("basic_checks".to_string());
 
     let tests_root = env!("CARGO_MANIFEST_DIR");
@@ -83,6 +94,13 @@ async fn main() -> std::io::Result<()> {
     } else {
         todo!()
     }
+
+    let pool = get_mysql_pool();
+
+    let mut conn = pool.get_conn().expect("MySQL pool connection");
+
+    let r: Option<i32> = conn.query_first("select 1").expect("get one");
+    assert_eq!(r, Some(1));
 
     Ok(())
 }

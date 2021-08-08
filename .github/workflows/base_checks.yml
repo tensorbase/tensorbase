@@ -25,4 +25,4 @@ jobs:
     - name: TensorBase Build
       run: cargo build
     - name: TensorBase unit tests
-      run: cargo test --exclude 'arrow*' --exclude datafusion --exclude 'ballista*' --exclude parquet --workspace -- --test-threads=1 --skip tests_integ
+      run: cargo test --exclude 'arrow*' --exclude datafusion --exclude 'ballista*' --exclude 'tests_integ' --exclude parquet --workspace -- --test-threads=1

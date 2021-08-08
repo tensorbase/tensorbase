@@ -4,7 +4,9 @@ mod common;
 use chrono::{Date, DateTime, FixedOffset, NaiveDate, NaiveDateTime, TimeZone, Utc};
 use chrono_tz::Tz;
 use client::prelude::types::Decimal;
-use common::get_pool;
+use common::{get_pool, get_mysql_pool, get_ch_pool};
+use mysql::prelude::*;
+use mysql::{Opts as MyOpts, Pool as MyPool};
 // macro_rules! get {
 //     ($row:ident, $idx: expr, $msg: expr) => {
 //         $row.value($idx)?.expect($msg)
@@ -13,6 +15,29 @@ use common::get_pool;
 //         get!($row, $idx, "unexpected error")
 //     };
 // }
+
+#[tokio::test]
+async fn test_mysql_connect() -> errors::Result<()> {
+    let pool = get_mysql_pool();
+
+    let mut conn = pool.get_conn().expect("MySQL pool connection");
+
+    let r: Option<i32> = conn.query_first("select 1").expect("get one");
+    assert_eq!(r, Some(1));
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_ch_connect() -> errors::Result<()> {
+    let pool = get_ch_pool();
+
+    let mut conn = pool.connection().await?;
+
+    conn.execute("create database if not exists test_db")
+        .await?;
+    conn.execute("use test_db").await?;
+    Ok(())
+}
 
 #[tokio::test]
 async fn tests_integ_stress_test_ddl() -> errors::Result<()> {
