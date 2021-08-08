@@ -195,26 +195,30 @@ pub fn remote_query(
                 .into_iter()
                 .map(|addr| {
                     let pool = &*ps.get(&addr).unwrap();
-                    let (ncols, nrows, cols) = remote::mysql_run(pool, &sql).unwrap();
-                    let mut blk = Block {
-                        name: "".into(),
-                        has_header_decoded: true,
-                        overflow: false,
-                        bucket: -1,
-                        ncols,
-                        nrows,
-                        columns: vec![],
-                    };
-                    cols.into_iter().for_each(|col| {
-                        let col = Column {
-                            name: col.col_name,
-                            data: col.data,
-                        };
-                        blk.columns.push(col);
-                    });
-                    blk
+                    match remote::mysql_run(pool, &sql) {
+                        Ok((ncols, nrows, cols)) => {
+                            let mut blk = Block {
+                                name: "".into(),
+                                has_header_decoded: true,
+                                overflow: false,
+                                bucket: -1,
+                                ncols,
+                                nrows,
+                                columns: vec![],
+                            };
+                            cols.into_iter().for_each(|col| {
+                                let col = Column {
+                                    name: col.col_name,
+                                    data: col.data,
+                                };
+                                blk.columns.push(col);
+                            });
+                            Ok(blk)
+                        }
+                        Err(err) => Err(err),
+                    }
                 })
-                .collect::<Vec<_>>();
+                .collect::<Result<Vec<_>, _>>()?;
 
             Ok(blks)
         }
