@@ -15,12 +15,24 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+    - uses: mirromutth/mysql-action@v1.1
+      with:
+        mysql version: '8.0'
+        mysql database: 'test'
+        mysql root password: 'test'
+        mysql user: 'test'
+        mysql password: 'test'
+      run: |
+        sudo mysql -e "ALTER USER 'root'@'localhost' IDENTIFIED WITH mysql_native_password BY 'test';"
+
     - uses: actions/checkout@v2
     - name: Install latest nightly
       uses: actions-rs/toolchain@v1
       with:
+
             toolchain: nightly-2021-07-05
             override: true
+
     - name: TensorBase Run server
       run: |
            mkdir ${{ github.workspace }}/tb_data
