@@ -12,9 +12,21 @@ env:
 jobs:
   build:
 
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-20.04
 
     steps:
+    - name: Install ClickHouse
+      run: |
+        sudo apt install -y clickhouse-server
+        sudo service clickhouse-server start
+        sudo service clickhouse-server status
+    - uses: mirromutth/mysql-action@v1.1
+      with:
+        mysql version: '5.7'
+        mysql database: 'test'
+        mysql root password: 'test'
+        mysql user: 'test'
+        mysql password: 'test'
     - uses: actions/checkout@v2
     - name: Install latest nightly
       uses: actions-rs/toolchain@v1
