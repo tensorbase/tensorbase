@@ -20,6 +20,7 @@ serde = "1.0"
 serde_derive = "1.0"
 rand = "0.8"
 fasteval = "0.2.4"
+uuid = { version = "0.8", features = ["v4"] }
 
 [dev-dependencies]
 anyhow = "1.0"

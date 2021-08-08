@@ -46,4 +46,7 @@ pub enum BaseError {
 
     #[error("Can not be evaluted")]
     CanotEval,
+
+    #[error("Cannot parse Uuid from {0:?}")]
+    ParseUuidError(String),
 }
