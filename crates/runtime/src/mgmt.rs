@@ -1,4 +1,3 @@
-use base::bytes_cat;
 use base::{
     codec::encode_ascii_bytes_vec_short,
     datetimes::{parse_to_epoch, TimeZoneId},
@@ -566,10 +565,10 @@ impl<'a> BaseMgmtSys<'a> {
         let mut dtype = Vec::with_capacity(len * 3);
         for (name0, _, col_info) in col_infos.into_iter() {
             let mut data = col_info.data_type.to_vec()?;
-            data = if col_info.is_nullable {
-                bytes_cat!(b"Nullable(", &data, b")")
+            data = if col_info.is_array {
+                col_info.array_type_literal(&mut data)
             } else {
-                data
+                col_info.nullable_literal(&mut data)
             };
             encode_ascii_bytes_vec_short(name0.as_bytes(), &mut name)?;
             encode_ascii_bytes_vec_short(&data, &mut dtype)?;

@@ -30,6 +30,34 @@ pub struct ColumnInfo {
     pub is_primary_key: bool,
     pub is_nullable: bool,
     pub ordinal: u32,
+    pub is_array: bool,
+    pub arr_dimen: u8,
+}
+
+impl ColumnInfo {
+    pub fn array_type_literal(&self, data: &mut Vec<u8>) -> Vec<u8> {
+        let mut literal = vec![];
+        if self.is_array {
+            for _n in 0..self.arr_dimen {
+                literal = bytes_cat!(b"Array(", &literal);
+            }
+            let mut data = self.nullable_literal(data);
+            literal.append(&mut data);
+            for _n in 0..self.arr_dimen {
+                literal = bytes_cat!(&literal, b")");
+            }
+        }
+
+        literal
+    }
+
+    pub fn nullable_literal(&self, data: &mut Vec<u8>) -> Vec<u8> {
+        if self.is_nullable {
+            bytes_cat!(b"Nullable(", &data, b")")
+        } else {
+            data.clone()
+        }
+    }
 }
 
 //FIXME add ids to Tab/Col model?
@@ -206,6 +234,33 @@ impl BqlType {
 
     pub fn from_str(item: &str) -> MetaResult<Self> {
         Self::from_bytes(item.as_bytes())
+    }
+
+    pub fn parse_array_type(item: &str, demension: u8) -> MetaResult<(u8, Self, bool)> {
+        if let Some(lpos) = item.find("Array") {
+            if let Some(rpos) = item[(lpos + 5)..].rfind(")") {
+                Self::parse_array_type(
+                    &item[(lpos + 6)..(lpos + 5 + rpos)],
+                    demension + 1,
+                )
+            } else {
+                Err(MetaError::UnsupportedBqlTypeError)
+            }
+        } else {
+            if let Some(lpos) = item.find("Nullable") {
+                if let Some(rpos) = item[(lpos + 8)..].rfind(")") {
+                    Ok((
+                        demension,
+                        Self::from_str(&item[(lpos + 9)..(lpos + 8 + rpos)])?,
+                        true,
+                    ))
+                } else {
+                    Err(MetaError::UnsupportedBqlTypeError)
+                }
+            } else {
+                Ok((demension, Self::from_str(item)?, false))
+            }
+        }
     }
 
     pub fn from_bytes(item: &[u8]) -> MetaResult<Self> {

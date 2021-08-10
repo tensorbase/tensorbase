@@ -892,6 +892,8 @@ mod unit_tests {
                     is_primary_key: false,
                     is_nullable: true,
                     ordinal: i - 1,
+		    arr_dimen: 0,
+		    is_array: false
                 },
             ));
         }

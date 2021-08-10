@@ -363,7 +363,8 @@ type_name = {
     decimal_type |
     fixed_string_type |
     low_cardinality_string_type |
-    low_cardinality_tinytext_type
+    low_cardinality_tinytext_type |
+    array_type
 }
 simple_type = {
     "UInt8" | "UInt16" | "UInt32" | "UInt64" | "UInt256" | 
@@ -389,6 +390,7 @@ nullable_types = {
 }
 low_cardinality_string_type = { "LowCardinality" ~ "(" ~ "String" ~ ")" }
 low_cardinality_tinytext_type = { "LowCardinality" ~ "(" ~ "TinyText" ~ ")" }
+array_type = { "Array" ~ "(" ~ type_name ~ ")"}
 
 signed_number = @{
     ("+" | "-")? ~ number

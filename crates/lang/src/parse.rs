@@ -406,6 +406,14 @@ impl CreateTabContext {
                         col.1.data_type = BqlType::from_str(typ)?;
                         col.1.is_nullable = true;
                     }
+                    Some(p) if p.as_rule() == Rule::array_type => {
+                        let (dimen, data_type, is_nullable) =
+                            BqlType::parse_array_type(p.as_str(), 0)?;
+                        col.1.data_type = data_type;
+                        col.1.is_array = true;
+                        col.1.arr_dimen = dimen;
+                        col.1.is_nullable = true;
+                    }
                     // Some(p) if p.as_rule() == Rule::decimal_type => {
                     //     col.1.data_type = BqlType::LowCardinalityString;
                     // }
