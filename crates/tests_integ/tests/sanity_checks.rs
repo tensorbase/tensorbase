@@ -4,7 +4,7 @@ mod common;
 use chrono::{Date, DateTime, FixedOffset, NaiveDate, NaiveDateTime, TimeZone, Utc};
 use chrono_tz::Tz;
 use client::prelude::types::Decimal;
-use common::{get_pool, get_mysql_pool, get_ch_pool};
+use common::{get_ch_pool, get_mysql_pool, get_pool};
 use mysql::prelude::*;
 use mysql::{Opts as MyOpts, Pool as MyPool};
 // macro_rules! get {

@@ -1,11 +1,11 @@
 #![allow(dead_code)]
 use client::prelude::{Options, Pool};
-use std::convert::TryInto;
-use std::env;
-use url::Url;
 use mysql::prelude::*;
 use mysql::*;
 use mysql::{Opts as MyOpts, Pool as MyPool};
+use std::convert::TryInto;
+use std::env;
+use url::Url;
 
 pub fn db_url() -> String {
     env::var("DATABASE_URL").unwrap_or_else(|_| {

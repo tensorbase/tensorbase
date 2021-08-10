@@ -1,5 +1,6 @@
 use crate::errs::{EngineError, EngineResult};
 use base::codec::encode_varint64;
+use core::fmt::Write;
 use meta::types::BqlType;
 use mysql::{
     consts::{ColumnFlags, ColumnType},
@@ -69,21 +70,21 @@ pub fn col_to_bql_type(
         }
 
         ColumnType::MYSQL_TYPE_YEAR => BqlType::UInt(16),
+        ColumnType::MYSQL_TYPE_SET => BqlType::Int(64),
         ColumnType::MYSQL_TYPE_VARCHAR
+        | ColumnType::MYSQL_TYPE_GEOMETRY
+        | ColumnType::MYSQL_TYPE_JSON
         | ColumnType::MYSQL_TYPE_STRING
         | ColumnType::MYSQL_TYPE_VAR_STRING
         | ColumnType::MYSQL_TYPE_TINY_BLOB
         | ColumnType::MYSQL_TYPE_MEDIUM_BLOB
         | ColumnType::MYSQL_TYPE_LONG_BLOB
         | ColumnType::MYSQL_TYPE_BLOB => BqlType::String,
-        ColumnType::MYSQL_TYPE_BIT
-        | ColumnType::MYSQL_TYPE_NULL
+        ColumnType::MYSQL_TYPE_BIT => BqlType::Int(64),
+        ColumnType::MYSQL_TYPE_NULL
         | ColumnType::MYSQL_TYPE_TYPED_ARRAY
         | ColumnType::MYSQL_TYPE_UNKNOWN
-        | ColumnType::MYSQL_TYPE_JSON
-        | ColumnType::MYSQL_TYPE_ENUM
-        | ColumnType::MYSQL_TYPE_SET
-        | ColumnType::MYSQL_TYPE_GEOMETRY => {
+        | ColumnType::MYSQL_TYPE_ENUM => {
             return Err(EngineError::WrappingClientError(
                 "unsupport MySQL type".into(),
             ))
@@ -301,6 +302,7 @@ pub fn get_val_bytes_from_row(
                 }
             }
             ColumnType::MYSQL_TYPE_VARCHAR
+            | ColumnType::MYSQL_TYPE_JSON
             | ColumnType::MYSQL_TYPE_STRING
             | ColumnType::MYSQL_TYPE_VAR_STRING
             | ColumnType::MYSQL_TYPE_TINY_BLOB
@@ -330,14 +332,54 @@ pub fn get_val_bytes_from_row(
                     null_map.push(1);
                 }
             }
-            ColumnType::MYSQL_TYPE_BIT
-            | ColumnType::MYSQL_TYPE_NULL
+            ColumnType::MYSQL_TYPE_GEOMETRY => {
+                let n: Option<Vec<u8>> = get_val_from_row(row, i)?;
+
+                if let Some(n) = n {
+                    let mut s = String::with_capacity(2 * n.len());
+                    for byte in n {
+                        if write!(s, "{:02X}", byte).is_err() {
+                            return Err(EngineError::WrappingMySQLClientFromError(
+                                FromValueError(row[i].clone()),
+                            ));
+                        };
+                    }
+                    if let Some(map) = offset_map {
+                        map.push(map.len() as u32 + s.len() as u32);
+                    } else {
+                        *offset_map = Some(vec![0, s.len() as u32 + 1]);
+                    }
+                    *size += 1;
+                    buf.reserve(10);
+                    unsafe {
+                        buf.set_len(buf.len() + 10);
+                    }
+                    let vl = encode_varint64(s.len() as u64, &mut buf);
+                    unsafe {
+                        buf.set_len(buf.len() - (10 - vl));
+                    }
+                    buf.extend(s.as_bytes());
+                    null_map.push(0);
+                } else {
+                    buf.extend("\0".as_bytes());
+                    null_map.push(1);
+                }
+            }
+            ColumnType::MYSQL_TYPE_BIT | ColumnType::MYSQL_TYPE_SET => {
+                let n: Option<Vec<u8>> = get_val_from_row(row, i)?;
+                if let Some(mut n) = n {
+                    n.resize(8, 0);
+                    buf.extend(n);
+                    null_map.push(0);
+                } else {
+                    buf.extend(0_i64.to_le_bytes());
+                    null_map.push(1);
+                }
+            }
+            ColumnType::MYSQL_TYPE_NULL
             | ColumnType::MYSQL_TYPE_TYPED_ARRAY
             | ColumnType::MYSQL_TYPE_UNKNOWN
-            | ColumnType::MYSQL_TYPE_JSON
-            | ColumnType::MYSQL_TYPE_ENUM
-            | ColumnType::MYSQL_TYPE_SET
-            | ColumnType::MYSQL_TYPE_GEOMETRY => {
+            | ColumnType::MYSQL_TYPE_ENUM => {
                 return Err(EngineError::WrappingMySQLClientFromError(FromValueError(
                     row[i].clone(),
                 )))
