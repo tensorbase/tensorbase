@@ -16,7 +16,8 @@ In the future, more protocols/dialects may be compatible(e.g. MySQL).
 * String
 * Date
 * FixedString
-* LowCardinality (String) (WIP)
+* Uuid
+* More coming soon...
 
 ### Statements
 * create database 
@@ -100,16 +101,18 @@ Example:
 SELECT avg(salary) FROM employees
 ```
 
-### Built-in Functions
+### Built-in Functions (WIP)
 case-sensitive
-* toYYYY/toYear
-* toYYYYMM
-* toYYYYMMDD
-* toMonth
-* toDayOfMonth
-* toUnixTimestamp
+* toYYYY/toYear, toYYYYMM, toYYYYMMDD, toMonth...
+* Track all supported functions in this [issues](https://github.com/tensorbase/tensorbase/issues/130)
 
 Example:
 ```sql
 SELECT toYYYYMMDD(1620797481)
 ```
+
+### Remote Table Functions (WIP)
+TensorBase supports remote table access in query statement via [```Remote Table Functions``` like shown in ClickHouse](https://clickhouse.tech/docs/en/sql-reference/table-functions/remote/).
+
+
+
