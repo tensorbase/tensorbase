@@ -114,5 +114,9 @@ SELECT toYYYYMMDD(1620797481)
 ### Remote Table Functions (WIP)
 TensorBase supports remote table access in query statement via [```Remote Table Functions``` like shown in ClickHouse](https://clickhouse.tech/docs/en/sql-reference/table-functions/remote/).
 
-
+Example:
+```sql
+select a,b,c,d,i,j from remote('127.0.0.1:9528', test_remote_func)
+```
+NOTE: now it is required that the column names of select clause should be specified explicitly.
 
