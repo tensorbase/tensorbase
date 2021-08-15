@@ -1,3 +1,8 @@
+use arrow::{
+    array::{LargeStringArray, LargeStringBuilder},
+    datatypes::{DataType, Field, Schema},
+    record_batch::RecordBatch,
+};
 use base::bytes_cat;
 use base::{
     codec::encode_ascii_bytes_vec_short,
@@ -29,49 +34,25 @@ use mysql::{Compression, OptsBuilder, Pool as MyPool, SslOpts};
 use std::net::IpAddr;
 use std::time::Duration;
 use std::{
+    convert::TryInto,
     env,
     fs::remove_dir_all,
-    lazy::{SyncLazy, SyncOnceCell},
+    lazy::SyncLazy,
     panic::panic_any,
     path::{Path, PathBuf},
     pin::Pin,
     str::FromStr,
-    sync::Mutex,
+    sync::{Arc, Mutex},
     time::Instant,
 };
 
 use crate::{
-    ch::{
-        blocks::{new_block_header, Block, Column},
-        codecs::CHMsgWriteAware,
-        protocol::ConnCtx,
-    },
     errs::{BaseRtError, BaseRtResult},
+    read::{query, remote_query},
+    types::{BaseColumn, BaseDataBlock, BaseServerConn, BaseWriteAware},
+    write::write_block,
 };
 use datafusion::physical_plan::clickhouse::DEFAULT_TIMEZONE;
-use lang::parse::RemoteTableInfo;
-
-pub static READ: SyncOnceCell<
-    fn(
-        ms: &MetaStore,
-        ps: &PartStore,
-        query_id: &str,
-        current_db: &str,
-        p: Pair<Rule>,
-    ) -> BaseRtResult<Vec<Block>>,
-> = SyncOnceCell::new();
-
-pub static WRITE: SyncOnceCell<
-    fn(blk: &mut Block, tab_ins: &str, tid_ins: Id) -> BaseRtResult<()>,
-> = SyncOnceCell::new();
-
-pub static REMOTE_READ: SyncOnceCell<
-    fn(
-        remote_tb_info: RemoteTableInfo,
-        raw_query: &str,
-        is_local: bool,
-    ) -> BaseRtResult<Vec<Block>>,
-> = SyncOnceCell::new();
 
 pub struct BaseHasher {
     state: u64,
@@ -178,11 +159,11 @@ pub enum BaseCommandKind {
     Default,
     Create,
     Drop,
-    Query(Vec<Block>), //FIXME need iterator for big return
-    InsertFormatInline(Block, String, Id),
-    InsertFormatInlineValues(Block, String, Id),
-    InsertFormatCSV(Block, String, Id),
-    InsertFormatSelectValue(Vec<Block>, String, Id),
+    Query(Vec<RecordBatch>), //FIXME need iterator for big return
+    InsertFormatInline(BaseDataBlock, String, Id),
+    InsertFormatInlineValues,
+    InsertFormatCSV(BaseDataBlock, String, Id),
+    InsertFormatSelectValue,
     Optimize,
 }
 
@@ -478,43 +459,31 @@ impl<'a> BaseMgmtSys<'a> {
         }
     }
 
-    pub fn command_show_databases(&self) -> BaseRtResult<Block> {
+    pub fn command_show_databases(&self) -> BaseRtResult<RecordBatch> {
         let ms = &self.meta_store;
         let bc = ms
             .get_all_databases()
             .map_err(|e| BaseRtError::WrappingMetaError(e))?;
-        let mut blk = Block::default();
-        blk.nrows = bc.size;
-        blk.columns.push(Column {
-            name: b"name".to_vec(),
-            data: bc,
-        });
-        blk.ncols = blk.columns.len();
 
-        Ok(blk)
+        let schema = Schema::new(vec![Field::new("name", DataType::LargeUtf8, false)]);
+        Ok(RecordBatch::try_new(Arc::new(schema), vec![Arc::new(bc)])?)
     }
 
-    pub fn command_show_tables(&self, dbname: &str) -> BaseRtResult<Block> {
+    pub fn command_show_tables(&self, dbname: &str) -> BaseRtResult<RecordBatch> {
         let ms = &self.meta_store;
         let bc = ms
             .get_tables(dbname)
             .map_err(|e| BaseRtError::WrappingMetaError(e))?;
-        let mut blk = Block::default();
-        blk.nrows = bc.size;
-        blk.columns.push(Column {
-            name: b"name".to_vec(),
-            data: bc,
-        });
-        blk.ncols = blk.columns.len();
 
-        Ok(blk)
+        let schema = Schema::new(vec![Field::new("name", DataType::LargeUtf8, false)]);
+        Ok(RecordBatch::try_new(Arc::new(schema), vec![Arc::new(bc)])?)
     }
 
     pub fn command_show_create_table(
         &self,
         p: Pair<Rule>,
         current_db: &str,
-    ) -> BaseRtResult<Block> {
+    ) -> BaseRtResult<RecordBatch> {
         let (dbn_opt, tn) = parse_show_create_table(p)?;
         let qtname = if dbn_opt.is_some() {
             [dbn_opt.ok_or(BaseRtError::SchemaInfoShouldExistButNot)?, tn].join(".")
@@ -530,41 +499,32 @@ impl<'a> BaseMgmtSys<'a> {
         // log::debug!("create_script: {:?}", iv_script);
         let mut bs = BytesMut::with_capacity(64);
         bs.write_varbytes(&*iv_script);
-        let mut blk = Block::default();
-        blk.nrows = 1;
-        blk.columns.push(Column {
-            name: b"statement".to_vec(),
-            data: BaseChunk {
-                btype: BqlType::String,
-                size: 1,
-                data: bs.to_vec(),
-                null_map: None,
-                offset_map: None,
-                lc_dict_data: None,
-            },
-        });
-        blk.ncols = blk.columns.len();
 
-        Ok(blk)
+        let bc = LargeStringArray::from(vec![String::from_utf8(bs.to_vec()).unwrap()]);
+
+        let schema =
+            Schema::new(vec![Field::new("statement", DataType::LargeUtf8, false)]);
+        Ok(RecordBatch::try_new(Arc::new(schema), vec![Arc::new(bc)])?)
     }
 
     pub fn command_desc_table(
         &self,
         p: Pair<Rule>,
         current_db: &str,
-    ) -> BaseRtResult<Block> {
+    ) -> BaseRtResult<RecordBatch> {
         let (dbn_opt, tn) = parse_desc_table(p)?;
         let ms = &self.meta_store;
         let col_infos = ms.get_columns(
             dbn_opt.as_ref().map(|s| s.as_str()).unwrap_or(current_db),
             &tn,
         )?;
-        let mut blk = Block::default();
         let len = col_infos.len();
-        blk.nrows = len;
-        let mut name = Vec::with_capacity(len);
-        let mut dtype = Vec::with_capacity(len * 3);
+
+        let mut builder_name = LargeStringBuilder::new(len);
+        let mut builder_type = LargeStringBuilder::new(len);
         for (name0, _, col_info) in col_infos.into_iter() {
+            let mut name = Vec::with_capacity(len);
+            let mut dtype = Vec::with_capacity(len * 3);
             let mut data = col_info.data_type.to_vec()?;
             data = if col_info.is_nullable {
                 bytes_cat!(b"Nullable(", &data, b")")
@@ -573,29 +533,21 @@ impl<'a> BaseMgmtSys<'a> {
             };
             encode_ascii_bytes_vec_short(name0.as_bytes(), &mut name)?;
             encode_ascii_bytes_vec_short(&data, &mut dtype)?;
+            builder_name.append_value(String::from_utf8(name).unwrap())?;
+            builder_type.append_value(String::from_utf8(dtype).unwrap())?;
         }
-        blk.columns.push(Column {
-            name: b"name".to_vec(),
-            data: BaseChunk {
-                btype: BqlType::String,
-                size: len,
-                data: name,
-                null_map: None,
-                offset_map: None,
-                lc_dict_data: None,
-            },
-        });
-        blk.columns.push(Column {
-            name: b"type".to_vec(),
-            data: BaseChunk {
-                btype: BqlType::String,
-                size: len,
-                data: dtype,
-                null_map: None,
-                offset_map: None,
-                lc_dict_data: None,
-            },
-        });
+
+        let schema = Schema::new(vec![
+            Field::new("name", DataType::LargeUtf8, false),
+            Field::new("type", DataType::LargeUtf8, false),
+        ]);
+        Ok(RecordBatch::try_new(
+            Arc::new(schema),
+            vec![
+                Arc::new(builder_name.finish()),
+                Arc::new(builder_type.finish()),
+            ],
+        )?)
         // blk.columns.push(Column {
         //     name: b"default_type".to_vec(),
         //     data: BaseChunk {
@@ -652,9 +604,9 @@ impl<'a> BaseMgmtSys<'a> {
         //     },
         // });
 
-        blk.ncols = blk.columns.len();
+        // blk.ncols = blk.columns.len();
 
-        Ok(blk)
+        // Ok(blk)
     }
 
     fn has_mulit_cols_in_partkey(pc: &str) -> bool {
@@ -704,12 +656,15 @@ impl<'a> BaseMgmtSys<'a> {
         }
     }
 
-    pub fn command_insert_into(
+    pub fn command_insert_into<T>(
         &self,
         p: Pair<Rule>,
-        cctx: &mut ConnCtx,
-    ) -> BaseRtResult<BaseCommandKind> {
-        let current_db = &cctx.current_db;
+        cctx: &mut T,
+    ) -> BaseRtResult<BaseCommandKind>
+    where
+        T: BaseServerConn,
+    {
+        let current_db = cctx.get_db();
         let insert_info =
             parse_insert_into(p).map_err(|e| BaseRtError::WrappingLangError(e))?;
         let tab = insert_info.tab;
@@ -753,7 +708,8 @@ impl<'a> BaseMgmtSys<'a> {
             }
             lang::parse::InsertFormat::InlineValues => {
                 //FIXME
-                Ok(BaseCommandKind::InsertFormatInlineValues(blk, qtn, tid))
+                write_block(&mut blk, qtn.as_str(), tid)?;
+                Ok(BaseCommandKind::InsertFormatInlineValues)
             }
             lang::parse::InsertFormat::Select(ref select_stmt) => {
                 self.command_insert_into_select(cctx, select_stmt, qtn, tid)
@@ -766,19 +722,21 @@ impl<'a> BaseMgmtSys<'a> {
 
     fn command_insert_into_remote(
         &self,
-        cctx: &mut ConnCtx,
+        cctx: &mut T,
         ctx: TablePlaceKindContext,
         blk: Block,
         query: &str,
         qtn: String,
         tid: Id,
-    ) -> BaseRtResult<BaseCommandKind> {
+    ) -> BaseRtResult<BaseCommandKind>
+    where
+        T: BaseServerConn,
+    {
         if let TablePlaceKind::Remote(remote_tb_info) = ctx.place_kind {
             if query.contains("values") {
                 return Ok(BaseCommandKind::InsertFormatInline(blk, qtn, tid));
             }
-            let remote_read = REMOTE_READ.get().unwrap();
-            let blks = remote_read(remote_tb_info, query, true)?;
+            let blks = remote_query(remote_tb_info, query, true)?;
 
             return Ok(BaseCommandKind::InsertFormatSelectValue(blks, qtn, tid));
         }
@@ -788,22 +746,29 @@ impl<'a> BaseMgmtSys<'a> {
         ))
     }
 
-    fn command_insert_into_select(
+    fn command_insert_into_select<T>(
         &self,
-        cctx: &mut ConnCtx,
+        cctx: &mut T,
         select_stmt: &str,
         qtn: String,
         tid: Id,
-    ) -> BaseRtResult<BaseCommandKind> {
-        let query_id = &cctx.query_id;
+    ) -> BaseRtResult<BaseCommandKind>
+    where
+        T: BaseServerConn,
+    {
+        let query_id = &cctx.get_query_id();
         let timer = Instant::now();
         let p = BaseMgmtSys::parse_cmd_as_pair(select_stmt)?;
 
         if let BaseCommandKind::Query(blks) =
-            self.command_query(p, &cctx.current_db, query_id)?
+            self.command_query(p, &cctx.get_db(), query_id)?
         {
             log::debug!("process subquery: {} in {:?}", query_id, timer.elapsed());
-            return Ok(BaseCommandKind::InsertFormatSelectValue(blks, qtn, tid));
+            log::debug!("subquery blks {:?}", blks);
+            for blk in blks {
+                write_block(&mut blk.try_into()?, qtn.as_str(), tid)?;
+            }
+            return Ok(BaseCommandKind::InsertFormatSelectValue);
         } else {
             unreachable!()
         }
@@ -960,15 +925,13 @@ impl<'a> BaseMgmtSys<'a> {
         let ctx = parse_table_place(p.clone())?;
         match ctx.place_kind {
             TablePlaceKind::Local => {
-                let read = READ.get().unwrap();
                 let blks =
-                    read(&self.meta_store, &self.part_store, query_id, current_db, p)?;
+                    query(&self.meta_store, &self.part_store, query_id, current_db, p)?;
                 Ok(BaseCommandKind::Query(blks))
             }
             TablePlaceKind::Remote(remote_tb_info) => {
                 log::debug!("successfully parsed remote query to {:?} ", remote_tb_info);
-                let remote_read = REMOTE_READ.get().unwrap();
-                let blks = remote_read(remote_tb_info, p.as_str(), false)?;
+                let blks = remote_query(remote_tb_info, p.as_str(), false)?;
 
                 Ok(BaseCommandKind::Query(blks))
             }
@@ -991,11 +954,14 @@ impl<'a> BaseMgmtSys<'a> {
     /*
     commands should have an auth mech
     */
-    pub fn run_commands(
+    pub fn run_commands<T>(
         &self,
         cmds: String,
-        cctx: &mut ConnCtx,
-    ) -> BaseRtResult<BaseCommandKind> {
+        cctx: &mut T,
+    ) -> BaseRtResult<BaseCommandKind>
+    where
+        T: BaseServerConn,
+    {
         // let ps = parse_command(cmds)
         //     .map_err(|e| BaseRtError::WrappingLangError(e))?;
         // let mut ps: Vec<_> = ps.into_iter().collect();
@@ -1015,47 +981,47 @@ impl<'a> BaseMgmtSys<'a> {
                 Ok(BaseCommandKind::Query(vec![blk]))
             }
             Rule::show_tables => {
-                let blk = self.command_show_tables(&cctx.current_db)?;
+                let blk = self.command_show_tables(cctx.get_db())?;
                 Ok(BaseCommandKind::Query(vec![blk]))
             }
             Rule::show_create_table => {
-                let blk = self.command_show_create_table(p, &cctx.current_db)?;
+                let blk = self.command_show_create_table(p, cctx.get_db())?;
                 Ok(BaseCommandKind::Query(vec![blk]))
             }
             Rule::desc_table => {
-                let blk = self.command_desc_table(p, &cctx.current_db)?;
+                let blk = self.command_desc_table(p, cctx.get_db())?;
                 Ok(BaseCommandKind::Query(vec![blk]))
             }
             Rule::create_database => self
                 .command_create_database(p)
                 .map(|e| BaseCommandKind::Create),
             Rule::create_table => self
-                .command_create_table(p, &cctx.current_db, cmds.as_str())
+                .command_create_table(p, cctx.get_db(), cmds.as_str())
                 .map(|e| BaseCommandKind::Create),
             Rule::use_db => {
                 let dbn = self.command_use_db(p)?;
-                cctx.current_db = dbn;
+                cctx.set_db(dbn);
                 return Ok(BaseCommandKind::Create); //FIXME Create like but not Create semantic
             }
             Rule::drop_database => {
                 return self.command_drop_database(p);
             }
             Rule::drop_table => {
-                return self.command_drop_table(p, &cctx.current_db);
+                return self.command_drop_table(p, cctx.get_db());
             }
             Rule::truncate_table => {
-                return self.command_truncate_table(p, &cctx.current_db);
+                return self.command_truncate_table(p, cctx.get_db());
             }
             Rule::optimize_table => {
-                return self.command_optimize_table(p, &cctx.current_db);
+                return self.command_optimize_table(p, cctx.get_db());
             }
             Rule::insert_into => {
                 return self.command_insert_into(p, cctx);
             }
             Rule::query => {
-                let query_id = &cctx.query_id;
+                let query_id = cctx.get_query_id();
                 let timer = Instant::now();
-                let rt = self.command_query(p, &cctx.current_db, query_id);
+                let rt = self.command_query(p, cctx.get_db(), query_id);
                 log::debug!("process query: {} in {:?}", query_id, timer.elapsed());
                 return rt;
             }
@@ -1068,7 +1034,7 @@ fn command_insert_into_gen_header(
     tab: &meta::types::Table,
     qtn: &String,
     ms: &MetaStore,
-    header: &mut Block,
+    header: &mut BaseDataBlock,
     dbn: &str,
     tn: &str,
 ) -> Result<(), BaseRtError> {
@@ -1080,7 +1046,7 @@ fn command_insert_into_gen_header(
             let ci = ms
                 .get_column_info(cid)?
                 .ok_or(BaseRtError::SchemaInfoShouldExistButNot)?;
-            header.columns.push(new_block_header(
+            header.columns.push(BaseColumn::new_block_header(
                 cn.as_bytes().to_vec(),
                 ci.data_type,
                 ci.is_nullable,
@@ -1092,7 +1058,7 @@ fn command_insert_into_gen_header(
         //NOTE ch client relays on the order of cols to match that being inserted into
         col_infos.sort_unstable_by_key(|c| c.2.ordinal);
         for (cn, _, ci) in col_infos {
-            header.columns.push(new_block_header(
+            header.columns.push(BaseColumn::new_block_header(
                 cn.as_bytes().to_vec(),
                 ci.data_type,
                 ci.is_nullable,
@@ -1195,7 +1161,7 @@ fn command_insert_into_gen_block(
     tab: &meta::types::Table,
     qtn: &String,
     ms: &MetaStore,
-    blk: &mut Block,
+    blk: &mut BaseDataBlock,
     dbn: &str,
     tn: &str,
     rows: Vec<Vec<String>>,
@@ -1260,7 +1226,7 @@ fn command_insert_into_gen_block(
                 let bs = parse_literal_as_bytes(lit, btype)?;
                 data.extend(bs);
             }
-            blk.columns.push(Column {
+            blk.columns.push(BaseColumn {
                 name,
                 data: BaseChunk {
                     btype,

@@ -14,6 +14,7 @@ itoa = "0.4"
 btoi = "0.4"
 libc = "0.2"
 base = { path = "../base" }
+arrow = { path = "../arrow" }
 
 [dependencies.serde]
 features = ["derive"]

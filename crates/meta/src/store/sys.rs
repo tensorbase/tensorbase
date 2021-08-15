@@ -57,6 +57,8 @@ use crate::to_qualified_key;
 use crate::errs::{MetaError, MetaResult};
 use crate::types::*;
 
+use arrow::array::{LargeStringArray, LargeStringBuilder};
+
 use num_traits::PrimInt;
 pub use sled::IVec;
 
@@ -226,11 +228,11 @@ impl MetaStore {
         Ok(rt)
     }
 
-    pub fn get_all_databases(&self) -> MetaResult<BaseChunk> {
+    pub fn get_all_databases(&self) -> MetaResult<LargeStringArray> {
         let dbn_iter = self.tree0.scan_prefix(KEY_SYS_IDX_DBS);
-        let mut rt = vec![];
-        let mut size = 0usize;
+        let mut builder = LargeStringBuilder::new(0);
         for kv in dbn_iter {
+            let mut rt = vec![];
             let (_, v) = kv.map_err(|_| MetaError::GetError)?;
             let bs = &*v;
             let bs_len = bs.len();
@@ -240,16 +242,9 @@ impl MetaStore {
             // log::info!("v: {}", unsafe{std::str::from_utf8_unchecked(bs)});
             rt.push(bs_len as u8);
             rt.extend_from_slice(bs);
-            size += 1;
+            builder.append_value(String::from_utf8(rt).unwrap())?;
         }
-        Ok(BaseChunk {
-            btype: BqlType::String,
-            size,
-            data: rt,
-            null_map: None,
-            offset_map: None,
-            lc_dict_data: None,
-        })
+        Ok(builder.finish())
     }
 
     pub fn get_table_names(&self, dbname: &str) -> MetaResult<Vec<String>> {
@@ -269,11 +264,11 @@ impl MetaStore {
     }
 
     //deprecated, get_tables -> get_table_names
-    pub fn get_tables(&self, dbname: &str) -> MetaResult<BaseChunk> {
+    pub fn get_tables(&self, dbname: &str) -> MetaResult<LargeStringArray> {
         let tbn_iter = self.tree0.scan_prefix([KEY_SYS_IDX_TABS, dbname].join(""));
-        let mut rt = vec![];
-        let mut size = 0usize;
+        let mut builder = LargeStringBuilder::new(0);
         for kv in tbn_iter {
+            let mut rt = vec![];
             let (_, v) = kv.map_err(|_| MetaError::GetError)?;
             let bs = &*v;
             let bs_len = bs.len();
@@ -283,16 +278,9 @@ impl MetaStore {
             // log::info!("v: {}", unsafe{std::str::from_utf8_unchecked(bs)});
             rt.push(bs_len as u8);
             rt.extend_from_slice(bs);
-            size += 1;
+            builder.append_value(String::from_utf8(rt).unwrap())?;
         }
-        Ok(BaseChunk {
-            btype: BqlType::String,
-            size,
-            data: rt,
-            null_map: None,
-            offset_map: None,
-            lc_dict_data: None,
-        })
+        Ok(builder.finish())
     }
 
     pub fn get_columns(
