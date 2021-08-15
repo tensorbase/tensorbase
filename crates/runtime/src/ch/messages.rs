@@ -1,12 +1,15 @@
 use bytes::{Buf, BufMut, BytesMut};
 use lzzzz::lz4;
+use std::convert::TryFrom;
 use std::str;
 
-use crate::mgmt::{BaseCommandKind, BMS, WRITE};
+use crate::mgmt::{BaseCommandKind, BMS};
+use crate::types::{BaseDataBlock, BaseReadAware, BaseWriteAware};
+use crate::write::write_block;
 
 use super::protocol::{StageKind, LZ4_COMPRESSION_METHOD};
 use crate::ch::blocks::{Block, EMPTY_CLIENT_BLK_BYTES};
-use crate::ch::codecs::{BytesExt, CHMsgReadAware, CHMsgWriteAware};
+use crate::ch::codecs::{BytesExt, CHMsgWriteAware};
 use crate::ch::protocol::{
     ClientCodes, ClientInfo, ConnCtx, Interface, QueryKind, ServerCodes,
 };
@@ -121,8 +124,11 @@ pub fn response_to(
 
                 if blk.has_decoded() {
                     log::debug!("_ got block[{:p}]", &blk);
-                    let write = WRITE.get().unwrap();
-                    write(blk, &cctx.current_tab_ins, cctx.current_tid_ins)?;
+                    write_block(
+                        &mut blk.data,
+                        &cctx.current_tab_ins,
+                        cctx.current_tid_ins,
+                    )?;
                     // log::debug!("blk.columns[0].data.1..100: {:?}", b1);
                 } else {
                     cctx.stage = StageKind::DataBlk;
@@ -153,8 +159,7 @@ pub fn response_to(
             }
             if blk.has_decoded() {
                 log::debug!("got block[{:p}]", &blk);
-                let write = WRITE.get().unwrap();
-                write(blk, &cctx.current_tab_ins, cctx.current_tid_ins)?;
+                write_block(&mut blk.data, &cctx.current_tab_ins, cctx.current_tid_ins)?;
                 cctx.stage = StageKind::DataPacket;
             }
 
@@ -340,46 +345,26 @@ fn response_query(
     match res {
         Ok(BaseCommandKind::Query(blks)) => {
             for blk in blks {
+                let ch_blk = Block::from(BaseDataBlock::try_from(blk)?);
                 if compression == 1 {
                     let _bs = cctx.get_raw_blk_resp();
-                    blk.get_block_header().encode_to(wb, Some(_bs))?;
-                    blk.encode_to(wb, Some(_bs))?;
+                    ch_blk.get_block_header().encode_to(wb, Some(_bs))?;
+                    ch_blk.encode_to(wb, Some(_bs))?;
                 } else {
-                    blk.get_block_header().encode_to(wb, None)?;
-                    blk.encode_to(wb, None)?;
+                    ch_blk.get_block_header().encode_to(wb, None)?;
+                    ch_blk.encode_to(wb, None)?;
                 }
             }
             // cctx.stage = StageKind::DataEODP;
             Ok(())
         }
         Ok(
-            BaseCommandKind::Create | BaseCommandKind::Drop | BaseCommandKind::Optimize,
+            BaseCommandKind::Create
+            | BaseCommandKind::Drop
+            | BaseCommandKind::Optimize
+            | BaseCommandKind::InsertFormatInlineValues
+            | BaseCommandKind::InsertFormatSelectValue,
         ) => Ok(()),
-        Ok(BaseCommandKind::InsertFormatInlineValues(mut blk, qtn, tid)) => {
-            let write = WRITE.get().unwrap();
-            write(&mut blk, qtn.as_str(), tid)?;
-            Ok(())
-        }
-        Ok(BaseCommandKind::InsertFormatSelectValue(blks, qtn, tid)) => {
-            let write = WRITE.get().unwrap();
-
-            log::debug!("subquery blks {:?}", blks);
-            for mut blk in blks {
-                write(&mut blk, qtn.as_str(), tid)?;
-            }
-
-            // if compression == 1 {
-            //     let _bs = cctx.get_raw_blk_resp();
-            //     header.encode_to(wb, Some(_bs))?;
-            // } else {
-            //     header.encode_to(wb, None)?;
-            // }
-
-            // cctx.current_tab_ins = qtn.clone();
-            // cctx.current_tid_ins = tid;
-
-            Ok(())
-        }
         Ok(
             BaseCommandKind::InsertFormatInline(header, qtn, tid)
             | BaseCommandKind::InsertFormatCSV(header, qtn, tid),
@@ -388,11 +373,12 @@ fn response_query(
             // Send block to the client - table structure.
             //sendData(state.io.out->getHeader());
             log::debug!("[{}]header for insert into: {:?}", cctx.query_id, header);
+            let ch_header = Block::from(header);
             if compression == 1 {
                 let _bs = cctx.get_raw_blk_resp();
-                header.encode_to(wb, Some(_bs))?;
+                ch_header.encode_to(wb, Some(_bs))?;
             } else {
-                header.encode_to(wb, None)?;
+                ch_header.encode_to(wb, None)?;
             }
             cctx.current_tab_ins = qtn;
             cctx.current_tid_ins = tid;

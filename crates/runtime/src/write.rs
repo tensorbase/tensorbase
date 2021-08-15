@@ -18,12 +18,16 @@ use meta::{
 };
 
 use crate::{
-    ch::blocks::Block,
     errs::{BaseRtError, BaseRtResult},
     mgmt::BMS,
+    types::BaseDataBlock,
 };
 
-pub fn write_block(blk: &mut Block, tab_ins: &str, tid_ins: Id) -> BaseRtResult<()> {
+pub fn write_block(
+    blk: &mut BaseDataBlock,
+    tab_ins: &str,
+    tid_ins: Id,
+) -> BaseRtResult<()> {
     debug_assert!(tab_ins.len() > 0);
     debug_assert!(tid_ins > 0);
 
@@ -64,7 +68,7 @@ pub fn write_block(blk: &mut Block, tab_ins: &str, tid_ins: Id) -> BaseRtResult<
 
 fn gen_parts_by_ptk_names(
     ptks: meta::store::sys::IVec,
-    blk: &Block,
+    blk: &BaseDataBlock,
     tab_ins: &str,
     tid_ins: u64,
 ) -> Result<HashMap<u64, Vec<(u32, u32)>>, BaseRtError> {
@@ -239,7 +243,7 @@ fn gather_into_blob_buf(
 }
 
 #[inline(always)]
-fn has_blob_type_column(blk: &Block) -> bool {
+fn has_blob_type_column(blk: &BaseDataBlock) -> bool {
     for i in 0..blk.ncols {
         let col = &blk.columns[i];
         let cchk = &col.data;
@@ -253,7 +257,7 @@ fn has_blob_type_column(blk: &Block) -> bool {
 
 #[inline(always)]
 fn write_part(
-    blk: &Block,
+    blk: &BaseDataBlock,
     ptk: u64,
     idxs: Vec<(u32, u32)>,
     ms: &MetaStore,
@@ -342,7 +346,7 @@ fn dump_buf(fd: u32, offset_in_bytes: usize, pt_len_in_bytes: usize, buf: *const
 //TODO slow path, to boost the performance when we want
 // #[inline(always)]
 fn write_part_locked(
-    blk: &Block,
+    blk: &BaseDataBlock,
     ptk: u64,
     idxs: Vec<(u32, u32)>,
     ms: &MetaStore,
@@ -438,7 +442,7 @@ mod unit_tests {
     };
     use walkdir::WalkDir;
 
-    use crate::{ch::blocks::Column, errs::BaseRtResult, mgmt::BMS};
+    use crate::{errs::BaseRtResult, mgmt::BMS, types::BaseColumn};
 
     use super::*;
 
@@ -609,8 +613,8 @@ mod unit_tests {
         let cdata1: Vec<u32> = (0..col_len as u32).collect();
         let cdata2: Vec<u32> = cdata1.iter().map(|e| 2 * (*e) + 1354291200).collect();
 
-        let mut blk = Block::default();
-        let col1: Column = Column {
+        let mut blk = BaseDataBlock::default();
+        let col1: BaseColumn = BaseColumn {
             name: b"col1".to_vec(),
             data: BaseChunk {
                 btype: BqlType::UInt(32),
@@ -621,7 +625,7 @@ mod unit_tests {
                 lc_dict_data: None,
             },
         };
-        let col2: Column = Column {
+        let col2: BaseColumn = BaseColumn {
             name: b"col2".to_vec(),
             data: BaseChunk {
                 btype: BqlType::UInt(32),
