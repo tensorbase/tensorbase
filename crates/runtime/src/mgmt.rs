@@ -973,6 +973,7 @@ impl<'a> BaseMgmtSys<'a> {
         // log::debug!("successfully parsed command: {} ", cmds);
         // let p = seek_to_sub_cmd(&mut p.into_inner())
         //     .map_err(|e| BaseRtError::WrappingLangError(e))?;
+        log::info!("Got query: {}", cmds);
         let p = BaseMgmtSys::parse_cmd_as_pair(&cmds)?;
         // log::debug!("cctx: {:p}, cctx.current_db: {:p},{}",
         //                cctx, &cctx.current_db, &cctx.current_db);

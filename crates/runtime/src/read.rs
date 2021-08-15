@@ -1,7 +1,7 @@
 use crate::{
     errs::{BaseRtError, BaseRtResult},
     mgmt::BMS,
-    types::{BaseColumn, BaseDataBlock, BaseWriteAware},
+    types::{BaseColumn, BaseDataBlock},
 };
 use arrow::{
     array::ArrayData, buffer::Buffer, datatypes::DataType, ffi::FFI_ArrowArray,
@@ -9,7 +9,6 @@ use arrow::{
 };
 use arrow::{array::*, datatypes::Field, datatypes::Schema};
 use base::datetimes::TimeZoneId;
-use bytes::BytesMut;
 use client::{
     prelude::{errors::Error as ClientError, PoolBuilder, ServerBlock, ValueRefEnum},
     types::SqlType,
@@ -21,7 +20,10 @@ use meta::{
     types::{btype_to_arrow_type, AsBytes},
 };
 use mysql::{OptsBuilder, Pool as MyPool};
-use std::{mem::size_of_val, time::Instant};
+use std::{
+    mem::{forget, size_of, size_of_val},
+    time::Instant,
+};
 use std::{ptr::NonNull, sync::Arc};
 
 pub fn query(
@@ -308,10 +310,8 @@ fn serverblock_to_recordbatch(b: ServerBlock) -> BaseRtResult<RecordBatch> {
     let mut fields = Vec::new();
     let nrows = b.rows as usize;
 
-    for c in b.columns {
+    for mut c in b.columns {
         let arrow_type = sqltype_to_arrowtype(c.header.field.get_sqltype());
-        let mut data = Vec::with_capacity(4 * 1024);
-        let mut offset_map = Vec::with_capacity(4 * 1024);
 
         fields.push(Field::new(
             &c.header.name,
@@ -319,50 +319,36 @@ fn serverblock_to_recordbatch(b: ServerBlock) -> BaseRtResult<RecordBatch> {
             c.header.field.is_nullable(),
         ));
 
-        for i in 0..nrows {
-            // TODO: support NULL
-            if let Some(value) = unsafe { c.data.get_at(i as u64) }.into_inner() {
-                let val = value_ref_to_bytes(&value);
-                let val_len = val.len();
-
-                if arrow_type == DataType::LargeUtf8 {
-                    let start_offset = data.len() as i64;
-                    let mut buf = BytesMut::new();
-                    buf.write_varint(val_len as u64);
-                    data.append(&mut buf.to_vec());
-                    offset_map.extend_from_slice(start_offset.as_bytes());
-                }
-
-                data.reserve(val_len);
-
-                let len = data.len();
-                let new_len = len + val_len;
-                unsafe {
-                    data.set_len(new_len);
-                }
-
-                data[len..new_len].copy_from_slice(val);
-            }
-        }
+        let data = unsafe { c.data.into_bytes() };
 
         let data_len = data.len();
         let data_addr = data.as_ptr();
 
-        let dummy = Arc::new(FFI_ArrowArray::empty());
         let buf = unsafe {
             let ptr = NonNull::new(data_addr as *mut u8).unwrap();
-            Buffer::from_unowned(ptr, data_len, dummy)
+            Buffer::from_raw_parts(ptr, data_len, data.capacity())
         };
 
+        forget(data);
+
         let data = if matches!(arrow_type, DataType::LargeUtf8) {
-            offset_map.extend_from_slice((data_len as i64).as_bytes());
+            let offset_map = c.data.offset_map().unwrap(); // Must have offset map
+            let offset_map = offset_map
+                .into_iter()
+                .map(|x| x.into())
+                .collect::<Vec<i64>>();
             let om_addr = offset_map.as_ptr();
 
-            let dummy_om = Arc::new(FFI_ArrowArray::empty());
             let buf_om = unsafe {
                 let ptr = NonNull::new(om_addr as *mut u8).unwrap();
-                Buffer::from_unowned(ptr, offset_map.len(), dummy_om)
+                Buffer::from_raw_parts(
+                    ptr,
+                    size_of_val(&offset_map[..]),
+                    offset_map.capacity() * size_of::<i64>() / size_of::<i8>(),
+                )
             };
+
+            forget(offset_map);
 
             ArrayData::builder(arrow_type.clone())
                 .len(nrows)
