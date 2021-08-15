@@ -1,7 +1,7 @@
 use crate::{
     errs::{BaseRtError, BaseRtResult},
     mgmt::BMS,
-    types::BaseWriteAware,
+    types::{BaseColumn, BaseDataBlock, BaseWriteAware},
 };
 use arrow::{
     array::ArrayData, buffer::Buffer, datatypes::DataType, ffi::FFI_ArrowArray,
@@ -14,13 +14,15 @@ use client::{
     prelude::{errors::Error as ClientError, PoolBuilder, ServerBlock, ValueRefEnum},
     types::SqlType,
 };
-use engine::remote;
-use engine::types::QueryState;
+use engine::{remote, types::QueryState};
 use lang::parse::{Pair, RemoteAddr, RemoteDbType, RemoteTableInfo, Rule};
-use meta::store::{parts::PartStore, sys::MetaStore};
+use meta::{
+    store::{parts::PartStore, sys::MetaStore},
+    types::{btype_to_arrow_type, AsBytes},
+};
 use mysql::{OptsBuilder, Pool as MyPool};
-use std::{convert::TryFrom, time::Instant};
-use std::{ptr::NonNull, sync::Arc, time::Instant};
+use std::{mem::size_of_val, time::Instant};
+use std::{ptr::NonNull, sync::Arc};
 
 pub fn query(
     ms: &MetaStore,
@@ -153,7 +155,7 @@ pub fn remote_query(
     remote_tb_info: RemoteTableInfo,
     raw_query: &str,
     is_local: bool,
-) -> BaseRtResult<Vec<Block>> {
+) -> BaseRtResult<Vec<RecordBatch>> {
     match remote_tb_info.database_type {
         RemoteDbType::ClickHouse | RemoteDbType::TensorBase => {
             update_remote_db_pools(&remote_tb_info)?;
@@ -181,7 +183,9 @@ pub fn remote_query(
                 .map(|addr| {
                     let pool = &*ps.get(&addr).unwrap();
                     match remote::run(pool, &sql) {
-                        Ok(blks) => Ok(blks.into_iter().map(|b| b.into())),
+                        Ok(blks) => Ok(blks
+                            .into_iter()
+                            .map(|b| serverblock_to_recordbatch(b).unwrap())),
                         Err(err) => Err(BaseRtError::WrappingEngineError(err)),
                     }
                 })
@@ -199,19 +203,15 @@ pub fn remote_query(
                 .into_iter()
                 .map(|addr| {
                     let pool = &*ps.get(&addr).unwrap();
-                    match remote::mysql_run(pool, &sql) {
+                    let block = match remote::mysql_run(pool, &sql) {
                         Ok((ncols, nrows, cols)) => {
-                            let mut blk = Block {
-                                name: "".into(),
-                                has_header_decoded: true,
-                                overflow: false,
-                                bucket: -1,
+                            let mut blk = BaseDataBlock {
                                 ncols,
                                 nrows,
                                 columns: vec![],
                             };
                             cols.into_iter().for_each(|col| {
-                                let col = Column {
+                                let col = BaseColumn {
                                     name: col.col_name,
                                     data: col.data,
                                 };
@@ -220,7 +220,8 @@ pub fn remote_query(
                             Ok(blk)
                         }
                         Err(err) => Err(err),
-                    }
+                    };
+                    basedatablock_to_recordbatch(block?)
                 })
                 .collect::<Result<Vec<_>, _>>()?;
 
@@ -302,7 +303,7 @@ fn value_ref_to_bytes<'a>(value_ref: &'a ValueRefEnum<'a>) -> &'a [u8] {
 
 // TODO FIXME: The best approach is to unify the server and client block definitions
 // to avoid conversions
-fn serverblock_to_recordbatch(b: ServerBlock) -> Result<RecordBatch, BaseRtError> {
+fn serverblock_to_recordbatch(b: ServerBlock) -> BaseRtResult<RecordBatch> {
     let mut cols: Vec<Arc<dyn Array>> = Vec::new();
     let mut fields = Vec::new();
     let nrows = b.rows as usize;
@@ -368,6 +369,106 @@ fn serverblock_to_recordbatch(b: ServerBlock) -> Result<RecordBatch, BaseRtError
                 .add_buffer(buf_om)
                 .add_buffer(buf)
                 .build()
+        } else {
+            ArrayData::builder(arrow_type.clone())
+                .len(nrows)
+                .add_buffer(buf)
+                .build()
+        };
+        match arrow_type {
+            DataType::Int8 => {
+                cols.push(Arc::new(Int8Array::from(data)));
+            }
+            DataType::Int16 => {
+                cols.push(Arc::new(Int16Array::from(data)));
+            }
+            DataType::Int32 => {
+                cols.push(Arc::new(Int32Array::from(data)));
+            }
+            DataType::Int64 => {
+                cols.push(Arc::new(Int64Array::from(data)));
+            }
+            DataType::UInt8 => {
+                cols.push(Arc::new(UInt8Array::from(data)));
+            }
+            DataType::UInt16 => {
+                cols.push(Arc::new(UInt16Array::from(data)));
+            }
+            DataType::UInt32 => {
+                cols.push(Arc::new(UInt32Array::from(data)));
+            }
+            DataType::UInt64 => {
+                cols.push(Arc::new(UInt64Array::from(data)));
+            }
+            DataType::Float32 => {
+                cols.push(Arc::new(Float32Array::from(data)));
+            }
+            DataType::Float64 => {
+                cols.push(Arc::new(Float64Array::from(data)));
+            }
+            DataType::Timestamp32(_) => {
+                cols.push(Arc::new(Timestamp32Array::from(data)));
+            }
+            DataType::Date16 => {
+                cols.push(Arc::new(Date16Array::from(data)));
+            }
+            DataType::Decimal(_, _) => {
+                cols.push(Arc::new(DecimalArray::from(data)));
+            }
+            DataType::LargeUtf8 => {
+                cols.push(Arc::new(GenericStringArray::<i64>::from(data)));
+            }
+            DataType::FixedSizeBinary(_) => {
+                cols.push(Arc::new(FixedSizeBinaryArray::from(data)));
+            }
+            // TODO!!!
+            _ => return Err(BaseRtError::FailToUnwrapOpt),
+        }
+    }
+
+    let schema = Schema::new(fields);
+
+    Ok(RecordBatch::try_new(Arc::new(schema), cols)?)
+}
+
+fn basedatablock_to_recordbatch(b: BaseDataBlock) -> BaseRtResult<RecordBatch> {
+    let mut cols: Vec<Arc<dyn Array>> = Vec::new();
+    let mut fields = Vec::new();
+    let nrows = b.nrows as usize;
+
+    for c in b.columns {
+        let arrow_type = btype_to_arrow_type(c.data.btype)?;
+
+        fields.push(Field::new(c.get_name(), arrow_type.clone(), true));
+
+        let data_len = c.data.data.len();
+        let data_addr = c.data.data.as_ptr();
+
+        let dummy = Arc::new(FFI_ArrowArray::empty());
+        let buf = unsafe {
+            let ptr = NonNull::new(data_addr as *mut u8).unwrap();
+            Buffer::from_unowned(ptr, data_len, dummy)
+        };
+
+        let data = if matches!(arrow_type, DataType::LargeUtf8) {
+            if let Some(offset_map) = c.data.offset_map {
+                let om_addr = offset_map.as_ptr();
+
+                let dummy_om = Arc::new(FFI_ArrowArray::empty());
+                let buf_om = unsafe {
+                    let ptr = NonNull::new(om_addr as *mut u8).unwrap();
+                    Buffer::from_unowned(ptr, size_of_val(&offset_map[..]), dummy_om)
+                };
+
+                ArrayData::builder(arrow_type.clone())
+                    .len(nrows)
+                    .add_buffer(buf_om)
+                    .add_buffer(buf)
+                    .build()
+            } else {
+                // Must give an offset map
+                todo!();
+            }
         } else {
             ArrayData::builder(arrow_type.clone())
                 .len(nrows)

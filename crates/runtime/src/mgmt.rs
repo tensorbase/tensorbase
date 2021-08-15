@@ -715,30 +715,31 @@ impl<'a> BaseMgmtSys<'a> {
                 self.command_insert_into_select(cctx, select_stmt, qtn, tid)
             }
             lang::parse::InsertFormat::Remote(ctx, ref query) => {
-                self.command_insert_into_remote(cctx, ctx, blk, query, qtn, tid)
+                self.command_insert_into_remote(ctx, blk, query, qtn, tid)
             }
         }
     }
 
     fn command_insert_into_remote(
         &self,
-        cctx: &mut T,
         ctx: TablePlaceKindContext,
-        blk: Block,
+        blk: BaseDataBlock,
         query: &str,
         qtn: String,
         tid: Id,
-    ) -> BaseRtResult<BaseCommandKind>
-    where
-        T: BaseServerConn,
-    {
+    ) -> BaseRtResult<BaseCommandKind> {
         if let TablePlaceKind::Remote(remote_tb_info) = ctx.place_kind {
             if query.contains("values") {
                 return Ok(BaseCommandKind::InsertFormatInline(blk, qtn, tid));
             }
             let blks = remote_query(remote_tb_info, query, true)?;
 
-            return Ok(BaseCommandKind::InsertFormatSelectValue(blks, qtn, tid));
+            log::debug!("subquery blks {:?}", blks);
+            for blk in blks {
+                write_block(&mut blk.try_into()?, qtn.as_str(), tid)?;
+            }
+
+            return Ok(BaseCommandKind::InsertFormatSelectValue);
         }
 
         Err(BaseRtError::WrappingLangError(

@@ -20,7 +20,7 @@ use meta::{
         parts::{CoPaInfo, PartStore},
         sys::MetaStore,
     },
-    types::{BqlType, Id},
+    types::{btype_to_arrow_type, BqlType, Id},
 };
 use tokio::runtime::Handle;
 
@@ -28,32 +28,6 @@ use crate::{
     errs::{EngineError, EngineResult},
     types::QueryState,
 };
-
-fn btype_to_arrow_type(typ: BqlType) -> EngineResult<DataType> {
-    match typ {
-        BqlType::UInt(bits) if bits == 8 => Ok(DataType::UInt8),
-        BqlType::UInt(bits) if bits == 16 => Ok(DataType::UInt16),
-        BqlType::UInt(bits) if bits == 32 => Ok(DataType::UInt32),
-        BqlType::UInt(bits) if bits == 64 => Ok(DataType::UInt64),
-        BqlType::Int(bits) if bits == 8 => Ok(DataType::Int8),
-        BqlType::Int(bits) if bits == 16 => Ok(DataType::Int16),
-        BqlType::Int(bits) if bits == 32 => Ok(DataType::Int32),
-        BqlType::Int(bits) if bits == 64 => Ok(DataType::Int64),
-        BqlType::Float(bits) if bits == 16 => Ok(DataType::Float16),
-        BqlType::Float(bits) if bits == 32 => Ok(DataType::Float32),
-        BqlType::Float(bits) if bits == 64 => Ok(DataType::Float64),
-        BqlType::DateTime => Ok(DataType::Timestamp32(None)),
-        BqlType::DateTimeTz(tz) => Ok(DataType::Timestamp32(Some(tz))),
-        BqlType::Date => Ok(DataType::Date16),
-        BqlType::Decimal(p, s) => Ok(DataType::Decimal(p as usize, s as usize)),
-        BqlType::String => Ok(DataType::LargeUtf8),
-        BqlType::LowCardinalityString => Ok(DataType::UInt32),
-        BqlType::LowCardinalityTinyText => Ok(DataType::UInt8),
-        BqlType::FixedString(len) => Ok(DataType::FixedSizeBinary(len as i32)),
-        BqlType::Uuid => Ok(DataType::FixedSizeBinary(16)),
-        _ => Err(EngineError::UnsupportedBqlType),
-    }
-}
 
 pub(crate) fn run(
     ms: &MetaStore,

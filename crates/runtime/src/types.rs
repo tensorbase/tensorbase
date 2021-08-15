@@ -35,6 +35,36 @@ impl BaseDataBlock {
         self.nrows = 0;
         self.columns = vec![];
     }
+
+    #[inline(always)]
+    pub fn null_map_from_data(
+        btype: &BqlType,
+        offsets: Option<&Vec<u32>>,
+        data: &Vec<u8>,
+    ) -> Option<Vec<u8>> {
+        if !matches!(btype, BqlType::String) {
+            Some(
+                data.chunks(btype.size_in_usize().unwrap())
+                    .map(|c| if c.into_iter().all(|&b| b == 0) { 1 } else { 0 })
+                    .collect::<Vec<_>>(),
+            )
+        } else {
+            // Todo: test the performance
+            let offsets = offsets.as_ref().unwrap();
+            let null_map = offsets[..(offsets.len() - 1)]
+                .iter()
+                .map(|offset| {
+                    let offset = *offset as usize;
+                    if data[offset..offset + 1][0] == 0 {
+                        1
+                    } else {
+                        0
+                    }
+                })
+                .collect::<Vec<_>>();
+            Some(null_map)
+        }
+    }
 }
 
 fn arrow_type_to_btype(typ: &DataType) -> BaseRtResult<BqlType> {
@@ -103,6 +133,20 @@ impl TryFrom<RecordBatch> for BaseDataBlock {
             };
             blk.nrows = col.len(); //FIXME all rows are in same size
 
+            let null_map = if !matches!(btype, BqlType::String) {
+                if fields[i].is_nullable() {
+                    BaseDataBlock::null_map_from_data(&btype, offsets.as_ref(), &data)
+                } else {
+                    None
+                }
+            } else {
+                if fields[i].is_nullable() {
+                    BaseDataBlock::null_map_from_data(&btype, offsets.as_ref(), &data)
+                } else {
+                    None
+                }
+            };
+
             blk.columns.push(BaseColumn {
                 name,
                 data: BaseChunk {
@@ -111,7 +155,7 @@ impl TryFrom<RecordBatch> for BaseDataBlock {
                     // data: Vec::from_raw_parts(qcs.data, qclen_bytes, qclen_bytes),
                     // data: Vec::<u8>::with_capacity(qclen_bytes),
                     data,
-                    null_map: None,
+                    null_map,
                     offset_map: offsets,
                     // pub lc_dict_size: usize,
                     lc_dict_data: None,
