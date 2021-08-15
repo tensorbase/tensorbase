@@ -1,12 +1,14 @@
 extern crate server_mysql;
 
+use async_trait::async_trait;
 use std::io;
+use tokio::io::AsyncWrite;
 
 use arrow::{array, datatypes::DataType, record_batch::RecordBatch};
 use log;
 use server_mysql::{
-    Column, ColumnFlags, ColumnType, ErrorKind, InitWriter, MysqlShim, QueryResultWriter,
-    StatementMetaWriter,
+    AsyncMysqlShim, Column, ColumnFlags, ColumnType, ErrorKind, InitWriter, ParamParser,
+    QueryResultWriter, StatementMetaWriter,
 };
 
 use crate::{
@@ -48,32 +50,37 @@ impl BaseServerConn for MysqlConn {
     }
 }
 
-impl<W: io::Write> MysqlShim<W> for MysqlConn {
+#[async_trait]
+impl<W: io::Write + AsyncWrite + Send> AsyncMysqlShim<W> for MysqlConn {
     type Error = BaseRtError;
 
-    fn on_prepare(
-        &mut self,
-        query: &str,
-        info: StatementMetaWriter<'_, W>,
+    async fn on_prepare<'a>(
+        &'a mut self,
+        query: &'a str,
+        info: StatementMetaWriter<'a, W>,
     ) -> Result<(), Self::Error> {
         todo!()
     }
 
-    fn on_execute(
-        &mut self,
+    async fn on_execute<'a>(
+        &'a mut self,
         id: u32,
-        params: server_mysql::ParamParser<'_>,
-        results: QueryResultWriter<'_, W>,
+        params: ParamParser<'a>,
+        results: QueryResultWriter<'a, W>,
     ) -> Result<(), Self::Error> {
         todo!()
     }
 
-    fn on_close(&mut self, stmt: u32) {}
+    async fn on_close<'a>(&'a mut self, stmt: u32)
+    where
+        W: 'async_trait,
+    {
+    }
 
-    fn on_init(
-        &mut self,
-        schema: &str,
-        writer: InitWriter<W>,
+    async fn on_init<'a>(
+        &'a mut self,
+        schema: &'a str,
+        writer: InitWriter<'a, W>,
     ) -> Result<(), Self::Error> {
         let query = format!("USE {}", schema);
         match BMS.run_commands(query, self) {
@@ -89,10 +96,10 @@ impl<W: io::Write> MysqlShim<W> for MysqlConn {
         }
     }
 
-    fn on_query(
-        &mut self,
-        query: &str,
-        results: QueryResultWriter<'_, W>,
+    async fn on_query<'a>(
+        &'a mut self,
+        query: &'a str,
+        results: QueryResultWriter<'a, W>,
     ) -> Result<(), Self::Error> {
         let res = BMS.run_commands(query.to_string(), self);
         match res {

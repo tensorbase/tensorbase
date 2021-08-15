@@ -1,11 +1,14 @@
 use baselog::{ConfigBuilder, LevelFilter, TermLogger, TerminalMode};
 use log;
 use mysql::prelude::*;
+use mysql::*;
 
 fn main() {
     // we connect using MySQL bindings, but no MySQL server is running!
     let srv_addr = "localhost:9528";
-    let mut db = mysql::Conn::new(&format!("mysql://{}", srv_addr)).unwrap();
+    let mut db =
+        mysql::Conn::new(Opts::from_url(&format!("mysql://{}", srv_addr)).unwrap())
+            .unwrap();
 
     #[allow(unused_must_use)]
     {

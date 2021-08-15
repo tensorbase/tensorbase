@@ -13,7 +13,6 @@ use bytes::BytesMut;
 use futures::{future, FutureExt};
 use log::info;
 use meta::confs::{Tcp, Tls};
-use runtime::{
 use runtime::mgmt::BMS;
 use server::BaseSrvConn;
 use tokio::net::TcpListener;
@@ -54,11 +53,6 @@ async fn main() -> io::Result<()> {
 
     let conf = &BMS.conf;
     info!("{:?}", conf);
-
-    //init
-    READ.get_or_init(|| query);
-    WRITE.get_or_init(|| write_block);
-    REMOTE_READ.get_or_init(|| remote_query);
 
     // start servers
     let mut servers = vec![];
