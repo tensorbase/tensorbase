@@ -21,7 +21,7 @@ use meta::{
 };
 use mysql::{OptsBuilder, Pool as MyPool};
 use std::{
-    mem::{forget, size_of, size_of_val},
+    mem::{size_of, size_of_val, ManuallyDrop},
     time::Instant,
 };
 use std::{ptr::NonNull, sync::Arc};
@@ -321,15 +321,7 @@ fn serverblock_to_recordbatch(b: ServerBlock) -> BaseRtResult<RecordBatch> {
 
         let data = unsafe { c.data.into_bytes() };
 
-        let data_len = data.len();
-        let data_addr = data.as_ptr();
-
-        let buf = unsafe {
-            let ptr = NonNull::new(data_addr as *mut u8).unwrap();
-            Buffer::from_raw_parts(ptr, data_len, data.capacity())
-        };
-
-        forget(data);
+        let buf = Buffer::from_slice_ref(&data);
 
         let data = if matches!(arrow_type, DataType::LargeUtf8) {
             let offset_map = c.data.offset_map().unwrap(); // Must have offset map
@@ -337,18 +329,7 @@ fn serverblock_to_recordbatch(b: ServerBlock) -> BaseRtResult<RecordBatch> {
                 .into_iter()
                 .map(|x| x.into())
                 .collect::<Vec<i64>>();
-            let om_addr = offset_map.as_ptr();
-
-            let buf_om = unsafe {
-                let ptr = NonNull::new(om_addr as *mut u8).unwrap();
-                Buffer::from_raw_parts(
-                    ptr,
-                    size_of_val(&offset_map[..]),
-                    offset_map.capacity() * size_of::<i64>() / size_of::<i8>(),
-                )
-            };
-
-            forget(offset_map);
+            let buf_om = Buffer::from_slice_ref(&offset_map);
 
             ArrayData::builder(arrow_type.clone())
                 .len(nrows)

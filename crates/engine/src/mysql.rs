@@ -11,6 +11,7 @@ use mysql_common::{
     bigdecimal::BigDecimal,
     chrono::{Duration, NaiveDate, NaiveDateTime},
 };
+use std::convert::TryInto;
 
 #[inline]
 pub fn col_to_bql_type(
@@ -96,7 +97,7 @@ pub fn col_to_bql_type(
 
 pub fn get_val_bytes_from_row(
     row: &Row,
-    offset_map: &mut Option<Vec<u32>>,
+    offset_map: &mut Option<Vec<i64>>,
     null_map: &mut Vec<u8>,
     size: &mut usize,
 ) -> EngineResult<Vec<u8>> {
@@ -312,9 +313,9 @@ pub fn get_val_bytes_from_row(
                 let n: Option<String> = get_val_from_row(row, i)?;
                 if let Some(n) = n {
                     if let Some(map) = offset_map {
-                        map.push(map.len() as u32 + n.len() as u32);
+                        map.push(map.len() as i64 + n.len() as i64);
                     } else {
-                        *offset_map = Some(vec![0, n.len() as u32 + 1]);
+                        *offset_map = Some(vec![0, n.len() as i64 + 1]);
                     }
                     *size += 1;
                     buf.reserve(10);
@@ -345,9 +346,9 @@ pub fn get_val_bytes_from_row(
                         };
                     }
                     if let Some(map) = offset_map {
-                        map.push(map.len() as u32 + s.len() as u32);
+                        map.push(map.len() as i64 + s.len() as i64);
                     } else {
-                        *offset_map = Some(vec![0, s.len() as u32 + 1]);
+                        *offset_map = Some(vec![0, s.len() as i64 + 1]);
                     }
                     *size += 1;
                     buf.reserve(10);

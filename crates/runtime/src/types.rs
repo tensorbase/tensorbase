@@ -1,4 +1,9 @@
-use std::{convert::TryFrom, fmt::Debug, intrinsics::copy_nonoverlapping, slice};
+use std::{
+    convert::TryFrom,
+    fmt::Debug,
+    intrinsics::copy_nonoverlapping,
+    slice,
+};
 
 use arrow::{array::LargeStringArray, datatypes::DataType, record_batch::RecordBatch};
 use base::codec::encode_varint64;
@@ -39,7 +44,7 @@ impl BaseDataBlock {
     #[inline(always)]
     pub fn null_map_from_data(
         btype: &BqlType,
-        offsets: Option<&Vec<u32>>,
+        offsets: Option<&Vec<i64>>,
         data: &Vec<u8>,
     ) -> Option<Vec<u8>> {
         if !matches!(btype, BqlType::String) {
@@ -123,7 +128,7 @@ impl TryFrom<RecordBatch> for BaseDataBlock {
 
                 (
                     ofs as usize,
-                    Some(arr.value_offsets().iter().map(|o| *o as u32).collect()),
+                    Some(arr.value_offsets().iter().map(|o| *o as i64).collect()),
                 )
             } else {
                 (btype.size_in_usize()? * col.len(), None)

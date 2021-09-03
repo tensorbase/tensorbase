@@ -213,7 +213,7 @@ fn gather_into_buf(
 fn gather_into_blob_buf(
     idxs: &Vec<(u32, u32)>,
     ptr_cdata: *const u8,
-    omdata: &Vec<u32>,
+    omdata: &Vec<i64>,
     siz_part: usize,
 ) -> (Vec<u8>, Vec<usize>) {
     debug_assert!(idxs.len() > 0);
@@ -274,7 +274,9 @@ fn write_part(
         let col = &blk.columns[i];
         let cname = unsafe { std::str::from_utf8_unchecked(&col.name) }; //FIXME
         let qcn = [tab_ins, cname].join(".");
-        let cid = ms.cid_by_qname(qcn).ok_or(BaseRtError::ColumnNotExist)?;
+        let cid = ms
+            .cid_by_qname(qcn.clone())
+            .ok_or(BaseRtError::ColumnNotExist(qcn))?;
         let fpath = get_part_path(tid, cid, ptk, dp)?;
         let fd = open_file_as_fd(&fpath)?;
 
@@ -365,7 +367,9 @@ fn write_part_locked(
         let col = &blk.columns[i];
         let cname = unsafe { std::str::from_utf8_unchecked(&col.name) }; //FIXME
         let qcn = [tab_ins, cname].join(".");
-        let cid = ms.cid_by_qname(qcn).ok_or(BaseRtError::ColumnNotExist)?;
+        let cid = ms
+            .cid_by_qname(qcn.clone())
+            .ok_or(BaseRtError::ColumnNotExist(qcn))?;
 
         let cchk = &col.data;
         let ctyp = cchk.btype;

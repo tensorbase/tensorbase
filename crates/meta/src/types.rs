@@ -475,7 +475,7 @@ pub struct BaseChunk {
     pub size: usize,
     pub data: Vec<u8>,
     pub null_map: Option<Vec<u8>>,
-    pub offset_map: Option<Vec<u32>>,
+    pub offset_map: Option<Vec<i64>>,
     // pub lc_dict_size: usize,
     pub lc_dict_data: Option<Vec<u8>>,
 }
@@ -486,9 +486,9 @@ impl std::fmt::Debug for BaseChunk {
             .field("btype", &self.btype)
             .field("size", &self.size)
             .field("null_map", &self.null_map.is_some())
-            .field("offset_map", &self.offset_map.is_some())
+            .field("offset_map", &self.offset_map)
             .field("lc_dict_data", &self.lc_dict_data.is_some())
-            .field("data[bytes]", &self.data.len())
+            .field("data[bytes]", &self.data)
             .finish()
     }
 }

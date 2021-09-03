@@ -1044,7 +1044,9 @@ fn command_insert_into_gen_header(
         //insert into some columns
         for (cn, _) in &tab.columns {
             let qcn = [qtn.as_str(), &cn].join(".");
-            let cid = ms.cid_by_qname(&qcn).ok_or(BaseRtError::ColumnNotExist)?;
+            let cid = ms
+                .cid_by_qname(&qcn)
+                .ok_or(BaseRtError::ColumnNotExist(qcn))?;
             let ci = ms
                 .get_column_info(cid)?
                 .ok_or(BaseRtError::SchemaInfoShouldExistButNot)?;

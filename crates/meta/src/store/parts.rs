@@ -455,7 +455,7 @@ impl<'a> PartStore<'a> {
     }
 
     #[allow(dead_code)]
-    fn pretty_print(&self) -> MetaResult<()> {
+    pub fn pretty_print(&self) -> MetaResult<()> {
         let name = &*self.mdb.name();
         println!("psdb: {}", unsafe { std::str::from_utf8_unchecked(&*name) });
 

@@ -431,14 +431,14 @@ fn decode_to_column(
         let mut os_map = vec![];
         let oss = bs.as_ptr();
         for i in 0..nrows {
-            let os = unsafe { bs.as_ptr().offset_from(oss) } as u32;
+            let os = unsafe { bs.as_ptr().offset_from(oss) } as i64;
             os_map.push(os);
             let slen = bs.read_varint()? as usize;
             bs.ensure_enough_bytes_to_read(slen)?;
             bs.advance(slen);
         }
         let bc_data = unsafe {
-            let len = bs.as_ptr().offset_from(oss) as u32;
+            let len = bs.as_ptr().offset_from(oss) as i64;
             os_map.push(len);
             slice::from_raw_parts(oss, len as usize).to_vec()
         };
@@ -503,13 +503,13 @@ impl BytesDecoder<BaseColumn> for &[u8] {
                 let mut os_map = vec![];
                 let oss = self.as_ptr();
                 for i in 0..ndict {
-                    let os = unsafe { self.as_ptr().offset_from(oss) } as u32;
+                    let os = unsafe { self.as_ptr().offset_from(oss) } as i64;
                     os_map.push(os);
                     let slen = self.read_varint()? as usize; //NOTE length of bql string in 0..127
                     self.advance(slen);
                 }
                 let lcd_data = unsafe {
-                    let lcd_data_len = self.as_ptr().offset_from(oss) as u32;
+                    let lcd_data_len = self.as_ptr().offset_from(oss) as i64;
                     slice::from_raw_parts(oss, lcd_data_len as usize).to_vec()
                 };
                 //number of rows in data

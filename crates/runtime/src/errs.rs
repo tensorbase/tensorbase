@@ -105,8 +105,8 @@ pub enum BaseRtError {
     #[error("Table does not exist")]
     TableNotExist,
 
-    #[error("Column does not exist")]
-    ColumnNotExist,
+    #[error("Column does not exist: {0}")]
+    ColumnNotExist(String),
 
     #[error("Unsupported conversion to BqlType")]
     UnsupportedConversionToBqlType,
@@ -210,7 +210,7 @@ impl BaseRtError {
             BaseRtError::SchemaInfoShouldExistButNot => 405,
             BaseRtError::DatabaseNotExist => 406,
             BaseRtError::TableNotExist => 407,
-            BaseRtError::ColumnNotExist => 408,
+            BaseRtError::ColumnNotExist(_) => 408,
             BaseRtError::LightJitCompilationError => 409,
             BaseRtError::NoPartitionKeyColumnFoundWhenInserting => 410,
             BaseRtError::MultiplePartitionKeyNotSupported => 411,
