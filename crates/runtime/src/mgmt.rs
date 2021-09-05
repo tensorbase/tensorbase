@@ -41,12 +41,9 @@ use std::{
 };
 
 use crate::{
-    ch::{
-        blocks::{new_block_header, Block, Column},
-        codecs::CHMsgWriteAware,
-        protocol::ConnCtx,
-    },
+    ch::protocol::ConnCtx,
     errs::{BaseRtError, BaseRtResult},
+    types::{BaseColumn, BaseDataBlock, BaseWriteAware},
 };
 use datafusion::physical_plan::clickhouse::DEFAULT_TIMEZONE;
 use lang::parse::RemoteTableInfo;
@@ -58,11 +55,11 @@ pub static READ: SyncOnceCell<
         query_id: &str,
         current_db: &str,
         p: Pair<Rule>,
-    ) -> BaseRtResult<Vec<Block>>,
+    ) -> BaseRtResult<Vec<BaseDataBlock>>,
 > = SyncOnceCell::new();
 
 pub static WRITE: SyncOnceCell<
-    fn(blk: &mut Block, tab_ins: &str, tid_ins: Id) -> BaseRtResult<()>,
+    fn(blk: &mut BaseDataBlock, tab_ins: &str, tid_ins: Id) -> BaseRtResult<()>,
 > = SyncOnceCell::new();
 
 pub static REMOTE_READ: SyncOnceCell<
@@ -70,7 +67,7 @@ pub static REMOTE_READ: SyncOnceCell<
         remote_tb_info: RemoteTableInfo,
         raw_query: &str,
         is_local: bool,
-    ) -> BaseRtResult<Vec<Block>>,
+    ) -> BaseRtResult<Vec<BaseDataBlock>>,
 > = SyncOnceCell::new();
 
 pub struct BaseHasher {
@@ -178,11 +175,11 @@ pub enum BaseCommandKind {
     Default,
     Create,
     Drop,
-    Query(Vec<Block>), //FIXME need iterator for big return
-    InsertFormatInline(Block, String, Id),
-    InsertFormatInlineValues(Block, String, Id),
-    InsertFormatCSV(Block, String, Id),
-    InsertFormatSelectValue(Vec<Block>, String, Id),
+    Query(Vec<BaseDataBlock>), //FIXME need iterator for big return
+    InsertFormatInline(BaseDataBlock, String, Id),
+    InsertFormatInlineValues(BaseDataBlock, String, Id),
+    InsertFormatCSV(BaseDataBlock, String, Id),
+    InsertFormatSelectValue(Vec<BaseDataBlock>, String, Id),
     Optimize,
 }
 
@@ -478,14 +475,14 @@ impl<'a> BaseMgmtSys<'a> {
         }
     }
 
-    pub fn command_show_databases(&self) -> BaseRtResult<Block> {
+    pub fn command_show_databases(&self) -> BaseRtResult<BaseDataBlock> {
         let ms = &self.meta_store;
         let bc = ms
             .get_all_databases()
             .map_err(|e| BaseRtError::WrappingMetaError(e))?;
-        let mut blk = Block::default();
+        let mut blk = BaseDataBlock::default();
         blk.nrows = bc.size;
-        blk.columns.push(Column {
+        blk.columns.push(BaseColumn {
             name: b"name".to_vec(),
             data: bc,
         });
@@ -494,14 +491,14 @@ impl<'a> BaseMgmtSys<'a> {
         Ok(blk)
     }
 
-    pub fn command_show_tables(&self, dbname: &str) -> BaseRtResult<Block> {
+    pub fn command_show_tables(&self, dbname: &str) -> BaseRtResult<BaseDataBlock> {
         let ms = &self.meta_store;
         let bc = ms
             .get_tables(dbname)
             .map_err(|e| BaseRtError::WrappingMetaError(e))?;
-        let mut blk = Block::default();
+        let mut blk = BaseDataBlock::default();
         blk.nrows = bc.size;
-        blk.columns.push(Column {
+        blk.columns.push(BaseColumn {
             name: b"name".to_vec(),
             data: bc,
         });
@@ -514,7 +511,7 @@ impl<'a> BaseMgmtSys<'a> {
         &self,
         p: Pair<Rule>,
         current_db: &str,
-    ) -> BaseRtResult<Block> {
+    ) -> BaseRtResult<BaseDataBlock> {
         let (dbn_opt, tn) = parse_show_create_table(p)?;
         let qtname = if dbn_opt.is_some() {
             [dbn_opt.ok_or(BaseRtError::SchemaInfoShouldExistButNot)?, tn].join(".")
@@ -530,9 +527,9 @@ impl<'a> BaseMgmtSys<'a> {
         // log::debug!("create_script: {:?}", iv_script);
         let mut bs = BytesMut::with_capacity(64);
         bs.write_varbytes(&*iv_script);
-        let mut blk = Block::default();
+        let mut blk = BaseDataBlock::default();
         blk.nrows = 1;
-        blk.columns.push(Column {
+        blk.columns.push(BaseColumn {
             name: b"statement".to_vec(),
             data: BaseChunk {
                 btype: BqlType::String,
@@ -552,14 +549,14 @@ impl<'a> BaseMgmtSys<'a> {
         &self,
         p: Pair<Rule>,
         current_db: &str,
-    ) -> BaseRtResult<Block> {
+    ) -> BaseRtResult<BaseDataBlock> {
         let (dbn_opt, tn) = parse_desc_table(p)?;
         let ms = &self.meta_store;
         let col_infos = ms.get_columns(
             dbn_opt.as_ref().map(|s| s.as_str()).unwrap_or(current_db),
             &tn,
         )?;
-        let mut blk = Block::default();
+        let mut blk = BaseDataBlock::default();
         let len = col_infos.len();
         blk.nrows = len;
         let mut name = Vec::with_capacity(len);
@@ -574,7 +571,7 @@ impl<'a> BaseMgmtSys<'a> {
             encode_ascii_bytes_vec_short(name0.as_bytes(), &mut name)?;
             encode_ascii_bytes_vec_short(&data, &mut dtype)?;
         }
-        blk.columns.push(Column {
+        blk.columns.push(BaseColumn {
             name: b"name".to_vec(),
             data: BaseChunk {
                 btype: BqlType::String,
@@ -585,7 +582,7 @@ impl<'a> BaseMgmtSys<'a> {
                 lc_dict_data: None,
             },
         });
-        blk.columns.push(Column {
+        blk.columns.push(BaseColumn {
             name: b"type".to_vec(),
             data: BaseChunk {
                 btype: BqlType::String,
@@ -596,7 +593,7 @@ impl<'a> BaseMgmtSys<'a> {
                 lc_dict_data: None,
             },
         });
-        // blk.columns.push(Column {
+        // blk.columns.push(BaseColumn {
         //     name: b"default_type".to_vec(),
         //     data: BaseChunk {
         //         btype: BqlType::String,
@@ -607,7 +604,7 @@ impl<'a> BaseMgmtSys<'a> {
         //         lc_dict_data: None,
         //     },
         // });
-        // blk.columns.push(Column {
+        // blk.columns.push(BaseColumn {
         //     name: b"default_expression".to_vec(),
         //     data: BaseChunk {
         //         btype: BqlType::String,
@@ -618,7 +615,7 @@ impl<'a> BaseMgmtSys<'a> {
         //         lc_dict_data: None,
         //     },
         // });
-        // blk.columns.push(Column {
+        // blk.columns.push(BaseColumn {
         //     name: b"comment".to_vec(),
         //     data: BaseChunk {
         //         btype: BqlType::String,
@@ -629,7 +626,7 @@ impl<'a> BaseMgmtSys<'a> {
         //         lc_dict_data: None,
         //     },
         // });
-        // blk.columns.push(Column {
+        // blk.columns.push(BaseColumn {
         //     name: b"codec_expression".to_vec(),
         //     data: BaseChunk {
         //         btype: BqlType::String,
@@ -640,7 +637,7 @@ impl<'a> BaseMgmtSys<'a> {
         //         lc_dict_data: None,
         //     },
         // });
-        // blk.columns.push(Column {
+        // blk.columns.push(BaseColumn {
         //     name: b"ttl_expression".to_vec(),
         //     data: BaseChunk {
         //         btype: BqlType::String,
@@ -768,7 +765,7 @@ impl<'a> BaseMgmtSys<'a> {
         &self,
         cctx: &mut ConnCtx,
         ctx: TablePlaceKindContext,
-        blk: Block,
+        blk: BaseDataBlock,
         query: &str,
         qtn: String,
         tid: Id,
@@ -1068,7 +1065,7 @@ fn command_insert_into_gen_header(
     tab: &meta::types::Table,
     qtn: &String,
     ms: &MetaStore,
-    header: &mut Block,
+    header: &mut BaseDataBlock,
     dbn: &str,
     tn: &str,
 ) -> Result<(), BaseRtError> {
@@ -1080,7 +1077,7 @@ fn command_insert_into_gen_header(
             let ci = ms
                 .get_column_info(cid)?
                 .ok_or(BaseRtError::SchemaInfoShouldExistButNot)?;
-            header.columns.push(new_block_header(
+            header.columns.push(BaseColumn::new_block_header(
                 cn.as_bytes().to_vec(),
                 ci.data_type,
                 ci.is_nullable,
@@ -1092,7 +1089,7 @@ fn command_insert_into_gen_header(
         //NOTE ch client relays on the order of cols to match that being inserted into
         col_infos.sort_unstable_by_key(|c| c.2.ordinal);
         for (cn, _, ci) in col_infos {
-            header.columns.push(new_block_header(
+            header.columns.push(BaseColumn::new_block_header(
                 cn.as_bytes().to_vec(),
                 ci.data_type,
                 ci.is_nullable,
@@ -1195,7 +1192,7 @@ fn command_insert_into_gen_block(
     tab: &meta::types::Table,
     qtn: &String,
     ms: &MetaStore,
-    blk: &mut Block,
+    blk: &mut BaseDataBlock,
     dbn: &str,
     tn: &str,
     rows: Vec<Vec<String>>,
@@ -1210,7 +1207,7 @@ fn command_insert_into_gen_block(
         // for (cn, _) in &tab.columns {
         //     let qcn = [qtn.as_str(), &cn].join(".");
         //     let cid =
-        //         ms.cid_by_qname(&qcn).ok_or(BaseRtError::ColumnNotExist)?;
+        //         ms.cid_by_qname(&qcn).ok_or(BaseRtError::BaseColumnNotExist)?;
         //     let ci = ms
         //         .get_column_info(cid)?
         //         .ok_or(BaseRtError::SchemaInfoShouldExistButNot)?;
@@ -1227,7 +1224,7 @@ fn command_insert_into_gen_block(
         //         let bs = parse_literal_as_bytes(lit, btype)?;
         //         data.extend(bs);
         //     }
-        //     blk.columns.push(Column {
+        //     blk.columns.push(BaseColumn {
         //         name,
         //         data: BaseChunk {
         //             btype,
@@ -1260,7 +1257,7 @@ fn command_insert_into_gen_block(
                 let bs = parse_literal_as_bytes(lit, btype)?;
                 data.extend(bs);
             }
-            blk.columns.push(Column {
+            blk.columns.push(BaseColumn {
                 name,
                 data: BaseChunk {
                     btype,

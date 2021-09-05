@@ -1,8 +1,8 @@
-use base::codec::encode_varint64;
-use bytes::{Buf, BufMut, BytesMut};
+use bytes::{BufMut, BytesMut};
 
 use crate::ch::protocol::ServerCodes;
 use crate::errs::{BaseRtError, BaseRtResult};
+use crate::types::BaseWriteAware;
 use std::{intrinsics::copy_nonoverlapping, slice};
 
 pub trait BytesEncoder {
@@ -74,50 +74,14 @@ impl BytesExt for BytesMut {
 }
 
 pub trait CHMsgWriteAware {
-    fn write_varint(&mut self, value: u64);
     // fn write_fixint<T: PrimInt>(&mut self, value: T);
-    fn write_varbytes(&mut self, value: &[u8]);
     fn write_str(&mut self, value: &str); //FIXME return BaseRtResult for write?
     fn write_as_exception(&mut self, err: BaseRtError);
     fn write_empty_block(&mut self);
     fn write_end_of_stream(&mut self);
 }
 
-pub trait CHMsgReadAware {
-    fn ensure_enough_bytes_to_read(
-        &mut self,
-        additional_space: usize,
-    ) -> BaseRtResult<()>;
-    fn read_varint(&mut self) -> BaseRtResult<u64>;
-    fn read_str<'a, 'b>(&mut self) -> BaseRtResult<&'b str>;
-    fn read_varbytes<'a, 'b>(&mut self) -> BaseRtResult<&'b [u8]>;
-    // fn read_fix<T>(&mut self) -> T;
-}
-
 impl CHMsgWriteAware for BytesMut {
-    #[inline(always)]
-    fn write_varint(&mut self, value: u64) {
-        self.reserve(10); //FIXME
-        let buf =
-            unsafe { slice::from_raw_parts_mut(self.as_mut_ptr().add(self.len()), 10) };
-        let vi_len = encode_varint64(value, buf);
-        unsafe {
-            self.advance_mut(vi_len);
-        }
-    }
-
-    #[inline(always)]
-    fn write_varbytes(&mut self, value: &[u8]) {
-        let len = value.len();
-        self.reserve(10 + len); //FIXME
-        self.write_varint(len as u64);
-        // value.as_bytes().copy_to_slice()
-        unsafe {
-            copy_nonoverlapping(value.as_ptr(), self.as_mut_ptr().add(self.len()), len);
-            self.advance_mut(len);
-        }
-    }
-
     #[inline(always)]
     fn write_str(&mut self, value: &str) {
         self.write_varbytes(value.as_bytes());
@@ -163,159 +127,6 @@ impl CHMsgWriteAware for BytesMut {
     //     let len = std::mem::size_of::<T>();
 
     // }
-}
-
-impl CHMsgReadAware for BytesMut {
-    #[inline(always)]
-    fn ensure_enough_bytes_to_read(
-        &mut self,
-        additional_space: usize,
-    ) -> BaseRtResult<()> {
-        if self.len() >= additional_space {
-            Ok(())
-        } else {
-            Err(BaseRtError::IncompletedWireFormat)
-        }
-    }
-
-    #[inline(always)]
-    fn read_varint(&mut self) -> BaseRtResult<u64> {
-        if self.len() == 0 {
-            //FIXME unnecssary?
-            return Err(BaseRtError::IncompletedWireFormat);
-        }
-        // most varints are in practice fit in 1 byte
-        if self[0] < 0x80 {
-            let r = self[0] as u64;
-            self.advance(1);
-            return Ok(r);
-        } else {
-            // handle case of two bytes too
-            if self.len() <= 1 {
-                //FIXME unnecssary?
-                return Err(BaseRtError::IncompletedWireFormat);
-            }
-            if self[1] < 0x80 {
-                let r = (self[0] & 0x7f) as u64 | (self[1] as u64) << 7;
-                self.advance(2);
-                return Ok(r);
-            } else {
-                return read_raw_varint64_slow_bytesmut(self);
-            }
-        }
-    }
-
-    #[inline(always)]
-    fn read_str<'a, 'b>(&mut self) -> BaseRtResult<&'b str> {
-        //FIXME one rust driver use arbitrary 128bit bytes as query_id?
-        unsafe { Ok(std::str::from_utf8_unchecked(self.read_varbytes()?)) }
-    }
-
-    #[inline(always)]
-    fn read_varbytes<'a, 'b>(&mut self) -> BaseRtResult<&'b [u8]> {
-        let len = self.read_varint()? as usize;
-        unsafe {
-            let ptr = self.as_ptr();
-            self.advance(len);
-            Ok(slice::from_raw_parts(ptr, len))
-        }
-    }
-}
-
-impl CHMsgReadAware for &[u8] {
-    #[inline(always)]
-    fn ensure_enough_bytes_to_read(
-        &mut self,
-        additional_space: usize,
-    ) -> BaseRtResult<()> {
-        if self.len() < additional_space {
-            Err(BaseRtError::IncompletedWireFormat)
-        } else {
-            Ok(())
-        }
-    }
-
-    #[inline(always)]
-    fn read_varint(&mut self) -> BaseRtResult<u64> {
-        if self.len() == 0 {
-            //FIXME unnecssary?
-            return Err(BaseRtError::IncompletedWireFormat);
-        }
-        // most varints are in practice fit in 1 byte
-        if self[0] < 0x80 {
-            let r = self[0] as u64;
-            self.advance(1);
-            return Ok(r);
-        } else {
-            // handle case of two bytes too
-            if self.len() <= 1 {
-                //FIXME unnecssary?
-                return Err(BaseRtError::IncompletedWireFormat);
-            }
-            if self[1] < 0x80 {
-                let r = (self[0] & 0x7f) as u64 | (self[1] as u64) << 7;
-                self.advance(2);
-                return Ok(r);
-            } else {
-                return read_raw_varint64_slow(self);
-            }
-        }
-    }
-
-    #[inline(always)]
-    fn read_str<'a, 'b>(&mut self) -> BaseRtResult<&'b str> {
-        //FIXME one rust driver use arbitrary 128bit bytes as query_id?
-        unsafe { Ok(std::str::from_utf8_unchecked(self.read_varbytes()?)) }
-    }
-
-    #[inline(always)]
-    fn read_varbytes<'a, 'b>(&mut self) -> BaseRtResult<&'b [u8]> {
-        let len = self.read_varint()? as usize;
-        self.ensure_enough_bytes_to_read(len)?;
-        unsafe {
-            let ptr = self.as_ptr();
-            self.advance(len);
-            Ok(slice::from_raw_parts(ptr, len))
-        }
-    }
-}
-
-#[inline(always)]
-fn read_raw_varint64_slow_bytesmut(bs: &mut BytesMut) -> BaseRtResult<u64> {
-    let mut r: u64 = 0;
-    let mut i = 0;
-    loop {
-        if i == 10 {
-            return Err(BaseRtError::InvalidWireFormatInVarInt(r));
-        }
-        let b = bs[i];
-        // TODO: may overflow if i == 9
-        r = r | (((b & 0x7f) as u64) << (i * 7));
-        i += 1;
-        if b < 0x80 {
-            bs.advance(i);
-            return Ok(r);
-        }
-    }
-}
-
-#[inline(always)]
-fn read_raw_varint64_slow(bs: &mut &[u8]) -> BaseRtResult<u64> {
-    let mut r: u64 = 0;
-    let mut i = 0;
-    loop {
-        if i == 10 {
-            return Err(BaseRtError::InvalidWireFormatInVarInt(r));
-        }
-        let b = bs[i];
-        // TODO: may overflow if i == 9
-        r = r | (((b & 0x7f) as u64) << (i * 7));
-        i += 1;
-        if b < 0x80 {
-            bs.advance(i);
-            return Ok(r);
-        }
-    }
 }
 
 #[cfg(test)]
