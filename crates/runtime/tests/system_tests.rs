@@ -1,8 +1,10 @@
 use baselog::{Config, LevelFilter, TermLogger, TerminalMode};
 use meta::{confs::Conf, types::BqlType};
 use runtime::{
+    ch::protocol::ConnCtx,
     errs::{BaseRtError, BaseRtResult},
     mgmt::{BaseCommandKind, BaseMgmtSys},
+    types::BaseServerConn,
 };
 use test_utils::prepare_empty_tmp_dir;
 
@@ -31,7 +33,7 @@ fn prepare_bms<'a>() -> BaseRtResult<BaseMgmtSys<'a>> {
 #[test]
 fn test_run_commands() -> BaseRtResult<()> {
     let bms = prepare_bms()?;
-    let mut cctx = Default::default();
+    let mut cctx = ConnCtx::default();
 
     let res = bms.run_commands("".to_string(), &mut cctx);
     assert!(matches!(res, Err(_)));
@@ -90,9 +92,9 @@ fn test_run_commands() -> BaseRtResult<()> {
 
     assert!(matches!(res, BaseCommandKind::Create));
 
-    assert_eq!("default", cctx.current_db);
+    assert_eq!("default", cctx.get_db());
     let res = bms.run_commands("use xxx_123".to_string(), &mut cctx)?;
-    assert_eq!("xxx_123", cctx.current_db);
+    assert_eq!("xxx_123", cctx.get_db());
 
     let res = bms.run_commands(
         "insert into default.payment11 values".to_string(),
