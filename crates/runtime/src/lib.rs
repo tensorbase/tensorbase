@@ -5,4 +5,5 @@ pub mod ch;
 pub mod errs;
 pub mod mgmt;
 pub mod read;
+pub mod types;
 pub mod write;

@@ -1,20 +1,16 @@
-use std::{convert::TryFrom, slice};
+use std::slice;
 
-use arrow::{array, datatypes::DataType, record_batch::RecordBatch};
-use base::{bytes_cat, datetimes::TimeZoneId};
+use base::bytes_cat;
 use bytes::{Buf, BufMut, BytesMut};
 use clickhouse_rs_cityhash_sys::city_hash_128;
 use lzzzz::lz4;
 
-use client::prelude::{types::SqlType, ServerBlock, ValueRefEnum};
-use meta::types::{AsBytes, BaseChunk, BqlType};
+use meta::types::{BaseChunk, BqlType};
 
-use crate::ch::codecs::{
-    new_mut_slice_at, BytesDecoder, BytesEncoder, BytesExt, CHMsgReadAware,
-    CHMsgWriteAware,
-};
+use crate::ch::codecs::{new_mut_slice_at, BytesDecoder, BytesEncoder, BytesExt};
 use crate::ch::protocol::{ServerCodes, LZ4_COMPRESSION_METHOD};
 use crate::errs::{BaseRtError, BaseRtResult};
+use crate::types::{BaseColumn, BaseDataBlock, BaseReadAware, BaseWriteAware};
 
 /**
  Clickhouse Server protocol
@@ -128,9 +124,7 @@ pub struct Block {
     pub has_header_decoded: bool,
     pub overflow: bool,
     pub bucket: i32,
-    pub ncols: usize,
-    pub nrows: usize,
-    pub columns: Vec<Column>,
+    pub data: BaseDataBlock,
 }
 
 impl Default for Block {
@@ -140,124 +134,8 @@ impl Default for Block {
             has_header_decoded: false,
             overflow: false,
             bucket: -1,
-            ncols: 0,
-            nrows: 0,
-            columns: vec![],
+            data: Default::default(),
         }
-    }
-}
-
-// TODO FIXME: The best approach is to unify the server and client block definitions
-// to avoid conversions
-#[inline]
-fn value_ref_to_bytes<'a>(value_ref: &'a ValueRefEnum<'a>) -> &'a [u8] {
-    match value_ref {
-        ValueRefEnum::String(bytes) => bytes,
-        ValueRefEnum::UInt8(u) => u.as_bytes(),
-        ValueRefEnum::UInt16(u) => u.as_bytes(),
-        ValueRefEnum::UInt32(u) => u.as_bytes(),
-        ValueRefEnum::UInt64(u) => u.as_bytes(),
-        ValueRefEnum::Int8(i) => i.as_bytes(),
-        ValueRefEnum::Int16(i) => i.as_bytes(),
-        ValueRefEnum::Int32(i) => i.as_bytes(),
-        ValueRefEnum::Int64(i) => i.as_bytes(),
-        ValueRefEnum::Date(d) => &d.0,
-        ValueRefEnum::DateTime(dt) => &dt.0,
-        ValueRefEnum::DateTime64(dt64) => dt64.0.as_bytes(),
-        ValueRefEnum::Array8(_)
-        | ValueRefEnum::Array16(_)
-        | ValueRefEnum::Array32(_)
-        | ValueRefEnum::Array64(_)
-        | ValueRefEnum::Array128(_)
-        | ValueRefEnum::Float32(_)
-        | ValueRefEnum::Float64(_)
-        | ValueRefEnum::Enum(_)
-        | ValueRefEnum::Ip4(_)
-        | ValueRefEnum::Ip6(_)
-        | ValueRefEnum::Uuid(_)
-        | ValueRefEnum::Decimal32(_)
-        | ValueRefEnum::Decimal64(_) => unimplemented!(),
-    }
-}
-
-// TODO FIXME: The best approach is to unify the server and client block definitions
-// to avoid conversions
-#[inline]
-fn sqltype_to_bqltype(sqltype: SqlType) -> BqlType {
-    match sqltype {
-        SqlType::UInt8 => BqlType::UInt(8),
-        SqlType::UInt16 => BqlType::UInt(16),
-        SqlType::UInt32 => BqlType::UInt(32),
-        SqlType::UInt64 => BqlType::UInt(64),
-        SqlType::Int8 => BqlType::Int(8),
-        SqlType::Int16 => BqlType::Int(16),
-        SqlType::Int32 => BqlType::Int(32),
-        SqlType::Int64 => BqlType::Int(64),
-        SqlType::String => BqlType::String,
-        SqlType::FixedString(i) => BqlType::FixedString(i as u8),
-        SqlType::Float32 => BqlType::Float(32),
-        SqlType::Float64 => BqlType::Float(64),
-        SqlType::Date => BqlType::Date,
-        SqlType::DateTime(tz) => match tz {
-            Some(tz) => {
-                BqlType::DateTimeTz(TimeZoneId(TimeZoneId::calc_offset_of_tz(tz)))
-            }
-            None => BqlType::DateTime,
-        },
-        SqlType::DateTime64(id, tz) => {
-            BqlType::DateTimeTz(TimeZoneId(TimeZoneId::calc_offset_of_tz(tz)))
-        }
-        SqlType::Decimal(x, y) => BqlType::Decimal(x, y),
-        SqlType::LowCardinality => BqlType::LowCardinalityTinyText,
-        SqlType::Uuid => BqlType::Uuid,
-        SqlType::Ipv4
-        | SqlType::Ipv6
-        | SqlType::Enum8
-        | SqlType::Enum16
-        | SqlType::Array => unimplemented!(),
-    }
-}
-
-// TODO FIXME: The best approach is to unify the server and client block definitions
-// to avoid conversions
-impl From<ServerBlock> for Block {
-    fn from(b: ServerBlock) -> Self {
-        let mut new_blk = Block::default();
-        let nrows = b.rows as usize;
-
-        new_blk.ncols = b.columns.len();
-        new_blk.nrows = nrows;
-
-        for mut c in b.columns {
-            let btype = sqltype_to_bqltype(c.header.field.get_sqltype());
-            let offset_map = c.data.offset_map();
-            let data = unsafe { c.data.into_bytes() };
-            let field = c.header.field;
-            let null_map = if field.is_nullable() {
-                if !matches!(btype, BqlType::String) {
-                    Block::null_map_from_data(&btype, None, &data)
-                } else {
-                    Block::null_map_from_data(&btype, offset_map.as_ref(), &data)
-                }
-            } else {
-                None
-            };
-            let chunk = BaseChunk {
-                btype,
-                size: nrows,
-                data,
-                null_map,
-                offset_map,
-                lc_dict_data: None,
-            };
-            let column = Column {
-                name: c.header.name.as_bytes().to_vec(),
-                data: chunk,
-            };
-
-            new_blk.columns.push(column);
-        }
-        new_blk
     }
 }
 
@@ -270,6 +148,18 @@ pub(crate) const COMPRESSED_EMPTY_CLIENT_BLK_BYTES: [u8; 38] = [
     0xdb, 0x86, 0xe2, 0x14, 0x82, 0x14, 0x00, 0x00, 0x00, 0x0a, 0x00, 0x00, 0x00, 0xa0,
     0x01, 0x00, 0x02, 0xff, 0xff, 0xff, 0xff, 0x00, 0x00, 0x00,
 ];
+
+impl From<BaseDataBlock> for Block {
+    fn from(b: BaseDataBlock) -> Self {
+        Block {
+            name: vec![],
+            has_header_decoded: false,
+            overflow: false,
+            bucket: 0,
+            data: b,
+        }
+    }
+}
 
 impl Block {
     #[inline]
@@ -290,9 +180,7 @@ impl Block {
         self.has_header_decoded = false;
         self.overflow = false;
         self.bucket = -1;
-        self.ncols = 0;
-        self.nrows = 0;
-        self.columns = vec![];
+        self.data.reset();
     }
 
     #[inline(always)]
@@ -311,10 +199,10 @@ impl Block {
         bs0.extend_from_slice(&self.bucket.to_le_bytes());
         bs0.write_varint(0u64);
         //
-        bs0.write_varint(self.ncols as u64);
-        bs0.write_varint(self.nrows as u64);
+        bs0.write_varint(self.data.ncols as u64);
+        bs0.write_varint(self.data.nrows as u64);
         //
-        for col in &self.columns {
+        for col in &self.data.columns {
             col.encode(bs0)?;
         }
 
@@ -411,9 +299,9 @@ impl Block {
     }
 
     pub fn get_block_header(&self) -> Self {
-        let mut blk: Block = Default::default();
-        for col in &self.columns {
-            blk.columns.push(new_block_header(
+        let mut blk = BaseDataBlock::default();
+        for col in &self.data.columns {
+            blk.columns.push(BaseColumn::new_block_header(
                 col.name.clone(),
                 col.data.btype,
                 col.data.null_map.is_some(),
@@ -421,7 +309,7 @@ impl Block {
         }
         blk.ncols = blk.columns.len();
         blk.nrows = 0; //for empty data case
-        blk
+        blk.into()
     }
 
     fn decode_header_from(&mut self, bs0: &mut &[u8]) -> BaseRtResult<()> {
@@ -433,8 +321,8 @@ impl Block {
         self.bucket = bs0.get_i32_le();
         bs0.read_varint()?;
         //
-        self.ncols = bs0.read_varint()? as usize;
-        self.nrows = bs0.read_varint()? as usize;
+        self.data.ncols = bs0.read_varint()? as usize;
+        self.data.nrows = bs0.read_varint()? as usize;
 
         self.has_header_decoded = true;
 
@@ -456,10 +344,10 @@ impl Block {
         }
         let mut cnt = unsafe { (*bs).as_ptr().offset_from(ptr0) };
         while !self.has_decoded() {
-            let res = bs.decode_column(self.nrows);
+            let res = bs.decode_column(self.data.nrows);
             match res {
                 Ok(col) => {
-                    self.columns.push(col);
+                    self.data.columns.push(col);
                     cnt = unsafe { (*bs).as_ptr().offset_from(ptr0) };
                 }
                 Err(BaseRtError::IncompletedWireFormat) => {
@@ -483,42 +371,12 @@ impl Block {
 
     #[inline(always)]
     pub fn is_empty(&self) -> bool {
-        self.ncols == 0 && self.nrows == 0
+        self.data.ncols == 0 && self.data.nrows == 0
     }
 
     #[inline(always)]
     pub fn has_decoded(&self) -> bool {
-        self.has_header_decoded && (self.columns.len() == self.ncols)
-    }
-
-    #[inline(always)]
-    pub fn null_map_from_data(
-        btype: &BqlType,
-        offsets: Option<&Vec<u32>>,
-        data: &Vec<u8>,
-    ) -> Option<Vec<u8>> {
-        if !matches!(btype, BqlType::String) {
-            Some(
-                data.chunks(btype.size_in_usize().unwrap())
-                    .map(|c| if c.into_iter().all(|&b| b == 0) { 1 } else { 0 })
-                    .collect::<Vec<_>>(),
-            )
-        } else {
-            // Todo: test the performance
-            let offsets = offsets.as_ref().unwrap();
-            let null_map = offsets[..(offsets.len() - 1)]
-                .iter()
-                .map(|offset| {
-                    let offset = *offset as usize;
-                    if data[offset..offset + 1][0] == 0 {
-                        1
-                    } else {
-                        0
-                    }
-                })
-                .collect::<Vec<_>>();
-            Some(null_map)
-        }
+        self.has_header_decoded && (self.data.columns.len() == self.data.ncols)
     }
 }
 
@@ -528,129 +386,12 @@ impl std::fmt::Debug for Block {
             .field("name", &String::from_utf8_lossy(&self.name))
             .field("overflow", &self.overflow)
             .field("bucket", &self.bucket)
-            .field("ncols", &self.ncols)
-            .field("nrows", &self.nrows)
-            .field("columns", &self.columns)
+            .field("data", &self.data)
             .finish()
     }
 }
 
-fn arrow_type_to_btype(typ: &DataType) -> BaseRtResult<BqlType> {
-    log::debug!("arrow_type_to_btype: {}", typ);
-    match typ {
-        DataType::UInt8 => Ok(BqlType::UInt(8)),
-        DataType::UInt16 => Ok(BqlType::UInt(16)),
-        DataType::UInt32 => Ok(BqlType::UInt(32)),
-        DataType::UInt64 => Ok(BqlType::UInt(64)),
-        DataType::Int8 => Ok(BqlType::Int(8)),
-        DataType::Int16 => Ok(BqlType::Int(16)),
-        DataType::Int32 => Ok(BqlType::Int(32)),
-        DataType::Int64 => Ok(BqlType::Int(64)),
-        DataType::Float16 => Ok(BqlType::Float(16)),
-        DataType::Float32 => Ok(BqlType::Float(32)),
-        DataType::Float64 => Ok(BqlType::Float(64)),
-        DataType::Timestamp32(None) => Ok(BqlType::DateTime),
-        DataType::Timestamp32(Some(tz)) => Ok(BqlType::DateTimeTz(*tz)),
-        DataType::Date16 => Ok(BqlType::Date),
-        DataType::Decimal(p, s) => Ok(BqlType::Decimal(*p as u8, *s as u8)),
-        DataType::LargeUtf8 => Ok(BqlType::String),
-        DataType::FixedSizeBinary(len) => Ok(BqlType::FixedString(*len as u8)),
-        _ => Err(BaseRtError::UnsupportedConversionToBqlType),
-    }
-}
-
-impl TryFrom<RecordBatch> for Block {
-    type Error = BaseRtError;
-
-    fn try_from(res: RecordBatch) -> Result<Self, Self::Error> {
-        let mut blk = Block::default();
-        let sch = res.schema();
-        let fields = sch.fields();
-        let cols = res.columns();
-        let ncols = cols.len();
-        blk.ncols = ncols;
-        for i in 0..ncols {
-            let btype = arrow_type_to_btype(fields[i].data_type())?;
-            let name = fields[i].name().as_bytes().to_vec();
-            let col = &cols[i];
-            let cd = col.data();
-            // let array = col.as_any().downcast_ref::<array::Int64Array>().unwrap().values();
-            let buf = if matches!(btype, BqlType::String) {
-                &col.data().buffers()[1]
-            } else {
-                &col.data().buffers()[0]
-            };
-            // log::debug!("cd.get_array_memory_size(): {}", cd.get_array_memory_size());
-            let (len_in_bytes, offsets): (usize, Option<Vec<u32>>) =
-                if matches!(btype, BqlType::String) {
-                    let arr = col
-                        .as_any()
-                        .downcast_ref::<array::LargeStringArray>()
-                        .unwrap();
-                    let ofs = arr
-                        .value_offsets()
-                        .last()
-                        .copied()
-                        .ok_or(BaseRtError::FailToUnwrapOpt)?;
-
-                    (
-                        ofs as usize,
-                        Some(arr.value_offsets().iter().map(|o| *o as u32).collect()),
-                    )
-                } else {
-                    (btype.size_in_usize()? * col.len(), None)
-                };
-            let data = unsafe {
-                std::slice::from_raw_parts(buf.as_ptr(), len_in_bytes).to_vec()
-            };
-            blk.nrows = col.len(); //FIXME all rows are in same size
-
-            let null_map = if !matches!(btype, BqlType::String) {
-                if fields[i].is_nullable() {
-                    Block::null_map_from_data(&btype, offsets.as_ref(), &data)
-                } else {
-                    None
-                }
-            } else {
-                if fields[i].is_nullable() {
-                    Block::null_map_from_data(&btype, offsets.as_ref(), &data)
-                } else {
-                    None
-                }
-            };
-
-            blk.columns.push(Column {
-                name,
-                data: BaseChunk {
-                    btype,
-                    size: col.len(),
-                    // data: Vec::from_raw_parts(qcs.data, qclen_bytes, qclen_bytes),
-                    // data: Vec::<u8>::with_capacity(qclen_bytes),
-                    data,
-                    null_map,
-                    offset_map: offsets,
-                    // pub lc_dict_size: usize,
-                    lc_dict_data: None,
-                },
-            });
-        }
-        Ok(blk)
-    }
-}
-
-pub struct Column {
-    pub name: Vec<u8>,
-    pub data: BaseChunk,
-}
-
-impl Column {
-    #[inline]
-    pub fn get_name<'a>(&'a self) -> &'a str {
-        unsafe { std::str::from_utf8_unchecked(&self.name) }
-    }
-}
-
-impl BytesEncoder for Column {
+impl BytesEncoder for BaseColumn {
     fn encode(&self, bs: &mut BytesMut) -> BaseRtResult<()> {
         bs.write_varbytes(&self.name);
         if self.data.null_map.is_none() {
@@ -674,7 +415,7 @@ fn decode_to_column(
     name: Vec<u8>,
     nrows: usize,
     is_nullable: bool,
-) -> BaseRtResult<Column> {
+) -> BaseRtResult<BaseColumn> {
     let btype = BqlType::from_bytes(bt)?;
     //FIXME assert to not support Nullable(LowCardinality(String))? how about CH?
     let null_map = if is_nullable {
@@ -701,7 +442,7 @@ fn decode_to_column(
             os_map.push(len);
             slice::from_raw_parts(oss, len as usize).to_vec()
         };
-        Ok(Column {
+        Ok(BaseColumn {
             name,
             data: BaseChunk {
                 btype,
@@ -717,7 +458,7 @@ fn decode_to_column(
         bs.ensure_enough_bytes_to_read(len_data)?;
         let bc_data = bs[..len_data].to_vec();
         bs.advance(len_data);
-        Ok(Column {
+        Ok(BaseColumn {
             name,
             data: BaseChunk {
                 btype,
@@ -731,8 +472,8 @@ fn decode_to_column(
     }
 }
 
-impl BytesDecoder<Column> for &[u8] {
-    fn decode_column(&mut self, nrows: usize) -> BaseRtResult<Column> {
+impl BytesDecoder<BaseColumn> for &[u8] {
+    fn decode_column(&mut self, nrows: usize) -> BaseRtResult<BaseColumn> {
         let name = self.read_varbytes()?.to_vec();
         let btype0 = self.read_varbytes()?;
         match btype0 {
@@ -779,7 +520,7 @@ impl BytesDecoder<Column> for &[u8] {
                 let len_data = size * btype.size_in_usize()?;
                 let data = self[..len_data].to_vec();
                 self.advance(len_data);
-                Ok(Column {
+                Ok(BaseColumn {
                     name,
                     data: BaseChunk {
                         btype,
@@ -799,7 +540,7 @@ impl BytesDecoder<Column> for &[u8] {
     }
 }
 
-impl std::fmt::Debug for Column {
+impl std::fmt::Debug for BaseColumn {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Column")
             .field("name", &String::from_utf8_lossy(&self.name))
@@ -808,33 +549,12 @@ impl std::fmt::Debug for Column {
     }
 }
 
-// block header:
-// Initialize header from the index.
-//    for (const auto & column : index_block_it->columns)
-//    {
-//        auto type = DataTypeFactory::instance().get(column.type);
-//        header.insert(ColumnWithTypeAndName{ type, column.name });
-//    }
-///NOTE insert/select needs this kind info to send to client firstly
-pub fn new_block_header(name: Vec<u8>, typ: BqlType, is_nullable: bool) -> Column {
-    Column {
-        name,
-        data: BaseChunk {
-            btype: typ,
-            size: 0,
-            data: vec![],
-            null_map: if is_nullable { Some(vec![]) } else { None },
-            offset_map: None,
-            lc_dict_data: None,
-        },
-    }
-}
-
 #[cfg(test)]
 mod unit_tests {
     use std::cmp::max;
 
     use crate::ch::messages::process_data_blk;
+    use crate::types::BaseColumn;
 
     use super::*;
     use bytes::BytesMut;
@@ -847,7 +567,7 @@ mod unit_tests {
 
         let mut blk: Block = Default::default();
 
-        let col: Column = Column {
+        let col: BaseColumn = BaseColumn {
             name: b"col_1".to_vec(),
             data: BaseChunk {
                 btype: BqlType::String,
@@ -858,9 +578,9 @@ mod unit_tests {
                 lc_dict_data: None,
             },
         };
-        blk.ncols = 1;
-        blk.nrows = 1;
-        blk.columns.push(col);
+        blk.data.ncols = 1;
+        blk.data.nrows = 1;
+        blk.data.columns.push(col);
         // println!("block: {:?}", blk);
 
         blk.encode_to(&mut bs, Some(&mut _bs))?;
@@ -907,12 +627,16 @@ mod unit_tests {
     fn test_blockinfo_encode() -> BaseRtResult<()> {
         let mut blk: Block = Default::default();
         let headers = vec![
-            new_block_header(b"a".to_vec(), BqlType::LowCardinalityString, false),
-            new_block_header(b"b".to_vec(), BqlType::UInt(64), true),
+            BaseColumn::new_block_header(
+                b"a".to_vec(),
+                BqlType::LowCardinalityString,
+                false,
+            ),
+            BaseColumn::new_block_header(b"b".to_vec(), BqlType::UInt(64), true),
         ];
-        blk.ncols = headers.len();
-        blk.nrows = 0; //for empty data case
-        blk.columns.extend(headers);
+        blk.data.ncols = headers.len();
+        blk.data.nrows = 0; //for empty data case
+        blk.data.columns.extend(headers);
 
         let mut bs = BytesMut::with_capacity(1);
         blk.encode_to(&mut bs, None)?;
@@ -928,12 +652,16 @@ mod unit_tests {
 
         let mut blk: Block = Default::default();
         let headers = vec![
-            new_block_header(b"trip_id".to_vec(), BqlType::UInt(32), false),
-            new_block_header(b"pickup_datetime".to_vec(), BqlType::DateTime, false),
+            BaseColumn::new_block_header(b"trip_id".to_vec(), BqlType::UInt(32), false),
+            BaseColumn::new_block_header(
+                b"pickup_datetime".to_vec(),
+                BqlType::DateTime,
+                false,
+            ),
         ];
-        blk.ncols = headers.len();
-        blk.nrows = 0; //for empty data case
-        blk.columns.extend(headers);
+        blk.data.ncols = headers.len();
+        blk.data.nrows = 0; //for empty data case
+        blk.data.columns.extend(headers);
 
         let mut bs = BytesMut::with_capacity(1);
         blk.encode_to(&mut bs, None)?;
@@ -956,7 +684,7 @@ mod unit_tests {
 
         let mut blk: Block = Default::default();
 
-        let col: Column = Column {
+        let col: BaseColumn = BaseColumn {
             name: b"col_1".to_vec(),
             data: BaseChunk {
                 btype: BqlType::String,
@@ -967,9 +695,9 @@ mod unit_tests {
                 lc_dict_data: None,
             },
         };
-        blk.ncols = 1;
-        blk.nrows = 1;
-        blk.columns.push(col);
+        blk.data.ncols = 1;
+        blk.data.nrows = 1;
+        blk.data.columns.push(col);
         // println!("block: {:?}", blk);
 
         // println!("bs.as_ptr: {:p}", bs.as_ptr());
@@ -982,9 +710,15 @@ mod unit_tests {
         blk2.decode_from(&mut &bs[..])?;
         // println!("block2: {:?}", blk2);
 
-        assert_eq!(blk.columns.len(), blk2.columns.len());
-        assert_eq!(blk.columns[0].data.btype, blk2.columns[0].data.btype);
-        assert_eq!(blk.columns[0].data.data, blk2.columns[0].data.data);
+        assert_eq!(blk.data.columns.len(), blk2.data.columns.len());
+        assert_eq!(
+            blk.data.columns[0].data.btype,
+            blk2.data.columns[0].data.btype
+        );
+        assert_eq!(
+            blk.data.columns[0].data.data,
+            blk2.data.columns[0].data.data
+        );
 
         Ok(())
     }
@@ -996,7 +730,7 @@ mod unit_tests {
 
         let mut blk: Block = Default::default();
 
-        let col: Column = Column {
+        let col: BaseColumn = BaseColumn {
             name: b"col_1".to_vec(),
             data: BaseChunk {
                 btype: BqlType::String,
@@ -1007,9 +741,9 @@ mod unit_tests {
                 lc_dict_data: None,
             },
         };
-        blk.ncols = 1;
-        blk.nrows = col.data.size;
-        blk.columns.push(col);
+        blk.data.ncols = 1;
+        blk.data.nrows = col.data.size;
+        blk.data.columns.push(col);
         // println!("block: {:?}", blk);
 
         // println!("bs.as_ptr: {:p}", bs.as_ptr());
@@ -1031,13 +765,22 @@ mod unit_tests {
         blk2.decode_from(&mut &_bs[..])?;
         println!("block2: {:?}", blk2);
 
-        assert_eq!(blk.columns.len(), blk2.columns.len());
-        assert_eq!(blk.columns[0].data.btype, blk2.columns[0].data.btype);
-        assert_eq!(blk.columns[0].data.data, blk2.columns[0].data.data);
-        assert_eq!(blk2.columns[0].data.null_map.is_none(), true);
-        assert_eq!(blk2.columns[0].data.btype, BqlType::String);
-        assert_eq!(blk2.columns[0].data.offset_map.is_some(), true);
-        println!("{:?}", blk2.columns[0].data.offset_map.as_ref().unwrap());
+        assert_eq!(blk.data.columns.len(), blk2.data.columns.len());
+        assert_eq!(
+            blk.data.columns[0].data.btype,
+            blk2.data.columns[0].data.btype
+        );
+        assert_eq!(
+            blk.data.columns[0].data.data,
+            blk2.data.columns[0].data.data
+        );
+        assert_eq!(blk2.data.columns[0].data.null_map.is_none(), true);
+        assert_eq!(blk2.data.columns[0].data.btype, BqlType::String);
+        assert_eq!(blk2.data.columns[0].data.offset_map.is_some(), true);
+        println!(
+            "{:?}",
+            blk2.data.columns[0].data.offset_map.as_ref().unwrap()
+        );
 
         Ok(())
     }
@@ -1049,7 +792,7 @@ mod unit_tests {
 
         let mut blk: Block = Default::default();
 
-        let col: Column = Column {
+        let col: BaseColumn = BaseColumn {
             name: b"col_1".to_vec(),
             data: BaseChunk {
                 btype: BqlType::String,
@@ -1060,9 +803,9 @@ mod unit_tests {
                 lc_dict_data: None,
             },
         };
-        blk.ncols = 1;
-        blk.nrows = col.data.size;
-        blk.columns.push(col);
+        blk.data.ncols = 1;
+        blk.data.nrows = col.data.size;
+        blk.data.columns.push(col);
         // println!("block: {:?}", blk);
 
         // println!("bs.as_ptr: {:p}", bs.as_ptr());
@@ -1100,13 +843,22 @@ mod unit_tests {
         println!("block2: {:?}", blk2);
 
         assert_eq!(blk2.has_decoded(), true);
-        assert_eq!(blk.columns.len(), blk2.columns.len());
-        assert_eq!(blk.columns[0].data.btype, blk2.columns[0].data.btype);
-        assert_eq!(blk.columns[0].data.data, blk2.columns[0].data.data);
-        assert_eq!(blk2.columns[0].data.null_map.is_none(), true);
-        assert_eq!(blk2.columns[0].data.btype, BqlType::String);
-        assert_eq!(blk2.columns[0].data.offset_map.is_some(), true);
-        println!("{:?}", blk2.columns[0].data.offset_map.as_ref().unwrap());
+        assert_eq!(blk.data.columns.len(), blk2.data.columns.len());
+        assert_eq!(
+            blk.data.columns[0].data.btype,
+            blk2.data.columns[0].data.btype
+        );
+        assert_eq!(
+            blk.data.columns[0].data.data,
+            blk2.data.columns[0].data.data
+        );
+        assert_eq!(blk2.data.columns[0].data.null_map.is_none(), true);
+        assert_eq!(blk2.data.columns[0].data.btype, BqlType::String);
+        assert_eq!(blk2.data.columns[0].data.offset_map.is_some(), true);
+        println!(
+            "{:?}",
+            blk2.data.columns[0].data.offset_map.as_ref().unwrap()
+        );
 
         Ok(())
     }

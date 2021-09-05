@@ -3,10 +3,11 @@ use lzzzz::lz4;
 use std::str;
 
 use crate::mgmt::{BaseCommandKind, BMS, WRITE};
+use crate::types::{BaseReadAware, BaseWriteAware};
 
 use super::protocol::{StageKind, LZ4_COMPRESSION_METHOD};
 use crate::ch::blocks::{Block, EMPTY_CLIENT_BLK_BYTES};
-use crate::ch::codecs::{BytesExt, CHMsgReadAware, CHMsgWriteAware};
+use crate::ch::codecs::{BytesExt, CHMsgWriteAware};
 use crate::ch::protocol::{
     ClientCodes, ClientInfo, ConnCtx, Interface, QueryKind, ServerCodes,
 };
@@ -122,7 +123,7 @@ pub fn response_to(
                 if blk.has_decoded() {
                     log::debug!("_ got block[{:p}]", &blk);
                     let write = WRITE.get().unwrap();
-                    write(blk, &cctx.current_tab_ins, cctx.current_tid_ins)?;
+                    write(&mut blk.data, &cctx.current_tab_ins, cctx.current_tid_ins)?;
                     // log::debug!("blk.columns[0].data.1..100: {:?}", b1);
                 } else {
                     cctx.stage = StageKind::DataBlk;
@@ -154,7 +155,7 @@ pub fn response_to(
             if blk.has_decoded() {
                 log::debug!("got block[{:p}]", &blk);
                 let write = WRITE.get().unwrap();
-                write(blk, &cctx.current_tab_ins, cctx.current_tid_ins)?;
+                write(&mut blk.data, &cctx.current_tab_ins, cctx.current_tid_ins)?;
                 cctx.stage = StageKind::DataPacket;
             }
 
@@ -340,13 +341,14 @@ fn response_query(
     match res {
         Ok(BaseCommandKind::Query(blks)) => {
             for blk in blks {
+                let ch_blk = Block::from(blk);
                 if compression == 1 {
                     let _bs = cctx.get_raw_blk_resp();
-                    blk.get_block_header().encode_to(wb, Some(_bs))?;
-                    blk.encode_to(wb, Some(_bs))?;
+                    ch_blk.get_block_header().encode_to(wb, Some(_bs))?;
+                    ch_blk.encode_to(wb, Some(_bs))?;
                 } else {
-                    blk.get_block_header().encode_to(wb, None)?;
-                    blk.encode_to(wb, None)?;
+                    ch_blk.get_block_header().encode_to(wb, None)?;
+                    ch_blk.encode_to(wb, None)?;
                 }
             }
             // cctx.stage = StageKind::DataEODP;
@@ -388,11 +390,12 @@ fn response_query(
             // Send block to the client - table structure.
             //sendData(state.io.out->getHeader());
             log::debug!("[{}]header for insert into: {:?}", cctx.query_id, header);
+            let ch_header = Block::from(header);
             if compression == 1 {
                 let _bs = cctx.get_raw_blk_resp();
-                header.encode_to(wb, Some(_bs))?;
+                ch_header.encode_to(wb, Some(_bs))?;
             } else {
-                header.encode_to(wb, None)?;
+                ch_header.encode_to(wb, None)?;
             }
             cctx.current_tab_ins = qtn;
             cctx.current_tid_ins = tid;
@@ -597,7 +600,7 @@ mod unit_tests {
     use super::*;
     use crate::ch::codecs::CHMsgWriteAware;
     use base::show_option_size;
-    use bytes::{Buf, BytesMut};
+    use bytes::BytesMut;
     use meta::types::BqlType;
     use std::time::Instant;
     use zerocopy::AsBytes;
