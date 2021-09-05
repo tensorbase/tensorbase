@@ -1,3 +1,4 @@
+use crate::types::BaseServerConn;
 use bytes::BytesMut;
 use meta::types::Id;
 
@@ -205,6 +206,32 @@ pub struct ConnCtx {
     pub data_block_opt: Option<Box<Block>>,
     pub raw_blk_req: Option<BytesMut>,
     raw_blk_resp: Option<BytesMut>,
+}
+
+impl BaseServerConn for ConnCtx {
+    fn get_query_id(&self) -> &str {
+        &self.query_id
+    }
+
+    fn set_query_id(&mut self, query_id: String) {
+        self.query_id = query_id;
+    }
+
+    fn get_db(&self) -> &str {
+        &self.current_db
+    }
+
+    fn set_db(&mut self, db: String) {
+        self.current_db = db;
+    }
+
+    fn set_compressed(&mut self, is_compressed: bool) {
+        self.is_compressed = is_compressed;
+    }
+
+    fn is_compressed(&self) -> bool {
+        self.is_compressed
+    }
 }
 
 impl Default for ConnCtx {

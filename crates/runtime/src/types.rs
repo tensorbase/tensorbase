@@ -197,6 +197,15 @@ impl BaseColumn {
     }
 }
 
+pub trait BaseServerConn {
+    fn get_query_id(&self) -> &str;
+    fn set_query_id(&mut self, query_id: String);
+    fn get_db(&self) -> &str;
+    fn set_db(&mut self, db: String);
+    fn set_compressed(&mut self, is_compressed: bool);
+    fn is_compressed(&self) -> bool;
+}
+
 pub trait BaseWriteAware {
     fn write_varint(&mut self, value: u64);
     fn write_varbytes(&mut self, value: &[u8]);
