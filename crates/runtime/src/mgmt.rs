@@ -1,3 +1,8 @@
+use arrow::{
+    array::{LargeStringArray, LargeStringBuilder},
+    datatypes::{DataType, Field, Schema},
+    record_batch::RecordBatch,
+};
 use base::bytes_cat;
 use base::{
     codec::encode_ascii_bytes_vec_short,
@@ -26,9 +31,9 @@ use meta::{
     types::{BaseChunk, BqlType, Id},
 };
 use mysql::{Compression, OptsBuilder, Pool as MyPool, SslOpts};
-use std::net::IpAddr;
 use std::time::Duration;
 use std::{
+    convert::TryInto,
     env,
     fs::remove_dir_all,
     lazy::{SyncLazy, SyncOnceCell},
@@ -39,6 +44,7 @@ use std::{
     sync::Mutex,
     time::Instant,
 };
+use std::{net::IpAddr, sync::Arc};
 
 use crate::{
     errs::{BaseRtError, BaseRtResult},
@@ -54,7 +60,7 @@ pub static READ: SyncOnceCell<
         query_id: &str,
         current_db: &str,
         p: Pair<Rule>,
-    ) -> BaseRtResult<Vec<BaseDataBlock>>,
+    ) -> BaseRtResult<Vec<RecordBatch>>,
 > = SyncOnceCell::new();
 
 pub static WRITE: SyncOnceCell<
@@ -66,7 +72,7 @@ pub static REMOTE_READ: SyncOnceCell<
         remote_tb_info: RemoteTableInfo,
         raw_query: &str,
         is_local: bool,
-    ) -> BaseRtResult<Vec<BaseDataBlock>>,
+    ) -> BaseRtResult<Vec<RecordBatch>>,
 > = SyncOnceCell::new();
 
 pub struct BaseHasher {
@@ -174,7 +180,7 @@ pub enum BaseCommandKind {
     Default,
     Create,
     Drop,
-    Query(Vec<BaseDataBlock>), //FIXME need iterator for big return
+    Query(Vec<RecordBatch>), //FIXME need iterator for big return
     InsertFormatInline(BaseDataBlock, String, Id),
     InsertFormatInlineValues(BaseDataBlock, String, Id),
     InsertFormatCSV(BaseDataBlock, String, Id),
@@ -474,43 +480,31 @@ impl<'a> BaseMgmtSys<'a> {
         }
     }
 
-    pub fn command_show_databases(&self) -> BaseRtResult<BaseDataBlock> {
+    pub fn command_show_databases(&self) -> BaseRtResult<RecordBatch> {
         let ms = &self.meta_store;
         let bc = ms
             .get_all_databases()
             .map_err(|e| BaseRtError::WrappingMetaError(e))?;
-        let mut blk = BaseDataBlock::default();
-        blk.nrows = bc.size;
-        blk.columns.push(BaseColumn {
-            name: b"name".to_vec(),
-            data: bc,
-        });
-        blk.ncols = blk.columns.len();
 
-        Ok(blk)
+        let schema = Schema::new(vec![Field::new("name", DataType::LargeUtf8, false)]);
+        Ok(RecordBatch::try_new(Arc::new(schema), vec![Arc::new(bc)])?)
     }
 
-    pub fn command_show_tables(&self, dbname: &str) -> BaseRtResult<BaseDataBlock> {
+    pub fn command_show_tables(&self, dbname: &str) -> BaseRtResult<RecordBatch> {
         let ms = &self.meta_store;
         let bc = ms
             .get_tables(dbname)
             .map_err(|e| BaseRtError::WrappingMetaError(e))?;
-        let mut blk = BaseDataBlock::default();
-        blk.nrows = bc.size;
-        blk.columns.push(BaseColumn {
-            name: b"name".to_vec(),
-            data: bc,
-        });
-        blk.ncols = blk.columns.len();
 
-        Ok(blk)
+        let schema = Schema::new(vec![Field::new("name", DataType::LargeUtf8, false)]);
+        Ok(RecordBatch::try_new(Arc::new(schema), vec![Arc::new(bc)])?)
     }
 
     pub fn command_show_create_table(
         &self,
         p: Pair<Rule>,
         current_db: &str,
-    ) -> BaseRtResult<BaseDataBlock> {
+    ) -> BaseRtResult<RecordBatch> {
         let (dbn_opt, tn) = parse_show_create_table(p)?;
         let qtname = if dbn_opt.is_some() {
             [dbn_opt.ok_or(BaseRtError::SchemaInfoShouldExistButNot)?, tn].join(".")
@@ -526,41 +520,32 @@ impl<'a> BaseMgmtSys<'a> {
         // log::debug!("create_script: {:?}", iv_script);
         let mut bs = BytesMut::with_capacity(64);
         bs.write_varbytes(&*iv_script);
-        let mut blk = BaseDataBlock::default();
-        blk.nrows = 1;
-        blk.columns.push(BaseColumn {
-            name: b"statement".to_vec(),
-            data: BaseChunk {
-                btype: BqlType::String,
-                size: 1,
-                data: bs.to_vec(),
-                null_map: None,
-                offset_map: None,
-                lc_dict_data: None,
-            },
-        });
-        blk.ncols = blk.columns.len();
 
-        Ok(blk)
+        let bc = LargeStringArray::from(vec![String::from_utf8(bs.to_vec()).unwrap()]);
+
+        let schema =
+            Schema::new(vec![Field::new("statement", DataType::LargeUtf8, false)]);
+        Ok(RecordBatch::try_new(Arc::new(schema), vec![Arc::new(bc)])?)
     }
 
     pub fn command_desc_table(
         &self,
         p: Pair<Rule>,
         current_db: &str,
-    ) -> BaseRtResult<BaseDataBlock> {
+    ) -> BaseRtResult<RecordBatch> {
         let (dbn_opt, tn) = parse_desc_table(p)?;
         let ms = &self.meta_store;
         let col_infos = ms.get_columns(
             dbn_opt.as_ref().map(|s| s.as_str()).unwrap_or(current_db),
             &tn,
         )?;
-        let mut blk = BaseDataBlock::default();
         let len = col_infos.len();
-        blk.nrows = len;
-        let mut name = Vec::with_capacity(len);
-        let mut dtype = Vec::with_capacity(len * 3);
+
+        let mut builder_name = LargeStringBuilder::new(len);
+        let mut builder_type = LargeStringBuilder::new(len);
         for (name0, _, col_info) in col_infos.into_iter() {
+            let mut name = Vec::with_capacity(len);
+            let mut dtype = Vec::with_capacity(len * 3);
             let mut data = col_info.data_type.to_vec()?;
             data = if col_info.is_nullable {
                 bytes_cat!(b"Nullable(", &data, b")")
@@ -569,29 +554,22 @@ impl<'a> BaseMgmtSys<'a> {
             };
             encode_ascii_bytes_vec_short(name0.as_bytes(), &mut name)?;
             encode_ascii_bytes_vec_short(&data, &mut dtype)?;
+            builder_name.append_value(String::from_utf8(name).unwrap())?;
+            builder_type.append_value(String::from_utf8(dtype).unwrap())?;
         }
-        blk.columns.push(BaseColumn {
-            name: b"name".to_vec(),
-            data: BaseChunk {
-                btype: BqlType::String,
-                size: len,
-                data: name,
-                null_map: None,
-                offset_map: None,
-                lc_dict_data: None,
-            },
-        });
-        blk.columns.push(BaseColumn {
-            name: b"type".to_vec(),
-            data: BaseChunk {
-                btype: BqlType::String,
-                size: len,
-                data: dtype,
-                null_map: None,
-                offset_map: None,
-                lc_dict_data: None,
-            },
-        });
+
+        let schema = Schema::new(vec![
+            Field::new("name", DataType::LargeUtf8, false),
+            Field::new("type", DataType::LargeUtf8, false),
+        ]);
+        Ok(RecordBatch::try_new(
+            Arc::new(schema),
+            vec![
+                Arc::new(builder_name.finish()),
+                Arc::new(builder_type.finish()),
+            ],
+        )?)
+        // blk.columns.push(Column {
         // blk.columns.push(BaseColumn {
         //     name: b"default_type".to_vec(),
         //     data: BaseChunk {
@@ -647,10 +625,6 @@ impl<'a> BaseMgmtSys<'a> {
         //         lc_dict_data: None,
         //     },
         // });
-
-        blk.ncols = blk.columns.len();
-
-        Ok(blk)
     }
 
     fn has_mulit_cols_in_partkey(pc: &str) -> bool {
@@ -778,6 +752,11 @@ impl<'a> BaseMgmtSys<'a> {
             let remote_read = REMOTE_READ.get().unwrap();
             let blks = remote_read(remote_tb_info, query, true)?;
 
+            let blks = blks
+                .into_iter()
+                .map(|b| b.try_into())
+                .collect::<BaseRtResult<_>>()?;
+
             return Ok(BaseCommandKind::InsertFormatSelectValue(blks, qtn, tid));
         }
 
@@ -804,6 +783,12 @@ impl<'a> BaseMgmtSys<'a> {
             self.command_query(p, &cctx.get_db(), query_id)?
         {
             log::debug!("process subquery: {} in {:?}", query_id, timer.elapsed());
+
+            let blks = blks
+                .into_iter()
+                .map(|b| b.try_into())
+                .collect::<BaseRtResult<_>>()?;
+
             return Ok(BaseCommandKind::InsertFormatSelectValue(blks, qtn, tid));
         } else {
             unreachable!()
