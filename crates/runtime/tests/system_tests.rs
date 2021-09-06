@@ -4,7 +4,7 @@ use runtime::{
     ch::protocol::ConnCtx,
     errs::{BaseRtError, BaseRtResult},
     mgmt::{BaseCommandKind, BaseMgmtSys},
-    types::BaseServerConn,
+    types::{BaseDataBlock, BaseServerConn},
 };
 use test_utils::prepare_empty_tmp_dir;
 
@@ -32,6 +32,7 @@ fn prepare_bms<'a>() -> BaseRtResult<BaseMgmtSys<'a>> {
 
 #[test]
 fn test_run_commands() -> BaseRtResult<()> {
+    use std::convert::TryInto;
     let bms = prepare_bms()?;
     let mut cctx = ConnCtx::default();
 
@@ -73,10 +74,11 @@ fn test_run_commands() -> BaseRtResult<()> {
     assert!(matches!(res, BaseCommandKind::Query(_)));
     if let BaseCommandKind::Query(vbc) = res {
         assert!(vbc.len() == 1);
-        assert!(vbc[0].ncols == 1);
+        let vbc: BaseDataBlock = vbc[0].to_owned().try_into().unwrap();
+        assert!(vbc.ncols == 1);
         // assert!(vbc[0].nrows == 1);
-        assert!(vbc[0].columns[0].data.btype == BqlType::String);
-        assert!(vbc[0].columns[0].data.data.len() > 0);
+        assert!(vbc.columns[0].data.btype == BqlType::String);
+        assert!(vbc.columns[0].data.data.len() > 0);
     }
 
     let res = bms.run_commands(

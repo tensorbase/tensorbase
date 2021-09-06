@@ -97,6 +97,9 @@ pub enum MetaError {
     #[error(transparent)]
     WrappingBaseError(#[from] base::errs::BaseError),
 
+    #[error(transparent)]
+    WrappingArrowError(#[from] arrow::error::ArrowError),
+
     #[error("No enough space for cache")]
     NoEnoughCacheSpace,
 

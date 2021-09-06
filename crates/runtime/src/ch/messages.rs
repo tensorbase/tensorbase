@@ -1,9 +1,10 @@
 use bytes::{Buf, BufMut, BytesMut};
 use lzzzz::lz4;
+use std::convert::TryFrom;
 use std::str;
 
 use crate::mgmt::{BaseCommandKind, BMS, WRITE};
-use crate::types::{BaseReadAware, BaseWriteAware};
+use crate::types::{BaseDataBlock, BaseReadAware, BaseWriteAware};
 
 use super::protocol::{StageKind, LZ4_COMPRESSION_METHOD};
 use crate::ch::blocks::{Block, EMPTY_CLIENT_BLK_BYTES};
@@ -341,7 +342,7 @@ fn response_query(
     match res {
         Ok(BaseCommandKind::Query(blks)) => {
             for blk in blks {
-                let ch_blk = Block::from(blk);
+                let ch_blk = Block::from(BaseDataBlock::try_from(blk)?);
                 if compression == 1 {
                     let _bs = cctx.get_raw_blk_resp();
                     ch_blk.get_block_header().encode_to(wb, Some(_bs))?;
