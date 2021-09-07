@@ -8,6 +8,7 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
+  SERVER_PORT: 9528
 
 jobs:
   build:
@@ -47,15 +48,44 @@ jobs:
             data_dirs_clickhouse = ""          
             [server.tcp]                           
             ip_addr = "0.0.0.0"              
-            port = 9528
+            port = ${{ env.SERVER_PORT }}
     - name: TensorBase wait for server up 01
       run: cargo install wait-for-them
     - name: TensorBase wait for server up 02
-      run: wait-for-them 127.0.0.1:9528
+      run: wait-for-them 127.0.0.1:${{ env.SERVER_PORT }}
     - name: TensorBase wait for server up 03
       uses: juliangruber/sleep-action@v1
       with:
            time: 1s
     - name: TensorBase integ sanity checks
       run: cargo test --package tests_integ  --test sanity_checks -- --test-threads=1
+
+    - name: Kill TensorBase CH server
+      run: kill $(lsof -t -i:${{ env.SERVER_PORT }})
+
+    - name: TensorBase Run MySQL server
+      run: |
+        cargo run --bin mysql_server -- -s "$BASE_CONF" &
+        wait-for-them 127.0.0.1:${{ env.SERVER_PORT }} &&
+        sleep 1 &&
+        cargo test --package tests_integ  --test sanity_checks_mysql -- --test-threads=1
+      env:
+          BASE_CONF: |
+            [system]                  
+            meta_dirs = ["${{ github.workspace }}/tb_schema"] 
+            data_dirs = ["${{ github.workspace }}/tb_data"]   
+            timezone = "Etc/GMT-8"
+            [storage]                          
+            data_dirs_clickhouse = ""          
+            [server.tcp]                           
+            ip_addr = "0.0.0.0"              
+            port = ${{ env.SERVER_PORT }}
+    # - name: TensorBase wait for MySQL server up 01
+    #   run: wait-for-them 127.0.0.1:${{ env.SERVER_PORT }}
+    # - name: TensorBase wait for MySQL server up 02
+    #   uses: juliangruber/sleep-action@v1
+    #   with:
+    #        time: 1s
+    # - name: TensorBase MySQL server integ sanity checks
+    #   run: cargo test --package tests_integ  --test sanity_checks_mysql -- --test-threads=1
 
