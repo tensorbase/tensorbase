@@ -13,7 +13,7 @@ use server_mysql::{
 
 use crate::{
     errs::{BaseRtError, BaseRtResult},
-    mgmt::{BaseCommandKind, BMS},
+    mgmt::{BaseCommandKind, BMS, WRITE},
     types::BaseServerConn,
 };
 
@@ -107,11 +107,25 @@ impl<W: io::Write + AsyncWrite + Send> AsyncMysqlShim<W> for MysqlConn {
             Ok(
                 BaseCommandKind::Create
                 | BaseCommandKind::Drop
-                | BaseCommandKind::Optimize
-                | BaseCommandKind::InsertFormatInlineValues
-                | BaseCommandKind::InsertFormatSelectValue,
+                | BaseCommandKind::Optimize,
             ) => {
                 log::debug!("Query Success:1");
+                results.completed(0, 0)?;
+                Ok(())
+            }
+            Ok(BaseCommandKind::InsertFormatInlineValues(mut blk, qtn, tid)) => {
+                let write = WRITE.get().unwrap();
+                write(&mut blk, qtn.as_str(), tid)?;
+                results.completed(0, 0)?;
+                Ok(())
+            }
+            Ok(BaseCommandKind::InsertFormatSelectValue(blks, qtn, tid)) => {
+                let write = WRITE.get().unwrap();
+
+                log::debug!("subquery blks {:?}", blks);
+                for mut blk in blks {
+                    write(&mut blk, qtn.as_str(), tid)?;
+                }
                 results.completed(0, 0)?;
                 Ok(())
             }

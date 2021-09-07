@@ -26,6 +26,9 @@ baselog = { git = "https://github.com/tensorbase/baselog.git", branch = "main" }
 clickhouse-rs-cityhash-sys = "0.1.2"
 arrow = { path = "../arrow" }
 datafusion = { path = "../datafusion", features = ["simd"] }
+server_mysql = { path = "../server_mysql" }
+tokio = { version = "1.0", features = ["io-util", "io-std"] }
+async-trait = "0.1.40"
 
 [dev-dependencies]
 test_utils = { path = "../test_utils" }

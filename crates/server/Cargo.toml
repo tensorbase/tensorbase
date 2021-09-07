@@ -14,7 +14,9 @@ futures = "0.3"
 thiserror = "1.0"
 meta = { path = "../meta" }
 runtime = { path = "../runtime" }
-baselog = { git = "https://github.com/tensorbase/baselog.git", branch = "main" }
+server_mysql = { path = "../server_mysql" }
+baselog = { git = "https://github.com/tensorbase/baselog.git", branch = "main"}
+mysql = "18"
 
 [target.'cfg(not(target_env = "msvc"))'.dependencies]
 tikv-jemallocator = "0.4"
@@ -25,3 +27,7 @@ path = "src/lib.rs"
 [[bin]]
 name = "server"
 path = "src/server.rs"
+
+[[bin]]
+name = "mysql_server"
+path = "src/mysql_server.rs"
