@@ -59,3 +59,10 @@ pub fn get_ch_pool() -> Pool {
     let opts = get_ch_config();
     Pool::create(opts).unwrap()
 }
+
+pub fn get_tb_mysql_pool() -> MyPool {
+    let mut opt = OptsBuilder::new();
+    opt = opt.ip_or_hostname("127.0.0.1".into());
+    opt = opt.tcp_port(9528);
+    MyPool::new(opt).expect("Failed to create MySQL pool")
+}
