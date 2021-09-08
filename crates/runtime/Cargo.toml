@@ -30,7 +30,7 @@ datafusion = { path = "../datafusion", features = ["simd"] }
 [dev-dependencies]
 test_utils = { path = "../test_utils" }
 toml = "0.5"
-zerocopy = "0.5"
+zerocopy = "0.6"
 anyhow = "1.0"
 rand = "0.8"
 walkdir = "2.3"
