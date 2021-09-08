@@ -27,7 +27,7 @@ nom = "5"
 mysql_common = "0.22"
 byteorder = "1"
 chrono = "0.4"
-time = "=0.3.0"
+time = "=0.3.2"
 tokio = { version = "1.0", features = ["io-util", "io-std"] }
 async-trait = "0.1.40"
 rand = "0.8.3"
