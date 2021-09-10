@@ -484,6 +484,7 @@ impl MetaStore {
         self.insert_table_info_kv(tid, "en", ti.engine as u8)?;
         self.insert_table_info_kv(tid, "pa", ti.partition_keys_expr.as_str())?;
         self.insert_table_info_kv(tid, "pc", ti.partition_cols.as_str())?;
+        self.insert_table_info_kv(tid, "pk", ti.primary_keys.as_str())?;
         for setting in ti.settings.iter() {
             let k = ["se", &setting.0].join("");
             self.insert_table_info_kv(tid, k.as_str(), setting.1.as_str())?;
@@ -865,6 +866,7 @@ mod unit_tests {
                 engine: EngineType::BaseStorage,
                 partition_keys_expr: "toYYYYMM(ds)".to_string(),
                 partition_cols: "ds".to_string(),
+                primary_keys: String::new(),
                 settings: seq![
                     "a".to_string() => "1".to_string(),
                     "b".to_string() => "1".to_string(),

@@ -527,6 +527,7 @@ mod unit_tests {
                 engine: EngineType::BaseStorage,
                 partition_keys_expr: "toYYYYMMDD(col2)".to_string(),
                 partition_cols: "col2,".to_string(),
+                primary_keys: String::new(),
                 settings: Default::default(),
             },
         };

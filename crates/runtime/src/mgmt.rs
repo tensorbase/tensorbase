@@ -627,7 +627,7 @@ impl<'a> BaseMgmtSys<'a> {
         // });
     }
 
-    fn has_mulit_cols_in_partkey(pc: &str) -> bool {
+    fn has_mulit_cols(pc: &str) -> bool {
         let pcl = pc.len();
         if pcl == 0 {
             false
@@ -662,8 +662,11 @@ impl<'a> BaseMgmtSys<'a> {
         //     return Err(BaseRtError::NoPartitionKeySettingFound);
         // }
         //FIXME only support single partition key columns
-        if BaseMgmtSys::has_mulit_cols_in_partkey(t.tab_info.partition_cols.as_str()) {
+        if BaseMgmtSys::has_mulit_cols(t.tab_info.partition_cols.as_str()) {
             return Err(BaseRtError::MultiplePartitionKeyNotSupported);
+        }
+        if BaseMgmtSys::has_mulit_cols(t.tab_info.primary_keys.as_str()) {
+            return Err(BaseRtError::MultiplePrimaryKeyNotSupported);
         }
 
         let ms = &self.meta_store;
@@ -1274,13 +1277,13 @@ mod unit_tests {
     use super::BaseMgmtSys;
 
     #[test]
-    fn test_has_mulit_cols_in_partkey() {
-        assert_eq!(BaseMgmtSys::has_mulit_cols_in_partkey(""), false);
-        assert_eq!(BaseMgmtSys::has_mulit_cols_in_partkey(","), false);
-        assert_eq!(BaseMgmtSys::has_mulit_cols_in_partkey("cols,"), false);
-        assert_eq!(BaseMgmtSys::has_mulit_cols_in_partkey("cols1,cols2,"), true);
+    fn test_has_mulit_cols() {
+        assert_eq!(BaseMgmtSys::has_mulit_cols(""), false);
+        assert_eq!(BaseMgmtSys::has_mulit_cols(","), false);
+        assert_eq!(BaseMgmtSys::has_mulit_cols("cols,"), false);
+        assert_eq!(BaseMgmtSys::has_mulit_cols("cols1,cols2,"), true);
         assert_eq!(
-            BaseMgmtSys::has_mulit_cols_in_partkey("cols_xxx_1,cols_2,cols_3,"),
+            BaseMgmtSys::has_mulit_cols("cols_xxx_1,cols_2,cols_3,"),
             true
         );
     }

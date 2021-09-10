@@ -58,6 +58,7 @@ pub struct TableInfo {
     pub engine: EngineType,
     pub partition_keys_expr: String,
     pub partition_cols: String,
+    pub primary_keys: String,
     pub settings: HashMap<String, String>,
 }
 

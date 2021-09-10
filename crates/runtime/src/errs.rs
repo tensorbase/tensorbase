@@ -134,6 +134,9 @@ pub enum BaseRtError {
     #[error("Normal program flow should not reach here")]
     ShouldNotReachHere,
 
+    #[error("Multiple primary keys are not supported now")]
+    MultiplePrimaryKeyNotSupported,
+
     #[error(transparent)]
     WrappingBaseError(#[from] base::errs::BaseError),
 
@@ -217,6 +220,7 @@ impl BaseRtError {
             BaseRtError::InvalidFormatForInsertIntoValueList => 412,
             BaseRtError::InsertIntoValueParsingError => 413,
             BaseRtError::ShouldNotReachHere => 414,
+            BaseRtError::MultiplePrimaryKeyNotSupported => 415,
         }
     }
 }
