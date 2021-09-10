@@ -429,7 +429,12 @@ impl CreateTabContext {
                     .ok_or(LangError::CreateTableParsingError)?;
                 let constr = pair.as_str().trim().to_ascii_uppercase();
                 match constr.as_str() {
-                    "PRIMARY KEY" => col.1.is_primary_key = true,
+                    "PRIMARY KEY" => {
+                        let ti = &mut self.tab.tab_info;
+                        ti.primary_keys.push_str(col.0.as_str());
+                        ti.primary_keys.push(',');
+                        col.1.is_primary_key = true;
+                    }
                     _ => return Err(LangError::UnsupportedLangFeatureError),
                 };
             }
@@ -1446,6 +1451,23 @@ mod unit_tests {
             let od = t.0.columns[i as usize].1.ordinal;
             assert_eq!(od, i);
         }
+
+        let ddl = r##"create TABLE test_primary_key
+        (
+            a UInt32 PRIMARY KEY,
+            b String
+        )
+        ENGINE = BaseStorage
+        "##;
+        let ps = BqlParser::parse(Rule::cmd_list, ddl)
+            .map_err(|e| LangError::CreateTableParsingError)?;
+
+        let ct = ps
+            .into_iter()
+            .next()
+            .ok_or(LangError::CreateTableParsingError)?;
+        let t = parse_create_table(ct)?;
+        assert_eq!(t.0.tab_info.primary_keys, "a,");
 
         Ok(())
     }
