@@ -22,6 +22,8 @@ jobs:
         override: true
         components: rustfmt, clippy
     - uses: actions/checkout@v2
+    - name: Cache dependencies
+      uses: Swatinem/rust-cache@v1
     - name: TensorBase Build
       run: cargo build
     - name: TensorBase unit tests

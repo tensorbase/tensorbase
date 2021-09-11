@@ -35,3 +35,7 @@ lto = 'thin'
 # lto = 'fat'
 # codegen-units = 1
 # incremental = false
+
+[profile.dev]
+# Disabling debug info speeds up builds a bunch
+debug = 0
