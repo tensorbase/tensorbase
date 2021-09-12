@@ -65,6 +65,11 @@ jobs:
     - name: Kill TensorBase CH server
       run: kill $(lsof -t -i:${{ env.SERVER_PORT }})
 
+    - name: Clean schema and data files
+      run: |
+        rm -r ${{ github.workspace }}/tb_schema/*
+        rm -r ${{ github.workspace }}/tb_data/*
+
     - name: TensorBase Run MySQL server
       run: |
         cargo run --bin mysql_server -- -s "$BASE_CONF" &
