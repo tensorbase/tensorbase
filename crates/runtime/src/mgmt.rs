@@ -1173,6 +1173,23 @@ fn parse_literal_as_bytes(lit: &str, btyp: BqlType) -> BaseRtResult<Vec<u8>> {
             let v = ut.to_le_bytes();
             rt.extend(&v);
         }
+        BqlType::Float(bits) => match bits {
+            64 => {
+                let v = lit
+                    .parse::<f64>()
+                    .map_err(|_e| BaseRtError::InsertIntoValueParsingError)?
+                    .to_le_bytes();
+                rt.extend(&v);
+            }
+            32 => {
+                let v = lit
+                    .parse::<f32>()
+                    .map_err(|_e| BaseRtError::InsertIntoValueParsingError)?
+                    .to_le_bytes();
+                rt.extend(&v);
+            }
+            _ => return Err(BaseRtError::UnsupportedValueConversion),
+        },
         BqlType::String => {
             todo!()
         }
