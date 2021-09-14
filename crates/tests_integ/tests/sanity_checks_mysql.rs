@@ -125,7 +125,6 @@ async fn tests_mysql_integ_basic_test_insert_select() {
 }
 
 #[tokio::test]
-#[ignore = "MySQL server currently does not support decimal types"]
 async fn tests_mysql_integ_basic_insert_float() {
     let pool = get_tb_mysql_pool();
     let mut conn = pool.get_conn().unwrap();
