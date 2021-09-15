@@ -1,7 +1,7 @@
 extern crate server_mysql;
 
 use async_trait::async_trait;
-use std::io;
+use std::{convert::TryInto, io, mem};
 use tokio::io::AsyncWrite;
 
 use arrow::{array, datatypes::DataType, record_batch::RecordBatch};
@@ -271,8 +271,30 @@ fn write_blks<W: io::Write>(
                 DataType::Date16 => {
                     todo!();
                 }
-                DataType::Decimal(_, _) => {
-                    todo!();
+                DataType::Decimal(p, scale) => {
+                    let buf = col.data().buffers()[0].as_slice();
+                    let val = if *p >= 1 && *p <= 9 {
+                        // Decimal32
+                        let idx = row * mem::size_of::<i32>();
+                        i32::from_le_bytes(
+                            buf[idx..(idx + mem::size_of::<i32>())].try_into().unwrap(),
+                        ) as i64
+                    } else if *p >= 10 && *p <= 18 {
+                        // Decimal64
+                        let idx = row * mem::size_of::<i64>();
+                        i64::from_le_bytes(
+                            buf[idx..(idx + mem::size_of::<i64>())].try_into().unwrap(),
+                        )
+                    } else {
+                        return Err(BaseRtError::ResponseWriteError(
+                            "Failed to convert Decimal data".to_string(),
+                        ));
+                    };
+                    let mut val = format!("{}", val);
+                    if *scale != 0 {
+                        val.insert(val.len() - scale, '.')
+                    }
+                    writer.write_col(val)?;
                 }
                 DataType::LargeUtf8 => {
                     let val = col

@@ -1,6 +1,7 @@
 mod common;
 use common::get_tb_mysql_pool;
 use mysql::prelude::*;
+use mysql_common::bigdecimal::BigDecimal;
 
 #[tokio::test]
 async fn tests_mysql_integ_stress_test_ddl() {
@@ -172,12 +173,72 @@ async fn tests_mysql_integ_basic_insert_float() {
 }
 
 #[tokio::test]
-#[ignore = "MySQL server currently does not support decimal types"]
-async fn tests_mysql_integ_basic_insert_decimal32() {}
+async fn tests_mysql_integ_basic_insert_decimal32() {
+    let pool = get_tb_mysql_pool();
+    let mut conn = pool.get_conn().unwrap();
+
+    conn.query_drop("create database if not exists test_db")
+        .unwrap();
+    conn.query_drop("use test_db").unwrap();
+
+    conn.query_drop(format!("DROP TABLE IF EXISTS test_tab_dec"))
+        .unwrap();
+    conn.query_drop(format!("CREATE TABLE test_tab_dec(a Decimal(9,2))"))
+        .unwrap();
+
+    let data_a = vec!["123.00", "10.02"];
+    for &a in &data_a {
+        conn.query_drop(&format!("insert into test_tab_dec values ({})", a))
+            .unwrap();
+    }
+
+    {
+        let sql = "select a from test_tab_dec";
+        let mut query_result = conn.query_iter(sql).unwrap();
+
+        let mut i = 0;
+        while let Some(block) = query_result.next() {
+            let row = block.unwrap();
+            let res: BigDecimal = row.get::<BigDecimal, _>(0).unwrap();
+            assert_eq!(res.to_string(), data_a[i]);
+            i += 1;
+        }
+    }
+}
 
 #[tokio::test]
-#[ignore = "MySQL server currently does not support decimal types"]
-async fn tests_mysql_integ_basic_insert_decimal64() {}
+async fn tests_mysql_integ_basic_insert_decimal64() {
+    let pool = get_tb_mysql_pool();
+    let mut conn = pool.get_conn().unwrap();
+
+    conn.query_drop("create database if not exists test_db")
+        .unwrap();
+    conn.query_drop("use test_db").unwrap();
+
+    conn.query_drop(format!("DROP TABLE IF EXISTS test_tab_dec"))
+        .unwrap();
+    conn.query_drop(format!("CREATE TABLE test_tab_dec(a Decimal(12,2))"))
+        .unwrap();
+
+    let data_a = vec!["123.00", "1002003001.20"];
+    for &a in &data_a {
+        conn.query_drop(&format!("insert into test_tab_dec values ({})", a))
+            .unwrap();
+    }
+
+    {
+        let sql = "select a from test_tab_dec";
+        let mut query_result = conn.query_iter(sql).unwrap();
+
+        let mut i = 0;
+        while let Some(block) = query_result.next() {
+            let row = block.unwrap();
+            let res: BigDecimal = row.get::<BigDecimal, _>(0).unwrap();
+            assert_eq!(res.to_string(), data_a[i]);
+            i += 1;
+        }
+    }
+}
 
 #[tokio::test]
 #[ignore = "MySQL server currently does not support date types"]

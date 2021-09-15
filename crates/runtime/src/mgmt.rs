@@ -11,6 +11,7 @@ use base::{
     strings::s,
 };
 use basejit::jit;
+use bigdecimal::BigDecimal;
 use bytes::BytesMut;
 use clap::{App, Arg};
 use client::prelude::Pool;
@@ -1190,6 +1191,29 @@ fn parse_literal_as_bytes(lit: &str, btyp: BqlType) -> BaseRtResult<Vec<u8>> {
             }
             _ => return Err(BaseRtError::UnsupportedValueConversion),
         },
+        BqlType::Decimal(p, s) => {
+            if let Ok(n) = BigDecimal::from_str(lit) {
+                let n = n.with_scale(s as u64 as i64);
+                let mut bs = n.into_bigint_and_exponent().0.to_signed_bytes_le();
+                // https://clickhouse.tech/docs/en/sql-reference/data-types/decimal/
+                if p >= 1 && p <= 9 {
+                    if bs.len() < 4 {
+                        bs.extend(vec![0; 8 - bs.len()]);
+                    } else {
+                        return Err(BaseRtError::UnsupportedValueConversion);
+                    }
+                } else if p >= 10 && p <= 18 {
+                    if bs.len() < 8 {
+                        bs.extend(vec![0; 8 - bs.len()]);
+                    } else {
+                        return Err(BaseRtError::UnsupportedValueConversion);
+                    }
+                }
+                rt.extend(bs);
+            } else {
+                return Err(BaseRtError::UnsupportedValueConversion);
+            }
+        }
         BqlType::String => {
             todo!()
         }
