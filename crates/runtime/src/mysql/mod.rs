@@ -1,6 +1,7 @@
 extern crate server_mysql;
 
 use async_trait::async_trait;
+use chrono::{Duration, NaiveDate, NaiveDateTime};
 use std::{convert::TryInto, io, mem};
 use tokio::io::AsyncWrite;
 
@@ -10,6 +11,8 @@ use server_mysql::{
     AsyncMysqlShim, Column, ColumnFlags, ColumnType, ErrorKind, InitWriter, ParamParser,
     QueryResultWriter, StatementMetaWriter,
 };
+
+use base::datetimes::*;
 
 use crate::{
     errs::{BaseRtError, BaseRtResult},
@@ -265,11 +268,27 @@ fn write_blks<W: io::Write>(
                     log::debug!("Write result on row {}: {:?}", row, val);
                     writer.write_col(val)?;
                 }
-                DataType::Timestamp32(_) => {
-                    todo!();
+                DataType::Timestamp32(tz) => {
+                    let val = col
+                        .as_any()
+                        .downcast_ref::<array::Timestamp32Array>()
+                        .unwrap()
+                        .value(row);
+                    let val = add_tz_offset(val, tz.map_or(0, |tzid| tzid.offset()));
+                    let val = NaiveDateTime::from_timestamp(val as i64, 0);
+                    log::debug!("Write result on row {}: {:?}", row, val);
+                    writer.write_col(val)?;
                 }
                 DataType::Date16 => {
-                    todo!();
+                    let val = col
+                        .as_any()
+                        .downcast_ref::<array::Date16Array>()
+                        .unwrap()
+                        .value(row);
+                    let val = NaiveDate::from_ymd(1970, 1, 1)
+                        .checked_add_signed(Duration::days(val as u64 as i64));
+                    log::debug!("Write result on row {}: {:?}", row, val);
+                    writer.write_col(val)?;
                 }
                 DataType::Decimal(p, scale) => {
                     let buf = col.data().buffers()[0].as_slice();
@@ -333,7 +352,7 @@ fn arrow_type_to_mysql_type(typ: &DataType) -> BaseRtResult<ColumnType> {
         DataType::Int64 | DataType::UInt64 => Ok(ColumnType::MYSQL_TYPE_LONGLONG),
         DataType::Float32 => Ok(ColumnType::MYSQL_TYPE_FLOAT),
         DataType::Float64 => Ok(ColumnType::MYSQL_TYPE_DOUBLE),
-        DataType::Timestamp32(_) => todo!(),
+        DataType::Timestamp32(_) => Ok(ColumnType::MYSQL_TYPE_DATETIME),
         DataType::Date16 => Ok(ColumnType::MYSQL_TYPE_DATE),
         DataType::Decimal(_, _) => Ok(ColumnType::MYSQL_TYPE_DECIMAL),
         DataType::LargeUtf8 => Ok(ColumnType::MYSQL_TYPE_VARCHAR),

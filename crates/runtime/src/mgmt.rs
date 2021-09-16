@@ -3,7 +3,7 @@ use arrow::{
     datatypes::{DataType, Field, Schema},
     record_batch::RecordBatch,
 };
-use base::bytes_cat;
+use base::{bytes_cat, datetimes::parse_to_days};
 use base::{
     codec::encode_ascii_bytes_vec_short,
     datetimes::{parse_to_epoch, TimeZoneId},
@@ -13,6 +13,7 @@ use base::{
 use basejit::jit;
 use bigdecimal::BigDecimal;
 use bytes::BytesMut;
+use chrono::NaiveDateTime;
 use clap::{App, Arg};
 use client::prelude::Pool;
 use client::prelude::PoolBuilder;
@@ -1190,14 +1191,22 @@ fn parse_literal_as_bytes(lit: &str, btyp: BqlType) -> BaseRtResult<Vec<u8>> {
             _ => return Err(BaseRtError::UnsupportedValueConversion),
         },
         BqlType::DateTimeTz(tz) => {
+            let lit = parse_single_quoted_str(lit)?;
             let tz_offset = tz.offset();
-            let ut = parse_to_epoch(lit, tz_offset)?;
+            let ut = parse_to_epoch(&lit, tz_offset)?;
             let v = ut.to_le_bytes();
             rt.extend(&v);
         }
         BqlType::DateTime => {
+            let lit = parse_single_quoted_str(lit)?;
             let tz_offset = BMS.timezone.offset();
-            let ut = parse_to_epoch(lit, tz_offset)?;
+            let ut = parse_to_epoch(&lit, tz_offset)?;
+            let v = ut.to_le_bytes();
+            rt.extend(&v);
+        }
+        BqlType::Date => {
+            let lit = parse_single_quoted_str(lit)?;
+            let ut = parse_to_days(&lit)?;
             let v = ut.to_le_bytes();
             rt.extend(&v);
         }
