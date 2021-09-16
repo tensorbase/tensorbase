@@ -1097,6 +1097,33 @@ fn command_insert_into_gen_header(
     Ok(())
 }
 
+// Adapted from `tokenize_single_quoted_string()` from sqlparse
+fn parse_single_quoted_str(s: &str) -> BaseRtResult<String> {
+    if s.starts_with("'") {
+        let mut ret = String::new();
+        let mut chars = s[1..].chars().peekable();
+        while let Some(&ch) = chars.peek() {
+            match ch {
+                '\'' => {
+                    chars.next(); // consume
+                    let escaped_quote = chars.peek().map(|c| *c == '\'').unwrap_or(false);
+                    if escaped_quote {
+                        ret.push('\'');
+                        chars.next();
+                    } else {
+                        return Ok(ret);
+                    }
+                }
+                _ => {
+                    chars.next(); // consume
+                    ret.push(ch);
+                }
+            }
+        }
+    }
+    Err(BaseRtError::InvalidStringConversion(s.as_bytes().to_vec()))
+}
+
 fn parse_literal_as_bytes(lit: &str, btyp: BqlType) -> BaseRtResult<Vec<u8>> {
     let mut rt = Vec::new();
     match btyp {
@@ -1215,7 +1242,16 @@ fn parse_literal_as_bytes(lit: &str, btyp: BqlType) -> BaseRtResult<Vec<u8>> {
             }
         }
         BqlType::String => {
-            todo!()
+            let s = parse_single_quoted_str(lit)?;
+            let mut bs = BytesMut::with_capacity(s.len() + 10);
+            bs.write_varbytes(s.as_bytes());
+            rt.extend(&bs[..]);
+        }
+        BqlType::FixedString(len) => {
+            let s = parse_single_quoted_str(lit)?;
+            let s_len = s.len();
+            rt.extend(s.into_bytes());
+            rt.extend(vec![0; len as usize - s_len]);
         }
         // LowCardinalityString,
         _ => todo!(),
@@ -1288,11 +1324,19 @@ fn command_insert_into_gen_block(
                 return Err(BaseRtError::InvalidFormatForInsertIntoValueList);
             }
             let mut data: Vec<u8> = Vec::new();
+            let mut om_data: Vec<u32> = Vec::new();
             for i in 0..nr {
                 let lit = &rows[i][ic];
                 let bs = parse_literal_as_bytes(lit, btype)?;
+                if matches!(btype, BqlType::String) {
+                    om_data.push(data.len().try_into().unwrap());
+                }
                 data.extend(bs);
             }
+            if matches!(btype, BqlType::String) {
+                om_data.push(data.len().try_into().unwrap());
+            }
+
             blk.columns.push(BaseColumn {
                 name,
                 data: BaseChunk {
@@ -1300,7 +1344,11 @@ fn command_insert_into_gen_block(
                     size: 0,
                     data,
                     null_map: if ci.is_nullable { Some(vec![]) } else { None }, //FIXME
-                    offset_map: None,
+                    offset_map: if matches!(btype, BqlType::String) {
+                        Some(om_data)
+                    } else {
+                        None
+                    },
                     lc_dict_data: None,
                 },
             });
