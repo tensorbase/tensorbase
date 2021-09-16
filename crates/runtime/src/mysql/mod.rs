@@ -14,7 +14,7 @@ use server_mysql::{
 use crate::{
     errs::{BaseRtError, BaseRtResult},
     mgmt::{BaseCommandKind, BMS, WRITE},
-    types::BaseServerConn,
+    types::{BaseReadAware, BaseServerConn},
 };
 
 #[derive(Default, Debug)]
@@ -302,6 +302,7 @@ fn write_blks<W: io::Write>(
                         .downcast_ref::<array::LargeStringArray>()
                         .unwrap()
                         .value(row);
+                    let val = val.as_bytes().read_varbytes()?;
                     log::debug!("Write result on row {}: {:?}", row, val);
                     writer.write_col(val)?;
                 }

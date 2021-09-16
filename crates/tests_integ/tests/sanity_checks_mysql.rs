@@ -85,44 +85,56 @@ async fn tests_mysql_integ_basic_test_insert_select() {
         assert_eq!(row.get::<u64, _>(1).unwrap(), (i + 3) as u64);
     }
 
-    // @fandahao17 TODO: Add support for String types
-    // let mut conn = pool.get_conn().unwrap();
-    // conn.query_drop("use test_insert_select_db").unwrap();
-    // conn.query_drop("drop table if exists test_t3").unwrap();
-    // conn.query_drop("drop table if exists test_t4").unwrap();
-    // conn.query_drop("create table test_t3(a String)").unwrap();
-    // conn.query_drop("create table test_t4(a String)").unwrap();
+    let mut conn = pool.get_conn().unwrap();
+    conn.query_drop("use test_insert_select_db").unwrap();
+    conn.query_drop("drop table if exists test_t3").unwrap();
+    conn.query_drop("drop table if exists test_t4").unwrap();
+    conn.query_drop("create table test_t3(a String)").unwrap();
+    conn.query_drop("create table test_t4(a String)").unwrap();
 
-    // let data_a = vec!["aelvbs a1 233 🀄️", "b^&#*-['&**%%%", "c;;;;\n\t"];
+    let data_a = vec!["aelvbs a1 233 🀄️", "b^&#*-['&**%%%", "c;;;;\n\t"];
 
-    // for a in data_a {
-    //     conn.query_drop(&format!("insert into test_t3 values ({})", a))
-    //         .unwrap();
-    // }
+    let data_escaped = data_a.iter().map(|s| {
+        s.chars()
+            .map(|c| {
+                if c == '\'' {
+                    "''".to_string()
+                } else {
+                    c.to_string()
+                }
+            })
+            .collect::<Vec<_>>()
+            .join("")
+    });
 
-    // let mut conn = pool.get_conn().unwrap();
-    // conn.query_drop("use test_insert_select_db").unwrap();
-    // conn.query_drop("insert into test_t4 select * from test_t3")
-    //     .unwrap();
-    // conn.query_drop("insert into test_t4(a) select a from test_t3 order by a limit 1")
-    //     .unwrap();
-    // let query_result = conn.query_iter("select count(*) from test_t4").unwrap();
+    for a in data_escaped {
+        conn.query_drop(&format!("insert into test_t3 values ('{}')", a))
+            .unwrap();
+    }
 
-    // for block in query_result {
-    //     let row = block.unwrap();
-    //     assert_eq!(row.get::<u64, _>(0).unwrap(), 4);
-    // }
+    let mut conn = pool.get_conn().unwrap();
+    conn.query_drop("use test_insert_select_db").unwrap();
+    conn.query_drop("insert into test_t4 select * from test_t3")
+        .unwrap();
+    conn.query_drop("insert into test_t4(a) select a from test_t3 order by a limit 1")
+        .unwrap();
+    let query_result = conn.query_iter("select count(*) from test_t4").unwrap();
 
-    // let mut conn = pool.get_conn().unwrap();
-    // conn.query_drop("use test_insert_select_db").unwrap();
-    // let query_result = conn
-    //     .query_iter("select * from test_t4 order by a limit 1")
-    //     .unwrap();
+    for block in query_result {
+        let row = block.unwrap();
+        assert_eq!(row.get::<u64, _>(0).unwrap(), 4);
+    }
 
-    // for block in query_result {
-    //     let row = block.unwrap();
-    //     assert_eq!(row.get::<String, _>(0).unwrap(), "c;;;;\n\t");
-    // }
+    let mut conn = pool.get_conn().unwrap();
+    conn.query_drop("use test_insert_select_db").unwrap();
+    let query_result = conn
+        .query_iter("select * from test_t4 order by a limit 1")
+        .unwrap();
+
+    for block in query_result {
+        let row = block.unwrap();
+        assert_eq!(row.get::<String, _>(0).unwrap(), "c;;;;\n\t");
+    }
 }
 
 #[tokio::test]
@@ -245,7 +257,6 @@ async fn tests_mysql_integ_basic_insert_decimal64() {
 async fn tests_mysql_integ_basic_insert_date() {}
 
 #[tokio::test]
-#[ignore = "MySQL server currently does not support string types"]
 async fn tests_mysql_integ_basic_insert_string() {
     let pool = get_tb_mysql_pool();
     let mut conn = pool.get_conn().unwrap();
@@ -279,7 +290,6 @@ async fn tests_mysql_integ_basic_insert_string() {
 }
 
 #[tokio::test]
-#[ignore = "MySQL server currently does not support string types"]
 async fn tests_mysql_integ_basic_insert_fixed_string() {
     let pool = get_tb_mysql_pool();
     println!("Created pool");
@@ -327,7 +337,6 @@ async fn tests_mysql_integ_basic_insert_fixed_string() {
 }
 
 #[tokio::test]
-#[ignore = "MySQL server currently does not support string types"]
 async fn tests_mysql_integ_desc_table() {
     let pool = get_tb_mysql_pool();
     let mut conn = pool.get_conn().unwrap();
@@ -378,7 +387,6 @@ async fn tests_mysql_integ_desc_table() {
 
 #[allow(non_snake_case)]
 #[tokio::test]
-#[ignore = "MySQL server currently does not support string types"]
 async fn tests_mysql_integ_cast_LargeUtf8_to_Utf8() {
     let pool = get_tb_mysql_pool();
     let mut conn = pool.get_conn().unwrap();
@@ -396,7 +404,7 @@ async fn tests_mysql_integ_cast_LargeUtf8_to_Utf8() {
     let count_res = data_s.len() as i64;
 
     for a in data_s {
-        conn.query_drop(&format!("insert into test_t3 values ('{}')", a))
+        conn.query_drop(&format!("insert into test_tab values ('{}')", a))
             .unwrap();
     }
 
