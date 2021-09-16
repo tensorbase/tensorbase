@@ -160,7 +160,7 @@ pub fn div_mod_floor<T: Integer>(x: T, y: T) -> (T, T) {
 }
 
 #[inline(always)]
-fn add_tz_offset(unixtime: i32, tz_offset: i32) -> i32 {
+pub fn add_tz_offset(unixtime: i32, tz_offset: i32) -> i32 {
     let offset = tz_offset;
     unixtime + offset
 }
