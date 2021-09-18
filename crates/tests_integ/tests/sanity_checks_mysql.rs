@@ -980,8 +980,61 @@ async fn tests_mysql_integ_date_time_functions() {
 }
 
 #[tokio::test]
-#[ignore = "MySQL server currently does not support uuid types"]
-async fn tests_mysql_integ_uuid() {}
+async fn tests_mysql_integ_uuid() {
+    let pool = get_tb_mysql_pool();
+    let mut conn = pool.get_conn().unwrap();
+
+    conn.query_drop("create database if not exists test_db")
+        .unwrap();
+    conn.query_drop("use test_db").unwrap();
+
+    conn.query_drop(format!("DROP TABLE IF EXISTS test_tab_uuid"))
+        .unwrap();
+    conn.query_drop(format!(
+        "CREATE TABLE test_tab_uuid( \
+            a FixedString(16), \
+            b String \
+        )"
+    ))
+    .unwrap();
+    let data_a = vec![&b"a/<@];!~p{jTj={)"[..]];
+    let data_b = vec!["612f3c40-5d3b-217e-707b-6a546a3d7b29"];
+
+    conn.query_drop(format!(
+        "insert into test_tab_uuid values('{}','{}')",
+        String::from_utf8(data_a[0].to_owned()).unwrap(),
+        data_b[0]
+    ))
+    .unwrap();
+
+    {
+        let sql = "select \
+            generateUUIDv4() as uuid0, \
+            generateUUIDv4() as uuid1, \
+            toUUID(b), \
+            UUIDStringToNum(b), \
+            UUIDNumToString(a) \
+        from test_tab_uuid";
+        let query_result = conn.query_iter(sql).unwrap();
+
+        for (i, block) in query_result.enumerate() {
+            let row = block.unwrap();
+            println!("{:?}", row);
+            let gen_uuid0: Vec<u8> = row.get(0).unwrap();
+            let gen_uuid1: Vec<u8> = row.get(1).unwrap();
+            // FIXME should return uuid string with length of 36, instead of 16 bytes
+            // assert_eq!(36, gen_uuid0.len());
+            // assert_eq!(36, gen_uuid1.len());
+            assert_ne!(gen_uuid0, gen_uuid1);
+            let to_uuid: Vec<u8> = row.get(2).unwrap();
+            assert_eq!(to_uuid, data_a[i]);
+            let to_num: Vec<u8> = row.get(3).unwrap();
+            assert_eq!(to_num, data_a[i]);
+            let to_str: String = row.get(4).unwrap();
+            assert_eq!(to_str, data_b[i]);
+        }
+    }
+}
 
 #[tokio::test]
 async fn tests_mysql_integ_select_all() {
