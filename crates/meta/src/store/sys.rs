@@ -42,6 +42,11 @@ tid, "pc" - partition_cols
 tid, "se", settings.k - settings.v
 
 
+tabs_pkc:
+----------
+table_id -> primary_key_container
+
+
 
 -----------
 
@@ -58,6 +63,9 @@ use crate::errs::{MetaError, MetaResult};
 use crate::types::*;
 
 use arrow::array::{LargeStringArray, LargeStringBuilder};
+use dashmap::DashMap;
+use roaring::{RoaringBitmap, RoaringTreemap};
+use std::collections::HashSet;
 
 use num_traits::PrimInt;
 pub use sled::IVec;
@@ -70,6 +78,7 @@ pub struct MetaStore {
     tree1: sled::Tree,
     tree_tabs: sled::Tree,
     tree_cols: sled::Tree,
+    pub tabs_pkc: DashMap<Id, PrimaryKeyContainer>,
 }
 
 const KEY_SYS_IDX_DBS: &'static str = "system.__idx_dbs_";
@@ -92,12 +101,15 @@ impl MetaStore {
         let tree1 = mdb.open_tree(b"1").map_err(|_e| MetaError::OpenError)?;
         let tree_tabs = mdb.open_tree(b"ts").map_err(|_e| MetaError::OpenError)?;
         let tree_cols = mdb.open_tree(b"cs").map_err(|_e| MetaError::OpenError)?;
+        // FIXME tabs_pkc should recover from disk if db restart.
+        let tabs_pkc = DashMap::new();
         Ok(MetaStore {
             mdb,
             tree0,
             tree1,
             tree_tabs,
             tree_cols,
+            tabs_pkc,
         })
 
         // match paths.len() {
@@ -370,6 +382,7 @@ impl MetaStore {
             let cid = self._del(qcn.as_str())?;
             cids.push(cid);
         }
+        self.tabs_pkc.remove(&tid).unwrap();
         Ok((tid, cids))
 
         // let res: TransactionResult<(), MetaError> =
@@ -504,6 +517,9 @@ impl MetaStore {
     pub fn get_table_info_partition_cols(&self, tid: Id) -> MetaResult<Option<IVec>> {
         self._get_table_info(tid, "pc")
     }
+    pub fn get_table_info_primary_key(&self, tid: Id) -> MetaResult<Option<IVec>> {
+        self._get_table_info(tid, "pk")
+    }
     pub fn get_table_info_setting(
         &self,
         tid: Id,
@@ -634,6 +650,45 @@ impl MetaStore {
                     .insert(&cid.to_be_bytes(), col_info.as_bytes())
                     .map_err(|_| MetaError::InsertError)?;
                 debug_assert!(r.is_none());
+
+                // Only supports single-column primary key
+                if col_info.is_primary_key {
+                    match col_info.data_type {
+                        BqlType::UInt(bits) => match bits {
+                            8 | 16 | 32 => {
+                                self.tabs_pkc.insert(
+                                    tid,
+                                    PrimaryKeyContainer::RoaringBitMap(
+                                        RoaringBitmap::new(),
+                                    ),
+                                );
+                            }
+                            64 => {
+                                self.tabs_pkc.insert(
+                                    tid,
+                                    PrimaryKeyContainer::RoaringTreeMap(
+                                        RoaringTreemap::new(),
+                                    ),
+                                );
+                            }
+                            _ => {
+                                return Err(MetaError::UnsupportedPrimaryKeyTypeError);
+                            }
+                        },
+                        BqlType::String => {
+                            self.tabs_pkc.insert(
+                                tid,
+                                PrimaryKeyContainer::HashSet(HashSet::new()),
+                            );
+                        }
+                        _ => {
+                            return Err(MetaError::UnsupportedPrimaryKeyTypeError);
+                        }
+                    }
+                }
+            }
+            if tab.tab_info.primary_keys.len() == 0 {
+                self.tabs_pkc.insert(tid, PrimaryKeyContainer::None);
             }
             Ok(tid)
         } else {
@@ -670,6 +725,20 @@ impl MetaStore {
 
     pub fn cid_by_qname<T: AsRef<str>>(&self, qname: T) -> Option<Id> {
         self.id(qname)
+    }
+
+    pub fn clear_pkc_by_tid(&self, tid: Id) -> MetaResult<()> {
+        let pkco = &mut self.tabs_pkc.get_mut(&tid);
+        if let Some(pkc) = pkco {
+            let container = &mut *pkc.value_mut();
+            match container {
+                PrimaryKeyContainer::HashSet(hs) => hs.clear(),
+                PrimaryKeyContainer::RoaringBitMap(rbm) => rbm.clear(),
+                PrimaryKeyContainer::RoaringTreeMap(rtm) => rtm.clear(),
+                PrimaryKeyContainer::None => {}
+            }
+        }
+        Ok(())
     }
 
     #[allow(dead_code)]

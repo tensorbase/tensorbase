@@ -1342,6 +1342,168 @@ async fn tests_integ_partition_prune() -> errors::Result<()> {
     Ok(())
 }
 
+#[tokio::test]
+async fn tests_integ_primary_key_uint32() -> errors::Result<()> {
+    let pool = get_pool();
+    let mut conn = pool.connection().await?;
+
+    conn.execute("create database if not exists test_db")
+        .await?;
+    conn.execute("use test_db").await?;
+
+    conn.execute(format!("drop table if exists mt")).await?;
+    conn.execute(format!("create table mt(a UInt32 primary key, b UInt32)"))
+        .await?;
+    conn.execute(format!("insert into mt values(1,1),(1,2)"))
+        .await?;
+    {
+        let sql = "select * from mt";
+        let mut query_result = conn.query(sql).await?;
+
+        while let Some(block) = query_result.next().await? {
+            let cnt = block.row_count();
+            println!("cnt:{}", cnt);
+            assert_eq!(cnt, 1);
+        }
+    }
+
+    conn.execute(format!("insert into mt values(1,1),(1,2)"))
+        .await?;
+    {
+        let sql = "select * from mt";
+        let mut query_result = conn.query(sql).await?;
+
+        while let Some(block) = query_result.next().await? {
+            let cnt = block.row_count();
+            println!("cnt:{}", cnt);
+            assert_eq!(cnt, 1);
+        }
+    }
+
+    conn.execute("drop database if exists test_db").await?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn tests_integ_primary_key_uint16() -> errors::Result<()> {
+    let pool = get_pool();
+    let mut conn = pool.connection().await?;
+
+    conn.execute("create database if not exists test_db")
+        .await?;
+    conn.execute("use test_db").await?;
+
+    conn.execute(format!("drop table if exists mt")).await?;
+    conn.execute(format!("create table mt(a UInt16 primary key, b UInt32)"))
+        .await?;
+    conn.execute(format!("insert into mt values(1,1),(1,2)"))
+        .await?;
+    {
+        let sql = "select * from mt";
+        let mut query_result = conn.query(sql).await?;
+
+        while let Some(block) = query_result.next().await? {
+            let cnt = block.row_count();
+            assert_eq!(cnt, 1);
+        }
+    }
+
+    conn.execute(format!("insert into mt values(1,1),(1,2)"))
+        .await?;
+    {
+        let sql = "select * from mt";
+        let mut query_result = conn.query(sql).await?;
+
+        while let Some(block) = query_result.next().await? {
+            let cnt = block.row_count();
+            assert_eq!(cnt, 1);
+        }
+    }
+
+    conn.execute("drop database if exists test_db").await?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn tests_integ_primary_key_uint8() -> errors::Result<()> {
+    let pool = get_pool();
+    let mut conn = pool.connection().await?;
+
+    conn.execute("create database if not exists test_db")
+        .await?;
+    conn.execute("use test_db").await?;
+
+    conn.execute(format!("drop table if exists mt")).await?;
+    conn.execute(format!("create table mt(a UInt8 primary key, b UInt32)"))
+        .await?;
+    conn.execute(format!("insert into mt values(1,1),(1,2)"))
+        .await?;
+    {
+        let sql = "select * from mt";
+        let mut query_result = conn.query(sql).await?;
+
+        while let Some(block) = query_result.next().await? {
+            let cnt = block.row_count();
+            assert_eq!(cnt, 1);
+        }
+    }
+
+    conn.execute(format!("insert into mt values(1,1),(1,2)"))
+        .await?;
+    {
+        let sql = "select * from mt";
+        let mut query_result = conn.query(sql).await?;
+
+        while let Some(block) = query_result.next().await? {
+            let cnt = block.row_count();
+            assert_eq!(cnt, 1);
+        }
+    }
+
+    conn.execute("drop database if exists test_db").await?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn tests_integ_primary_key_uint64() -> errors::Result<()> {
+    let pool = get_pool();
+    let mut conn = pool.connection().await?;
+
+    conn.execute("create database if not exists test_db")
+        .await?;
+    conn.execute("use test_db").await?;
+
+    conn.execute(format!("drop table if exists mt")).await?;
+    conn.execute(format!("create table mt(a UInt64 primary key, b UInt32)"))
+        .await?;
+    conn.execute(format!("insert into mt values(1,1),(1,2)"))
+        .await?;
+    {
+        let sql = "select * from mt";
+        let mut query_result = conn.query(sql).await?;
+
+        while let Some(block) = query_result.next().await? {
+            let cnt = block.row_count();
+            assert_eq!(cnt, 1);
+        }
+    }
+
+    conn.execute(format!("insert into mt values(1,1),(1,2)"))
+        .await?;
+    {
+        let sql = "select * from mt";
+        let mut query_result = conn.query(sql).await?;
+
+        while let Some(block) = query_result.next().await? {
+            let cnt = block.row_count();
+            assert_eq!(cnt, 1);
+        }
+    }
+
+    conn.execute("drop database if exists test_db").await?;
+    Ok(())
+}
+
 // #[tokio::test]
 // async fn test_insert_large_block() -> errors::Result<()> {
 //     let pool = get_pool();

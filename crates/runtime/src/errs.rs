@@ -42,6 +42,9 @@ pub enum BaseRtError {
     #[error("Unsupported partition key type")]
     UnsupportedPartitionKeyType,
 
+    #[error("Unsupported primary key type")]
+    UnsupportedPrimaryKeyType,
+
     #[error("Command parsing error")]
     CommandParsingError,
 
@@ -221,6 +224,7 @@ impl BaseRtError {
             BaseRtError::InsertIntoValueParsingError => 413,
             BaseRtError::ShouldNotReachHere => 414,
             BaseRtError::MultiplePrimaryKeyNotSupported => 415,
+            BaseRtError::UnsupportedPrimaryKeyType => 416,
         }
     }
 }

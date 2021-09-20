@@ -1,7 +1,7 @@
 use std::{
     cell::Ref,
     cell::RefMut,
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     mem,
     ops::{Deref, DerefMut},
     slice,
@@ -13,6 +13,7 @@ use base::bytes_cat;
 use base::datetimes::TimeZoneId;
 use base::strings::BytesTrim;
 use num_traits::PrimInt;
+use roaring::{RoaringBitmap, RoaringTreemap};
 
 use crate::errs::MetaError;
 use crate::errs::MetaResult;
@@ -89,6 +90,13 @@ impl Default for EngineType {
     fn default() -> Self {
         EngineType::Default
     }
+}
+
+pub enum PrimaryKeyContainer {
+    HashSet(HashSet<String>),
+    RoaringBitMap(RoaringBitmap),
+    RoaringTreeMap(RoaringTreemap),
+    None,
 }
 
 #[derive(Copy, Clone, Debug, PartialEq, Hash, Eq)]

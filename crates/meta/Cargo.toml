@@ -13,6 +13,8 @@ num-traits = "0.2"
 itoa = "0.4"
 btoi = "0.4"
 libc = "0.2"
+dashmap = "4.0"
+roaring = "0.7.0"
 base = { path = "../base" }
 arrow = { path = "../arrow" }
 

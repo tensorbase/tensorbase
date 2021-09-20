@@ -57,4 +57,7 @@ pub enum LangError {
 
     #[error("Conflict condition when partition key pxpr parsing")]
     PartitionKeyExprParsingConflict,
+
+    #[error("Unsupported primary key parsing")]
+    PrimaryKeyParsingUnsupported,
 }

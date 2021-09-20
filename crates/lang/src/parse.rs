@@ -434,6 +434,13 @@ impl CreateTabContext {
                         ti.primary_keys.push_str(col.0.as_str());
                         ti.primary_keys.push(',');
                         col.1.is_primary_key = true;
+                        match col.1.data_type {
+                            // TODO: more type support
+                            BqlType::UInt(_) => {}
+                            _ => {
+                                return Err(LangError::PrimaryKeyParsingUnsupported);
+                            }
+                        }
                     }
                     _ => return Err(LangError::UnsupportedLangFeatureError),
                 };

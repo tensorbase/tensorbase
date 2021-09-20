@@ -86,6 +86,9 @@ pub enum MetaError {
     #[error("Can not find part error")]
     CanNotFindPartError,
 
+    #[error("Unsupported primary key type error")]
+    UnsupportedPrimaryKeyTypeError,
+
     // #[error("Error when getting fd size from ps")]
     // GetFdSizeError,
     #[error("TransactionError [{0}] happened")]

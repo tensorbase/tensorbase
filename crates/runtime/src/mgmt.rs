@@ -875,6 +875,7 @@ impl<'a> BaseMgmtSys<'a> {
         let tid_opt = ms.tid_by_qname(qtn.as_str());
         match tid_opt {
             Some(tid) => {
+                ms.clear_pkc_by_tid(tid)?;
                 //remove PartStore data
                 let cids = ms.get_column_ids(qtn.as_str())?;
                 ps.acquire_lock(tid)?;

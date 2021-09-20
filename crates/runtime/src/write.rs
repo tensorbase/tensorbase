@@ -14,7 +14,7 @@ use meta::{
         },
         sys::MetaStore,
     },
-    types::{BqlType, Id},
+    types::{BqlType, Id, PrimaryKeyContainer},
 };
 
 use crate::{
@@ -35,6 +35,18 @@ pub fn write_block(
     let ps = &BMS.part_store;
     log::debug!("tab_ins: {}, insert block: {:?}", tab_ins, blk);
 
+    // deduplicate by primary key
+    let pk = ms
+        .get_table_info_primary_key(tid_ins)?
+        .ok_or(BaseRtError::SchemaInfoShouldExistButNot)?;
+    let pkc = &mut ms.tabs_pkc.get_mut(&tid_ins);
+    let insert_mark = match pkc {
+        Some(container) => {
+            deduplicate_by_primary_key(blk, pk, &mut *container.value_mut())?
+        }
+        None => vec![1; blk.nrows],
+    };
+
     //scan for batching
     let ptks = ms
         .get_table_info_partition_cols(tid_ins)?
@@ -42,10 +54,26 @@ pub fn write_block(
     let parts: HashMap<u64, Vec<(u32, u32)>> = if ptks.len() == 0 {
         //no ptk cols
         let mut parts = HashMap::<u64, Vec<(u32, u32)>>::new(); //assumed blk dix < 4G
-        parts.insert(0, vec![(0, (blk.nrows - 1) as u32)]);
+        for j in 0..blk.nrows {
+            let jj = j as u32;
+            let e = parts.entry(0).or_insert_with(Vec::new);
+            let ropt = e.last_mut();
+            match ropt {
+                Some(r) => {
+                    if insert_mark[j] == 1 {
+                        r.1 = jj;
+                    }
+                }
+                _ => {
+                    if insert_mark[j] == 1 {
+                        e.push((jj, jj));
+                    }
+                }
+            }
+        }
         parts
     } else {
-        gen_parts_by_ptk_names(ptks, blk, tab_ins, tid_ins)?
+        gen_parts_by_ptk_names(ptks, blk, tab_ins, tid_ins, &insert_mark)?
     };
 
     //write parts
@@ -71,6 +99,7 @@ fn gen_parts_by_ptk_names(
     blk: &BaseDataBlock,
     tab_ins: &str,
     tid_ins: u64,
+    insert_mark: &Vec<u8>,
 ) -> Result<HashMap<u64, Vec<(u32, u32)>>, BaseRtError> {
     let cname_ptk = if ptks.len() == 0 {
         // vec![]
@@ -101,18 +130,42 @@ fn gen_parts_by_ptk_names(
     }
     let parts = match ctyp_ptk {
         meta::types::BqlType::UInt(bits) => match bits {
-            8 => gen_part_idxs(ptk_expr_fn_ptr as *const u8, ctyp_ptk, cdata_ptk, nr)?,
+            8 => gen_part_idxs(
+                ptk_expr_fn_ptr as *const u8,
+                ctyp_ptk,
+                cdata_ptk,
+                nr,
+                &insert_mark,
+            )?,
             16 => {
                 let cdata_ptk = shape_slice::<u16>(cdata_ptk);
-                gen_part_idxs(ptk_expr_fn_ptr as *const u8, ctyp_ptk, cdata_ptk, nr)?
+                gen_part_idxs(
+                    ptk_expr_fn_ptr as *const u8,
+                    ctyp_ptk,
+                    cdata_ptk,
+                    nr,
+                    &insert_mark,
+                )?
             }
             32 => {
                 let cdata_ptk = shape_slice::<u32>(cdata_ptk);
-                gen_part_idxs(ptk_expr_fn_ptr as *const u8, ctyp_ptk, cdata_ptk, nr)?
+                gen_part_idxs(
+                    ptk_expr_fn_ptr as *const u8,
+                    ctyp_ptk,
+                    cdata_ptk,
+                    nr,
+                    &insert_mark,
+                )?
             }
             64 => {
                 let cdata_ptk = shape_slice::<u64>(cdata_ptk);
-                gen_part_idxs(ptk_expr_fn_ptr as *const u8, ctyp_ptk, cdata_ptk, nr)?
+                gen_part_idxs(
+                    ptk_expr_fn_ptr as *const u8,
+                    ctyp_ptk,
+                    cdata_ptk,
+                    nr,
+                    &insert_mark,
+                )?
             }
             _ => {
                 return Err(BaseRtError::UnsupportedPartitionKeyType);
@@ -120,11 +173,23 @@ fn gen_parts_by_ptk_names(
         },
         meta::types::BqlType::DateTime => {
             let cdata_ptk = shape_slice::<u32>(cdata_ptk);
-            gen_part_idxs(ptk_expr_fn_ptr as *const u8, ctyp_ptk, cdata_ptk, nr)?
+            gen_part_idxs(
+                ptk_expr_fn_ptr as *const u8,
+                ctyp_ptk,
+                cdata_ptk,
+                nr,
+                &insert_mark,
+            )?
         }
         meta::types::BqlType::Date => {
             let cdata_ptk = shape_slice::<u16>(cdata_ptk);
-            gen_part_idxs(ptk_expr_fn_ptr as *const u8, ctyp_ptk, cdata_ptk, nr)?
+            gen_part_idxs(
+                ptk_expr_fn_ptr as *const u8,
+                ctyp_ptk,
+                cdata_ptk,
+                nr,
+                &insert_mark,
+            )?
         }
         // meta::types::BqlType::Int(_) => {}
         // meta::types::BqlType::Decimal(_, _) => {}
@@ -148,6 +213,7 @@ fn gen_part_idxs<T: 'static + Sized + Copy>(
     ctyp_ptk: &BqlType,
     cdata_ptk: &[T],
     nr: usize,
+    insert_mark: &Vec<u8>,
 ) -> BaseRtResult<HashMap<u64, Vec<(u32, u32)>>> {
     let mut parts = HashMap::<u64, Vec<(u32, u32)>>::new(); //assumed blk dix < 4G
                                                             // let siz_typ_ptk = mem::size_of::<T>();
@@ -167,15 +233,112 @@ fn gen_part_idxs<T: 'static + Sized + Copy>(
         let e = parts.entry(ptk).or_insert_with(Vec::new);
         let ropt = e.last_mut();
         match ropt {
-            Some(r) if (r.1 + 1) == jj => {
+            Some(r) if (r.1 + 1) == jj && insert_mark[j] == 1 => {
                 r.1 = jj;
             }
             _ => {
-                e.push((jj, jj));
+                if insert_mark[j] == 1 {
+                    e.push((jj, jj));
+                }
             }
         }
     }
     Ok(parts)
+}
+
+fn deduplicate_by_primary_key(
+    blk: &BaseDataBlock,
+    pk: meta::store::sys::IVec,
+    pkc: &mut PrimaryKeyContainer,
+) -> BaseRtResult<Vec<u8>> {
+    let mut insert_mark = vec![1; blk.nrows];
+    let cname_pk = if pk.len() == 0 {
+        ""
+    } else {
+        let bs_pk = &*pk;
+        unsafe { std::str::from_utf8_unchecked(&bs_pk[..bs_pk.len() - 1]) }
+    };
+    if cname_pk.len() == 0 {
+        // No primary key
+        return Ok(insert_mark);
+    }
+    let mut pk_idx = usize::MAX;
+    for i in 0..blk.ncols {
+        if &blk.columns[i].name == cname_pk.as_bytes() {
+            pk_idx = i;
+            break;
+        }
+    }
+    if pk_idx == usize::MAX {
+        // Block doesn't contain primary key
+        return Ok(insert_mark);
+    }
+    let col_pk = &blk.columns[pk_idx];
+    log::debug!("dada deduplication on {:?}", col_pk.get_name());
+    let ctyp_pk = &col_pk.data.btype;
+    let cdata_pk = &col_pk.data.data;
+    let nr = blk.nrows;
+    match ctyp_pk {
+        // TODO: more type support
+        meta::types::BqlType::UInt(bits) => match bits {
+            8 => {
+                let cdata_pk = shape_slice::<u8>(cdata_pk);
+                if let PrimaryKeyContainer::RoaringBitMap(rbm) = pkc {
+                    for i in 0..nr {
+                        if rbm.contains(cdata_pk[i] as u32) {
+                            insert_mark[i] = 0;
+                        } else {
+                            rbm.insert(cdata_pk[i] as u32);
+                        }
+                    }
+                }
+            }
+            16 => {
+                let cdata_pk = shape_slice::<u16>(cdata_pk);
+                if let PrimaryKeyContainer::RoaringBitMap(rbm) = pkc {
+                    for i in 0..nr {
+                        if rbm.contains(cdata_pk[i] as u32) {
+                            insert_mark[i] = 0;
+                        } else {
+                            rbm.insert(cdata_pk[i] as u32);
+                        }
+                    }
+                }
+            }
+            32 => {
+                let cdata_pk = shape_slice::<u32>(cdata_pk);
+                if let PrimaryKeyContainer::RoaringBitMap(rbm) = pkc {
+                    for i in 0..nr {
+                        if rbm.contains(cdata_pk[i]) {
+                            insert_mark[i] = 0;
+                        } else {
+                            rbm.insert(cdata_pk[i]);
+                        }
+                    }
+                }
+            }
+            64 => {
+                let cdata_pk = shape_slice::<u64>(cdata_pk);
+                if let PrimaryKeyContainer::RoaringTreeMap(rtm) = pkc {
+                    for i in 0..nr {
+                        if rtm.contains(cdata_pk[i]) {
+                            insert_mark[i] = 0;
+                        } else {
+                            rtm.insert(cdata_pk[i]);
+                        }
+                    }
+                }
+            }
+            _ => {
+                return Err(BaseRtError::UnsupportedPrimaryKeyType);
+            }
+        },
+        _ => {
+            return Err(BaseRtError::UnsupportedPrimaryKeyType);
+        }
+    };
+
+    Ok(insert_mark)
 }
 
 #[inline(always)]
@@ -704,7 +867,7 @@ mod unit_tests {
         println!("start to rand part ...");
         with_timer_print! {t1,
             let parts =
-            gen_part_idxs(ptk_expr_fn_ptr as *const u8, &ctyp, &v, v.len())?;
+            gen_part_idxs(ptk_expr_fn_ptr as *const u8, &ctyp, &v, v.len(),&vec![1;v.len()])?;
           assert_eq!(parts.len(), 31);
           for (p, idxs) in parts {
               assert!(idxs.len() > 31000);
@@ -731,7 +894,7 @@ mod unit_tests {
         let v = nums[0..1024 * 1024].to_vec();
         with_timer_print! {t1,
             let parts =
-              gen_part_idxs(ptk_expr_fn_ptr as *const u8, &ctyp, &v, v.len())?;
+              gen_part_idxs(ptk_expr_fn_ptr as *const u8, &ctyp, &v, v.len(),&vec![1;v.len()])?;
             assert_eq!(parts.len(), 25);
             for (p, idxs) in parts {
                 assert_eq!(idxs.len(), 1);
