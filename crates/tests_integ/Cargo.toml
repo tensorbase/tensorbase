@@ -22,7 +22,7 @@ paste = "1.0.1"
 baselog = { git = "https://github.com/tensorbase/baselog.git", branch = "main" }
 walkdir = "2.3.1"
 chrono = "0.4"
-chrono-tz = "0.5"
+chrono-tz = "0.6"
 
 
 [[bin]]
