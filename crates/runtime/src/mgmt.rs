@@ -29,7 +29,7 @@ use meta::{
     errs::MetaError,
     store::{parts::PartStore, sys::MetaStore},
     toml,
-    types::{BaseChunk, BqlType, Id},
+    types::{BaseChunk, BqlType, Id, IntoRef, PrimaryKeyContainer},
 };
 use mysql::{Compression, OptsBuilder, Pool as MyPool, SslOpts};
 use std::time::Duration;
@@ -167,6 +167,7 @@ pub static BMS: SyncLazy<BaseMgmtSys> = SyncLazy::new(|| {
 
     let conf = Box::new(conf);
     let mut bms = BaseMgmtSys::from_conf(Box::leak(conf)).unwrap();
+    bms.rebuild_all_pk_containers();
     bms.build_remote_db_pool();
     bms.build_mysql_db_pool();
     bms
@@ -400,6 +401,54 @@ impl<'a> BaseMgmtSys<'a> {
                     log::info!("connect remote ch/tb database: {:?}", remote_addr);
                     self.remote_db_pool.insert(remote_addr, pool);
                 }
+            }
+        }
+    }
+
+    pub fn rebuild_all_pk_containers(&self) {
+        let ms = &self.meta_store;
+        let ps = &self.part_store;
+        if let Ok(tids) = ms.get_all_tables_id() {
+            for tid in tids.iter() {
+                if let Ok(Some(pk_cid)) = ms.get_table_info_pk_cid(*tid) {
+                    let cid = *(&*pk_cid).into_ref::<u64>();
+                    if cid != 0 {
+                        self.build_pkc(ms, ps, *tid, cid);
+                    } else {
+                        ms.tabs_pkc.insert(*tid, PrimaryKeyContainer::None);
+                    }
+                }
+            }
+        }
+    }
+
+    #[allow(unused_must_use)]
+    pub fn build_pkc(&self, ms: &MetaStore, ps: &PartStore, tid: Id, cid: Id) {
+        if let Ok(Some(ci)) = ms.get_column_info(cid) {
+            // create pkc
+            ms.new_pkc(tid, ci.data_type);
+
+            let mut copass = Vec::new();
+            let cis = vec![(cid, ci.data_type)];
+            ps.fill_copainfos_int_by_ptk_range(
+                &mut copass,
+                tid,
+                &cis,
+                vec![0..=u64::MAX],
+            );
+            assert_eq!(copass.len(), 1);
+            for copa in &copass[0] {
+                let mut col_data = Vec::<u8>::with_capacity(copa.len_in_bytes);
+                unsafe {
+                    std::ptr::copy_nonoverlapping(
+                        copa.addr as *mut u8,
+                        col_data.as_mut_ptr(),
+                        copa.len_in_bytes,
+                    );
+                    col_data.set_len(copa.len_in_bytes);
+                }
+                let nr = copa.size;
+                ms.rebuild_pkc(tid, &col_data, ci.data_type, nr);
             }
         }
     }
@@ -875,7 +924,7 @@ impl<'a> BaseMgmtSys<'a> {
         let tid_opt = ms.tid_by_qname(qtn.as_str());
         match tid_opt {
             Some(tid) => {
-                ms.clear_pkc_by_tid(tid)?;
+                ms.clear_pkcs_by_tid(tid)?;
                 //remove PartStore data
                 let cids = ms.get_column_ids(qtn.as_str())?;
                 ps.acquire_lock(tid)?;

@@ -40,6 +40,8 @@ tid, "en" - engine (enum)
 tid, "pa" - partition_keys_expr
 tid, "pc" - partition_cols
 tid, "se", settings.k - settings.v
+tid, "pk", primary_key
+tid, "pkid", primary_key_cid
 
 
 tabs_pkc:
@@ -63,6 +65,7 @@ use crate::errs::{MetaError, MetaResult};
 use crate::types::*;
 
 use arrow::array::{LargeStringArray, LargeStringBuilder};
+use base::mem::shape_slice;
 use dashmap::DashMap;
 use roaring::{RoaringBitmap, RoaringTreemap};
 use std::collections::HashSet;
@@ -295,6 +298,26 @@ impl MetaStore {
         Ok(builder.finish())
     }
 
+    pub fn get_all_tables_id(&self) -> MetaResult<Vec<u64>> {
+        let mut tids = Vec::new();
+        let dbn_iter = self.tree0.scan_prefix(KEY_SYS_IDX_DBS);
+        for kv in dbn_iter {
+            let (_, db) = kv.map_err(|_| MetaError::GetError)?;
+            let dbn = unsafe { std::str::from_utf8_unchecked(&*db) };
+            if dbn != "system" {
+                let tbl_iter = self.tree0.scan_prefix([KEY_SYS_IDX_TABS, dbn].join(""));
+                for kv in tbl_iter {
+                    let (_, tb) = kv.map_err(|_| MetaError::GetError)?;
+                    let tbn = unsafe { std::str::from_utf8_unchecked(&*tb) };
+                    let qn = [dbn, tbn].join(".");
+                    let tid = self.id(&qn).unwrap();
+                    tids.push(tid);
+                }
+            }
+        }
+        Ok(tids)
+    }
+
     pub fn get_columns(
         &self,
         dbname: &str,
@@ -382,7 +405,7 @@ impl MetaStore {
             let cid = self._del(qcn.as_str())?;
             cids.push(cid);
         }
-        self.tabs_pkc.remove(&tid).unwrap();
+        self.tabs_pkc.remove(&tid);
         Ok((tid, cids))
 
         // let res: TransactionResult<(), MetaError> =
@@ -508,18 +531,26 @@ impl MetaStore {
     pub fn get_table_info_create_script(&self, tid: Id) -> MetaResult<Option<IVec>> {
         self._get_table_info(tid, "cr")
     }
+
     pub fn get_table_info_partition_keys_expr(
         &self,
         tid: Id,
     ) -> MetaResult<Option<IVec>> {
         self._get_table_info(tid, "pa")
     }
+
     pub fn get_table_info_partition_cols(&self, tid: Id) -> MetaResult<Option<IVec>> {
         self._get_table_info(tid, "pc")
     }
+
     pub fn get_table_info_primary_key(&self, tid: Id) -> MetaResult<Option<IVec>> {
         self._get_table_info(tid, "pk")
     }
+
+    pub fn get_table_info_pk_cid(&self, tid: Id) -> MetaResult<Option<IVec>> {
+        self._get_table_info(tid, "pkid")
+    }
+
     pub fn get_table_info_setting(
         &self,
         tid: Id,
@@ -643,6 +674,7 @@ impl MetaStore {
             let tn = &tab.name;
             let tid = self.new_tab(dn, tn)?;
             self.new_table_info(tid, &tab.tab_info)?;
+            let mut pk_cid: Id = 0;
             for (colname, col_info) in &tab.columns {
                 let cid = self.new_col(dn, tn, colname)?;
                 let r = self
@@ -653,6 +685,7 @@ impl MetaStore {
 
                 // Only supports single-column primary key
                 if col_info.is_primary_key {
+                    pk_cid = cid;
                     match col_info.data_type {
                         BqlType::UInt(bits) => match bits {
                             8 | 16 | 32 => {
@@ -690,6 +723,7 @@ impl MetaStore {
             if tab.tab_info.primary_keys.len() == 0 {
                 self.tabs_pkc.insert(tid, PrimaryKeyContainer::None);
             }
+            self.insert_table_info_kv(tid, "pkid", pk_cid)?;
             Ok(tid)
         } else {
             Err(MetaError::DbNotExistedError)
@@ -727,7 +761,37 @@ impl MetaStore {
         self.id(qname)
     }
 
-    pub fn clear_pkc_by_tid(&self, tid: Id) -> MetaResult<()> {
+    pub fn new_pkc(&self, tid: Id, pk_type: BqlType) -> MetaResult<()> {
+        match pk_type {
+            BqlType::UInt(bits) => match bits {
+                8 | 16 | 32 => {
+                    self.tabs_pkc.insert(
+                        tid,
+                        PrimaryKeyContainer::RoaringBitMap(RoaringBitmap::new()),
+                    );
+                }
+                64 => {
+                    self.tabs_pkc.insert(
+                        tid,
+                        PrimaryKeyContainer::RoaringTreeMap(RoaringTreemap::new()),
+                    );
+                }
+                _ => {
+                    return Err(MetaError::UnsupportedPrimaryKeyTypeError);
+                }
+            },
+            BqlType::String => {
+                self.tabs_pkc
+                    .insert(tid, PrimaryKeyContainer::HashSet(HashSet::new()));
+            }
+            _ => {
+                return Err(MetaError::UnsupportedPrimaryKeyTypeError);
+            }
+        }
+        Ok(())
+    }
+
+    pub fn clear_pkcs_by_tid(&self, tid: Id) -> MetaResult<()> {
         let pkco = &mut self.tabs_pkc.get_mut(&tid);
         if let Some(pkc) = pkco {
             let container = &mut *pkc.value_mut();
@@ -738,6 +802,60 @@ impl MetaStore {
                 PrimaryKeyContainer::None => {}
             }
         }
+        Ok(())
+    }
+
+    pub fn rebuild_pkc(
+        &self,
+        tid: Id,
+        col_data: &Vec<u8>,
+        col_type: BqlType,
+        nr: usize,
+    ) -> MetaResult<()> {
+        let pkc = &mut *self.tabs_pkc.get_mut(&tid).unwrap();
+        match col_type {
+            // TODO: more type support
+            BqlType::UInt(bits) => match bits {
+                8 => {
+                    let col_data = shape_slice::<u8>(col_data);
+                    if let PrimaryKeyContainer::RoaringBitMap(rbm) = pkc {
+                        for i in 0..nr {
+                            rbm.insert(col_data[i] as u32);
+                        }
+                    }
+                }
+                16 => {
+                    let col_data = shape_slice::<u16>(col_data);
+                    if let PrimaryKeyContainer::RoaringBitMap(rbm) = pkc {
+                        for i in 0..nr {
+                            rbm.insert(col_data[i] as u32);
+                        }
+                    }
+                }
+                32 => {
+                    let col_data = shape_slice::<u32>(col_data);
+                    if let PrimaryKeyContainer::RoaringBitMap(rbm) = pkc {
+                        for i in 0..nr {
+                            rbm.insert(col_data[i]);
+                        }
+                    }
+                }
+                64 => {
+                    let col_data = shape_slice::<u64>(col_data);
+                    if let PrimaryKeyContainer::RoaringTreeMap(rtm) = pkc {
+                        for i in 0..nr {
+                            rtm.insert(col_data[i]);
+                        }
+                    }
+                }
+                _ => {
+                    return Err(MetaError::UnsupportedPrimaryKeyTypeError);
+                }
+            },
+            _ => {
+                return Err(MetaError::UnsupportedPrimaryKeyTypeError);
+            }
+        };
         Ok(())
     }
 
