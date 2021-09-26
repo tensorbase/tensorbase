@@ -1157,6 +1157,79 @@ mod unit_tests {
     }
 
     #[test]
+    fn test_rebuild_pkc() -> MetaResult<()> {
+        let mdb_dir = prepare_db_dir()?;
+
+        let ms = MetaStore::new(&[mdb_dir])?;
+        //add db
+        let dbname = "db_test_recover";
+        let dbid = ms.new_db(dbname)?;
+        assert!(dbid == 0);
+
+        // u8
+        {
+            let tabname = "test_recover_u8";
+            let tid_u8 = ms.new_tab(dbname, tabname)?;
+
+            ms.new_pkc(tid_u8, BqlType::UInt(8))?;
+            assert_eq!(ms.tabs_pkc.len(), 1);
+            let col_data: Vec<u8> = vec![1, 2, 3];
+
+            ms.rebuild_pkc(tid_u8, &col_data, BqlType::UInt(8), col_data.len())?;
+            let pkc = &*ms.tabs_pkc.get_mut(&tid_u8).unwrap();
+            if let PrimaryKeyContainer::RoaringBitMap(rbm) = pkc {
+                assert_eq!(rbm.len() as usize, col_data.len());
+            }
+        }
+
+        {
+            let tabname = "test_recover_u16";
+            let tid_u16 = ms.new_tab(dbname, tabname)?;
+
+            ms.new_pkc(tid_u16, BqlType::UInt(16))?;
+            assert_eq!(ms.tabs_pkc.len(), 2);
+            let col_data: Vec<u8> = vec![1, 0, 2, 0, 3, 0];
+
+            ms.rebuild_pkc(tid_u16, &col_data, BqlType::UInt(16), 3)?;
+            let pkc = &*ms.tabs_pkc.get_mut(&tid_u16).unwrap();
+            if let PrimaryKeyContainer::RoaringBitMap(rbm) = pkc {
+                assert_eq!(rbm.len() as usize, 3);
+            }
+        }
+
+        {
+            let tabname = "test_recover_u32";
+            let tid_u32 = ms.new_tab(dbname, tabname)?;
+
+            ms.new_pkc(tid_u32, BqlType::UInt(8))?;
+            assert_eq!(ms.tabs_pkc.len(), 3);
+            let col_data: Vec<u8> = vec![1, 0, 0, 0, 2, 0, 0, 0];
+
+            ms.rebuild_pkc(tid_u32, &col_data, BqlType::UInt(32), 2)?;
+            let pkc = &*ms.tabs_pkc.get_mut(&tid_u32).unwrap();
+            if let PrimaryKeyContainer::RoaringBitMap(rbm) = pkc {
+                assert_eq!(rbm.len() as usize, 2);
+            }
+        }
+
+        {
+            let tabname = "test_recover_u64";
+            let tid_u64 = ms.new_tab(dbname, tabname)?;
+
+            ms.new_pkc(tid_u64, BqlType::UInt(8))?;
+            assert_eq!(ms.tabs_pkc.len(), 4);
+            let col_data: Vec<u8> = vec![1, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0];
+
+            ms.rebuild_pkc(tid_u64, &col_data, BqlType::UInt(64), 2)?;
+            let pkc = &*ms.tabs_pkc.get_mut(&tid_u64).unwrap();
+            if let PrimaryKeyContainer::RoaringTreeMap(rtm) = pkc {
+                assert_eq!(rtm.len() as usize, 2);
+            }
+        }
+        Ok(())
+    }
+
+    #[test]
     #[ignore]
     fn dump() -> MetaResult<()> {
         let mdb_dir = "/jin/tmp/tb_schema";

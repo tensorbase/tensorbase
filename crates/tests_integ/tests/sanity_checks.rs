@@ -1504,6 +1504,41 @@ async fn tests_integ_primary_key_uint64() -> errors::Result<()> {
     Ok(())
 }
 
+#[tokio::test]
+async fn tests_integ_primary_key_truncate() -> errors::Result<()> {
+    let pool = get_pool();
+    let mut conn = pool.connection().await?;
+
+    conn.execute("create database if not exists test_db")
+        .await?;
+    conn.execute("use test_db").await?;
+
+    conn.execute(format!("drop table if exists mt")).await?;
+    conn.execute(format!("create table mt(a UInt32 primary key, b UInt32)"))
+        .await?;
+    conn.execute(format!("insert into mt values(1,1),(1,2)"))
+        .await?;
+
+    conn.execute(format!("truncate table mt")).await?;
+    conn.execute(format!("insert into mt values(1,3)")).await?;
+    {
+        let sql = "select * from mt";
+        let mut query_result = conn.query(sql).await?;
+
+        while let Some(block) = query_result.next().await? {
+            for row in block.iter_rows() {
+                let res_0: u32 = row.value(0)?.unwrap();
+                assert_eq!(res_0, 1);
+                let res_1: u32 = row.value(1)?.unwrap();
+                assert_eq!(res_1, 3);
+            }
+        }
+    }
+
+    // conn.execute("drop database if exists test_db").await?;
+    Ok(())
+}
+
 // #[tokio::test]
 // async fn test_insert_large_block() -> errors::Result<()> {
 //     let pool = get_pool();
