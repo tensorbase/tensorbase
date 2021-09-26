@@ -1645,6 +1645,54 @@ async fn tests_integ_primary_key_datetime() -> errors::Result<()> {
     Ok(())
 }
 
+#[tokio::test]
+async fn tests_integ_primary_key_fix_string() -> errors::Result<()> {
+    let pool = get_pool();
+    let mut conn = pool.connection().await?;
+
+    conn.execute("create database if not exists test_db")
+        .await?;
+    conn.execute("use test_db").await?;
+
+    conn.execute(format!("DROP TABLE IF EXISTS mt")).await?;
+    conn.execute(format!("CREATE TABLE mt(a FixedString(3) primary key)"))
+        .await?;
+
+    let data_s = vec!["abc", "abc", "abc"];
+    let block = Block::new("mt").add("a", data_s.clone());
+
+    let mut insert = conn.insert(&block).await?;
+    insert.commit().await?;
+
+    drop(insert);
+    {
+        let sql = "select a from mt";
+        let mut query_result = conn.query(sql).await?;
+
+        while let Some(block) = query_result.next().await? {
+            let cnt = block.row_count();
+            assert_eq!(cnt, 1);
+        }
+    }
+    let block = Block::new("mt").add("a", data_s.clone());
+
+    let mut insert = conn.insert(&block).await?;
+    insert.commit().await?;
+
+    drop(insert);
+    {
+        let sql = "select a from mt";
+        let mut query_result = conn.query(sql).await?;
+
+        while let Some(block) = query_result.next().await? {
+            let cnt = block.row_count();
+            assert_eq!(cnt, 1);
+        }
+    }
+    conn.execute("drop database if exists test_db").await?;
+    Ok(())
+}
+
 // #[tokio::test]
 // async fn test_insert_large_block() -> errors::Result<()> {
 //     let pool = get_pool();

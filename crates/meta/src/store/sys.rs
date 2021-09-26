@@ -720,7 +720,7 @@ impl MetaStore {
                                 PrimaryKeyContainer::RoaringBitMap(RoaringBitmap::new()),
                             );
                         }
-                        BqlType::String => {
+                        BqlType::FixedString(_) => {
                             self.tabs_pkc.insert(
                                 tid,
                                 PrimaryKeyContainer::HashSet(HashSet::new()),
@@ -804,7 +804,7 @@ impl MetaStore {
                     PrimaryKeyContainer::RoaringBitMap(RoaringBitmap::new()),
                 );
             }
-            BqlType::String => {
+            BqlType::FixedString(_) => {
                 self.tabs_pkc
                     .insert(tid, PrimaryKeyContainer::HashSet(HashSet::new()));
             }
@@ -889,6 +889,17 @@ impl MetaStore {
                 if let PrimaryKeyContainer::RoaringBitMap(rbm) = pkc {
                     for i in 0..nr {
                         rbm.insert(col_data[i] as u32);
+                    }
+                }
+            }
+            BqlType::FixedString(n) => {
+                let col_data =
+                    unsafe { std::str::from_utf8_unchecked(&col_data) }.to_string();
+                let n = n as usize;
+                if let PrimaryKeyContainer::HashSet(hs) = pkc {
+                    for i in 0..nr {
+                        let val = &col_data[i * n..(i + 1) * n];
+                        hs.insert((*val).to_owned());
                     }
                 }
             }

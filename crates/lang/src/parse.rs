@@ -436,7 +436,10 @@ impl CreateTabContext {
                         col.1.is_primary_key = true;
                         match col.1.data_type {
                             // TODO: more type support
-                            BqlType::UInt(_) | BqlType::Date | BqlType::DateTime => {}
+                            BqlType::UInt(_)
+                            | BqlType::Date
+                            | BqlType::DateTime
+                            | BqlType::FixedString(_) => {}
                             _ => {
                                 return Err(LangError::PrimaryKeyParsingUnsupported);
                             }

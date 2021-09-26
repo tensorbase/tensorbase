@@ -358,6 +358,22 @@ fn deduplicate_by_primary_key(
                 }
             }
         }
+        meta::types::BqlType::FixedString(n) => {
+            let cdata_pk =
+                unsafe { std::str::from_utf8_unchecked(&cdata_pk) }.to_string();
+            let n = *n as usize;
+            if let PrimaryKeyContainer::HashSet(hs) = pkc {
+                for i in 0..nr {
+                    let val_str = &cdata_pk[i * n..(i + 1) * n];
+                    let val = (*val_str).to_owned();
+                    if hs.contains(&val) {
+                        insert_mark[i] = 0;
+                    } else {
+                        hs.insert(val);
+                    }
+                }
+            }
+        }
         _ => {
             return Err(BaseRtError::UnsupportedPrimaryKeyType);
         }
