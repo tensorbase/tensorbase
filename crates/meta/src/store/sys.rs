@@ -708,6 +708,18 @@ impl MetaStore {
                                 return Err(MetaError::UnsupportedPrimaryKeyTypeError);
                             }
                         },
+                        BqlType::Date => {
+                            self.tabs_pkc.insert(
+                                tid,
+                                PrimaryKeyContainer::RoaringBitMap(RoaringBitmap::new()),
+                            );
+                        }
+                        BqlType::DateTime => {
+                            self.tabs_pkc.insert(
+                                tid,
+                                PrimaryKeyContainer::RoaringBitMap(RoaringBitmap::new()),
+                            );
+                        }
                         BqlType::String => {
                             self.tabs_pkc.insert(
                                 tid,
@@ -780,6 +792,18 @@ impl MetaStore {
                     return Err(MetaError::UnsupportedPrimaryKeyTypeError);
                 }
             },
+            BqlType::Date => {
+                self.tabs_pkc.insert(
+                    tid,
+                    PrimaryKeyContainer::RoaringBitMap(RoaringBitmap::new()),
+                );
+            }
+            BqlType::DateTime => {
+                self.tabs_pkc.insert(
+                    tid,
+                    PrimaryKeyContainer::RoaringBitMap(RoaringBitmap::new()),
+                );
+            }
             BqlType::String => {
                 self.tabs_pkc
                     .insert(tid, PrimaryKeyContainer::HashSet(HashSet::new()));
@@ -852,6 +876,22 @@ impl MetaStore {
                     return Err(MetaError::UnsupportedPrimaryKeyTypeError);
                 }
             },
+            BqlType::Date => {
+                let col_data = shape_slice::<u16>(col_data);
+                if let PrimaryKeyContainer::RoaringBitMap(rbm) = pkc {
+                    for i in 0..nr {
+                        rbm.insert(col_data[i] as u32);
+                    }
+                }
+            }
+            BqlType::DateTime => {
+                let col_data = shape_slice::<u32>(col_data);
+                if let PrimaryKeyContainer::RoaringBitMap(rbm) = pkc {
+                    for i in 0..nr {
+                        rbm.insert(col_data[i] as u32);
+                    }
+                }
+            }
             _ => {
                 return Err(MetaError::UnsupportedPrimaryKeyTypeError);
             }

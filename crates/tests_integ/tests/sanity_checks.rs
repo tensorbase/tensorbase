@@ -1535,7 +1535,113 @@ async fn tests_integ_primary_key_truncate() -> errors::Result<()> {
         }
     }
 
-    // conn.execute("drop database if exists test_db").await?;
+    conn.execute("drop database if exists test_db").await?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn tests_integ_primary_key_date() -> errors::Result<()> {
+    let pool = get_pool();
+    let mut conn = pool.connection().await?;
+
+    conn.execute("create database if not exists test_db")
+        .await?;
+    conn.execute("use test_db").await?;
+
+    conn.execute(format!("drop table if exists mt")).await?;
+    conn.execute(format!("create table mt(a Date primary key)"))
+        .await?;
+    let data_a = vec![Utc.ymd(2021, 9, 1), Utc.ymd(2021, 9, 1)];
+    let block = { Block::new("mt").add("a", data_a.clone()) };
+
+    let mut insert = conn.insert(&block).await?;
+    insert.commit().await?;
+
+    drop(insert);
+    {
+        let sql = "select a from mt";
+        let mut query_result = conn.query(sql).await?;
+
+        while let Some(block) = query_result.next().await? {
+            let cnt = block.row_count();
+            assert_eq!(cnt, 1);
+        }
+    }
+    let block = { Block::new("mt").add("a", data_a.clone()) };
+
+    let mut insert = conn.insert(&block).await?;
+    insert.commit().await?;
+
+    drop(insert);
+    {
+        let sql = "select a from mt";
+        let mut query_result = conn.query(sql).await?;
+
+        while let Some(block) = query_result.next().await? {
+            let cnt = block.row_count();
+            assert_eq!(cnt, 1);
+        }
+    }
+
+    conn.execute("drop database if exists test_db").await?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn tests_integ_primary_key_datetime() -> errors::Result<()> {
+    let pool = get_pool();
+    let mut conn = pool.connection().await?;
+
+    conn.execute("create database if not exists test_db")
+        .await?;
+    conn.execute("use test_db").await?;
+
+    conn.execute(format!("drop table if exists mt")).await?;
+    conn.execute(format!("create table mt(a DateTime primary key)"))
+        .await?;
+    let data_naive = vec![
+        NaiveDate::from_ymd(2010, 1, 1).and_hms(1, 1, 1),
+        NaiveDate::from_ymd(2010, 1, 1).and_hms(1, 1, 1),
+        NaiveDate::from_ymd(2010, 1, 1).and_hms(1, 1, 1),
+        NaiveDate::from_ymd(2010, 1, 1).and_hms(1, 1, 1),
+    ];
+
+    let data_a = data_naive
+        .iter()
+        .map(|t| Utc.from_utc_datetime(t))
+        .collect::<Vec<_>>();
+    let block = { Block::new("mt").add("a", data_a.clone()) };
+
+    let mut insert = conn.insert(&block).await?;
+    insert.commit().await?;
+
+    drop(insert);
+    {
+        let sql = "select a from mt";
+        let mut query_result = conn.query(sql).await?;
+
+        while let Some(block) = query_result.next().await? {
+            let cnt = block.row_count();
+            assert_eq!(cnt, 1);
+        }
+    }
+    let block = { Block::new("mt").add("a", data_a.clone()) };
+
+    let mut insert = conn.insert(&block).await?;
+    insert.commit().await?;
+
+    drop(insert);
+    {
+        let sql = "select a from mt";
+        let mut query_result = conn.query(sql).await?;
+
+        while let Some(block) = query_result.next().await? {
+            let cnt = block.row_count();
+            assert_eq!(cnt, 1);
+        }
+    }
+
+    conn.execute("drop database if exists test_db").await?;
     Ok(())
 }
 

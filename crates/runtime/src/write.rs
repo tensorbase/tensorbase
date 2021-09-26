@@ -278,6 +278,7 @@ fn deduplicate_by_primary_key(
     let ctyp_pk = &col_pk.data.btype;
     let cdata_pk = &col_pk.data.data;
     let nr = blk.nrows;
+    let tz_ofs = BMS.timezone.offset();
     match ctyp_pk {
         // TODO: more type support
         meta::types::BqlType::UInt(bits) => match bits {
@@ -333,6 +334,30 @@ fn deduplicate_by_primary_key(
                 return Err(BaseRtError::UnsupportedPrimaryKeyType);
             }
         },
+        meta::types::BqlType::Date => {
+            let cdata_pk = shape_slice::<u16>(cdata_pk);
+            if let PrimaryKeyContainer::RoaringBitMap(rbm) = pkc {
+                for i in 0..nr {
+                    if rbm.contains(cdata_pk[i] as u32) {
+                        insert_mark[i] = 0;
+                    } else {
+                        rbm.insert(cdata_pk[i] as u32);
+                    }
+                }
+            }
+        }
+        meta::types::BqlType::DateTime => {
+            let cdata_pk = shape_slice::<u32>(cdata_pk);
+            if let PrimaryKeyContainer::RoaringBitMap(rbm) = pkc {
+                for i in 0..nr {
+                    if rbm.contains(cdata_pk[i] + (tz_ofs as u32)) {
+                        insert_mark[i] = 0;
+                    } else {
+                        rbm.insert(cdata_pk[i] + (tz_ofs as u32));
+                    }
+                }
+            }
+        }
         _ => {
             return Err(BaseRtError::UnsupportedPrimaryKeyType);
         }
