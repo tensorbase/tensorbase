@@ -15,9 +15,9 @@
 
 ## Status of the Project
 
-TensorBase hasn't been updated for a while. Thanks for friends' concern and inquiries, we reply as follows: 
+TensorBase hasn't been updated for a while. Thanks for all friends' concern and inquiries, we reply as follows: 
 
-TensorBase hopes the open source not become a copy game. TensorBase has a clear-cut opposition to fork communities, repeat wheels, or hack traffics for so-called reputations(like Github stars). After thoughts, we decided to temporarily leave the general OLAP field.
+TensorBase hopes the open source not become a copy game. TensorBase has a clear-cut opposition to fork communities, repeat wheels, or hack traffics for so-called reputations (like Github stars). After thoughts, we decided to temporarily leave the general OLAP field.
 
 Here, let's recap all `the world's first` of TensorBase:
 1. The world's first [ClickHouse](https://clickhouse.com/) compatible open-source implementation.
@@ -34,6 +34,7 @@ For people who want to learn how a database like system can be built up, or how 
 
 The core team of TensorBase has moved to another new type of domain-specific database. [We are hiring](https://tensorbase.io/joinus/)!
 
+---------------------
 ## What is TensorBase
 TensorBase is a new big data warehousing with modern efforts.
 
