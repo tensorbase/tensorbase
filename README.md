@@ -28,11 +28,11 @@ Here, let's recap all `the world's first` of TensorBase:
 6. First DBMS running on the real-world RISC-V hardware.
 7. First top-performance whole-lifecycle JIT SQL query engine(not open sourced)...
 
-For people looking for production level data warehouse solutions, we still recommend [ClickHouse](https://clickhouse.com/). We wish that ClickHouse can learn from these work and evolve itself to better.
+For people looking for production level data warehouse solution, we still recommend [ClickHouse](https://clickhouse.com/). We wish that ClickHouse can learn from these work and evolve itself to better.
 
 For people who want to learn how a database like system can be built up, or how to apply modern Rust to the high performance field, or embed a lightweight data analysis system into your big system. You can still try, ask or contribute to TensorBase. The creators and committers are still around the community. We will help you in all kinds of interesting things uncovered or covered in the project. We still maintain the project to look forward to meeting more database geniuses in this world, although no new feature will be added in the near future. 
 
-The core team of TensorBase has moved to another new type of domain-specific database. [We are hiring](https://tensorbase.io/joinus/)!
+The core team of TensorBase has moved to another new type of domain-specific database. <b>[We are hiring](https://tensorbase.io/joinus/)<b/>!
 
 ---------------------
 ## What is TensorBase
