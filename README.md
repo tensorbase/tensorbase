@@ -24,13 +24,13 @@ Here, let's recap all `the world's first` of TensorBase:
 2. 2x faster write throughput than that of ClickHouse (based on [our bug fixed Rust client](https://github.com/tensorbase/tensorbase/tree/main/crates/client), you can get ~1.7x speedup by [our another simple concurrent script here](https://github.com/tensorbase/tools)).
 3. Faster query speed in the simple aggregation than that of ClickHouse. 
 4. First no-LSM, write and read optimized storage layer proposed.
-5. First make "copy-free, lock-free, async-free, dyn-free" happened in an open-source DBMS's critical write path.
+5. First make "copy-free, lock-free, async-free, dyn-free" happened in an open-source DBMS's critical path.
 6. First DBMS running on the real-world RISC-V hardware.
-7. First top-performance whole-lifecycle JIT SQL query engine(not open sourced)...
+7. First top-performance whole-lifecycle JIT SQL query engine(not completely open sourced, but we release the initial prototype in the network which you can try, and more you can get the ideas from the [blogs](https://tensorbase.io/blog/), [presentations](https://tensorbase.io/2020/11/08/rustfest2020.html) and [videos](https://tensorbase.io/about/).)...
 
 For people looking for production level data warehouse solution, we still recommend [ClickHouse](https://clickhouse.com/). We wish that ClickHouse can learn from these work and evolve itself to better.
 
-For people who want to learn how a database like system can be built up, or how to apply modern Rust to the high performance field, or embed a lightweight data analysis system into your big system. You can still try, ask or contribute to TensorBase. The creators and committers are still around the community. We will help you in all kinds of interesting things uncovered or covered in the project. We still maintain the project to look forward to meeting more database geniuses in this world, although no new feature will be added in the near future. 
+For people who want to learn how a database like system can be built up, or how to apply modern Rust to the high performance field, or embed a lightweight data analysis system into your own big one. You can still try, ask or contribute to TensorBase. The creators and committers are still around the community. We will help you in all kinds of interesting things uncovered or covered in the project. We still maintain the project to look forward to meeting more database geniuses in this world, although no new feature will be added in the near future. 
 
 The core team of TensorBase has moved to another new type of domain-specific database. <b>[We are hiring](https://tensorbase.io/joinus/)<b/>!
 
