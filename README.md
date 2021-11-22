@@ -17,7 +17,7 @@
 
 TensorBase hasn't been updated for a while. Thanks for all friends' concern and inquiries, we reply as follows: 
 
-TensorBase hopes the open source not become a copy game. TensorBase has a clear-cut opposition to fork communities, repeat wheels, or hack traffics for so-called reputations (like Github stars). After thoughts, we decided to temporarily leave the general OLAP field.
+TensorBase hopes the open source not become a copy game. TensorBase has a clear-cut opposition to fork communities, repeat wheels, or hack traffics for so-called reputations (like Github stars). After thoughts, we decided to temporarily leave the general data warehousing field.
 
 Here, let's recap all `the world's first` of TensorBase:
 1. The world's first [ClickHouse](https://clickhouse.com/) compatible open-source implementation.
