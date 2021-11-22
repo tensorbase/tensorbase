@@ -22,10 +22,10 @@ TensorBase hopes the open source not become a copy game. TensorBase has a clear-
 Here, let's recap all `the world's first` of TensorBase:
 1. The world's first [ClickHouse](https://clickhouse.com/) compatible open-source implementation.
 2. 2x faster write throughput than that of ClickHouse (based on [our bug fixed Rust client](https://github.com/tensorbase/tensorbase/tree/main/crates/client), you can get ~1.7x speedup by [our another simple concurrent script here](https://github.com/tensorbase/tools)).
-3. Faster query speed in the simple aggregation than that of ClickHouse. 
-4. First no-LSM, write and read optimized storage layer proposed.
-5. First make "copy-free, lock-free, async-free, dyn-free" happened in an open-source DBMS's critical path.
-6. First DBMS running on the real-world RISC-V hardware.
+3. [Faster query speed in the simple aggregation](https://github.com/tensorbase/benchmarks/blob/main/quick.md) than that of ClickHouse(benchmarked against ClickHouse 2021.6). 
+4. First [no-LSM](https://tensorbase.io/2021/05/01/base_series_1.html), write and read optimized storage layer proposed.
+5. First make ["copy-free, lock-free, async-free, dyn-free"](https://tensorbase.io/2021/05/01/base_series_1.html) happened in an open-source DBMS's critical path.
+6. First DBMS [running on the real-world RISC-V hardware](https://tensorbase.io/2021/06/08/sql_on_riscv_in_rust.html).
 7. First top-performance whole-lifecycle JIT SQL query engine(not completely open sourced, but we release the initial prototype in the network which you can try, and more you can get the ideas from the [blogs](https://tensorbase.io/blog/), [presentations](https://tensorbase.io/2020/11/08/rustfest2020.html) and [videos](https://tensorbase.io/about/).)...
 
 For people looking for production level data warehouse solution, we still recommend [ClickHouse](https://clickhouse.com/). We wish that ClickHouse can learn from these work and evolve itself to better.
