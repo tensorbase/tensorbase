@@ -1,11 +1,9 @@
-use clap::Clap;
 use std::io::prelude::*;
 use std::io::BufReader;
 use std::{fs::File, path::Path};
 
 use client::prelude::{Options, Pool};
 use mysql::prelude::*;
-use mysql::*;
 use mysql::{Opts as MyOpts, Pool as MyPool};
 use std::convert::TryInto;
 use std::env;
@@ -48,15 +46,6 @@ pub fn get_pool() -> Pool {
 pub fn get_mysql_pool() -> MyPool {
     MyPool::new(MyOpts::from_url(mysql_url().as_str()).expect("MySQL URL"))
         .expect("MySQL database url")
-}
-
-#[derive(Clap)]
-#[clap(version = "1.0")]
-struct Opts {
-    /// Sets a custom config file. Could have been an Option<T> with no default too
-    #[clap(short, long)]
-    #[allow(dead_code)]
-    test_name: Option<String>,
 }
 
 #[tokio::main]
