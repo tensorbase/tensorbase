@@ -2,6 +2,8 @@
 //!
 //! Tests are located at `datafusion_tests`.
 
+use super::functions::TypeSignature;
+use super::functions::Volatility;
 use super::{ColumnarValue, PhysicalExpr};
 use crate::error::{DataFusionError, Result};
 use crate::physical_plan::functions::{ScalarFunctionImplementation, Signature};
@@ -31,7 +33,7 @@ use base::{
 pub static DEFAULT_TIMEZONE: SyncOnceCell<TimeZoneId> = SyncOnceCell::new();
 
 /// Enum of clickhouse built-in scalar functions
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd)]
 pub enum BuiltinScalarFunction {
     /// toYear
     ToYear,
@@ -69,7 +71,7 @@ pub enum BuiltinScalarFunction {
 }
 
 /// Enum as which to treat the uuid when error in parsing uuid string
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd)]
 pub enum TreatNonUUIDAs {
     /// treat as error
     Error,
@@ -422,33 +424,49 @@ impl BuiltinScalarFunction {
             | BuiltinScalarFunction::ToDayOfYear
             | BuiltinScalarFunction::ToDayOfMonth
             | BuiltinScalarFunction::ToDayOfWeek
-            | BuiltinScalarFunction::ToQuarter => {
-                Signature::Uniform(1, vec![DataType::Date16, DataType::Timestamp32(None)])
-            }
-            BuiltinScalarFunction::ToDate | BuiltinScalarFunction::ToDateTime => {
-                Signature::Uniform(
+            | BuiltinScalarFunction::ToQuarter => Signature::new(
+                TypeSignature::Uniform(
                     1,
-                    vec![
-                        DataType::Date16,
-                        DataType::Timestamp32(None),
-                        DataType::Int64,
-                        DataType::LargeUtf8,
-                    ],
+                    vec![DataType::Date16, DataType::Timestamp32(None)],
+                ),
+                Volatility::Immutable,
+            ),
+            BuiltinScalarFunction::ToDate | BuiltinScalarFunction::ToDateTime => {
+                Signature::new(
+                    TypeSignature::Uniform(
+                        1,
+                        vec![
+                            DataType::Date16,
+                            DataType::Timestamp32(None),
+                            DataType::Int64,
+                            DataType::LargeUtf8,
+                        ],
+                    ),
+                    Volatility::Immutable,
                 )
             }
             BuiltinScalarFunction::ToHour
             | BuiltinScalarFunction::ToMinute
-            | BuiltinScalarFunction::ToSecond => {
-                Signature::Uniform(1, vec![DataType::Timestamp32(None)])
+            | BuiltinScalarFunction::ToSecond => Signature::new(
+                TypeSignature::Uniform(1, vec![DataType::Timestamp32(None)]),
+                Volatility::Immutable,
+            ),
+            BuiltinScalarFunction::EndsWith => {
+                Signature::new(TypeSignature::Any(2), Volatility::Immutable)
             }
-            BuiltinScalarFunction::EndsWith => Signature::Any(2),
-            BuiltinScalarFunction::GenerateUUIDv4 => Signature::Any(0),
+            BuiltinScalarFunction::GenerateUUIDv4 => {
+                Signature::new(TypeSignature::Any(0), Volatility::Immutable)
+            }
             BuiltinScalarFunction::ToUUID(_) | BuiltinScalarFunction::UUIDStringToNum => {
-                Signature::Uniform(1, vec![DataType::Utf8, DataType::LargeUtf8])
+                Signature::new(
+                    TypeSignature::Uniform(1, vec![DataType::Utf8, DataType::LargeUtf8]),
+                    Volatility::Immutable,
+                )
             }
-            BuiltinScalarFunction::UUIDNumToString => {
-                Signature::Uniform(1, vec![DataType::FixedSizeBinary(16)])
-            }
+            BuiltinScalarFunction::UUIDNumToString => Signature::new(
+                TypeSignature::Uniform(1, vec![DataType::FixedSizeBinary(16)]),
+                Volatility::Immutable,
+            ),
         }
     }
 }

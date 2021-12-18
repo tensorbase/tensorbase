@@ -17,11 +17,15 @@
 
 //! Defines the SORT plan
 
-use super::{RecordBatchStream, SendableRecordBatchStream};
+use super::common::AbortOnDropSingle;
+use super::metrics::{
+    BaselineMetrics, ExecutionPlanMetricsSet, MetricsSet, RecordOutput,
+};
+use super::{RecordBatchStream, SendableRecordBatchStream, Statistics};
 use crate::error::{DataFusionError, Result};
 use crate::physical_plan::expressions::PhysicalSortExpr;
 use crate::physical_plan::{
-    common, DisplayFormatType, Distribution, ExecutionPlan, Partitioning, SQLMetric,
+    common, DisplayFormatType, Distribution, ExecutionPlan, Partitioning,
 };
 pub use arrow::compute::SortOptions;
 use arrow::compute::{lexsort_to_indices, take, SortColumn, TakeOptions};
@@ -32,13 +36,11 @@ use arrow::{array::ArrayRef, error::ArrowError};
 use async_trait::async_trait;
 use futures::stream::Stream;
 use futures::Future;
-use hashbrown::HashMap;
 use pin_project_lite::pin_project;
 use std::any::Any;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{Context, Poll};
-use std::time::Instant;
 
 /// Sort execution plan
 #[derive(Debug)]
@@ -47,10 +49,8 @@ pub struct SortExec {
     input: Arc<dyn ExecutionPlan>,
     /// Sort expressions
     expr: Vec<PhysicalSortExpr>,
-    /// Output rows
-    output_rows: Arc<SQLMetric>,
-    /// Time to sort batches
-    sort_time_nanos: Arc<SQLMetric>,
+    /// Execution metrics
+    metrics: ExecutionPlanMetricsSet,
     /// Preserve partitions of input plan
     preserve_partitioning: bool,
 }
@@ -74,9 +74,8 @@ impl SortExec {
         Self {
             expr,
             input,
+            metrics: ExecutionPlanMetricsSet::new(),
             preserve_partitioning,
-            output_rows: SQLMetric::counter(),
-            sort_time_nanos: SQLMetric::time_nanos(),
         }
     }
 
@@ -155,13 +154,13 @@ impl ExecutionPlan for SortExec {
             }
         }
 
+        let baseline_metrics = BaselineMetrics::new(&self.metrics, partition);
         let input = self.input.execute(partition).await?;
 
         Ok(Box::pin(SortStream::new(
             input,
             self.expr.clone(),
-            self.output_rows.clone(),
-            self.sort_time_nanos.clone(),
+            baseline_metrics,
         )))
     }
 
@@ -178,11 +177,12 @@ impl ExecutionPlan for SortExec {
         }
     }
 
-    fn metrics(&self) -> HashMap<String, SQLMetric> {
-        let mut metrics = HashMap::new();
-        metrics.insert("outputRows".to_owned(), (*self.output_rows).clone());
-        metrics.insert("sortTime".to_owned(), (*self.sort_time_nanos).clone());
-        metrics
+    fn metrics(&self) -> Option<MetricsSet> {
+        Some(self.metrics.clone_inner())
+    }
+
+    fn statistics(&self) -> Statistics {
+        self.input.statistics()
     }
 }
 
@@ -229,7 +229,7 @@ pin_project! {
         output: futures::channel::oneshot::Receiver<ArrowResult<Option<RecordBatch>>>,
         finished: bool,
         schema: SchemaRef,
-        output_rows: Arc<SQLMetric>,
+        drop_helper: AbortOnDropSingle<()>,
     }
 }
 
@@ -237,36 +237,37 @@ impl SortStream {
     fn new(
         input: SendableRecordBatchStream,
         expr: Vec<PhysicalSortExpr>,
-        output_rows: Arc<SQLMetric>,
-        sort_time: Arc<SQLMetric>,
+        baseline_metrics: BaselineMetrics,
     ) -> Self {
         let (tx, rx) = futures::channel::oneshot::channel();
         let schema = input.schema();
-        tokio::spawn(async move {
+        let join_handle = tokio::spawn(async move {
             let schema = input.schema();
             let sorted_batch = common::collect(input)
                 .await
                 .map_err(DataFusionError::into_arrow_external_error)
                 .and_then(move |batches| {
-                    let now = Instant::now();
+                    let timer = baseline_metrics.elapsed_compute().timer();
                     // combine all record batches into one for each column
                     let combined = common::combine_batches(&batches, schema.clone())?;
                     // sort combined record batch
                     let result = combined
                         .map(|batch| sort_batch(batch, schema, &expr))
-                        .transpose()?;
-                    sort_time.add(now.elapsed().as_nanos() as usize);
+                        .transpose()?
+                        .record_output(&baseline_metrics);
+                    timer.done();
                     Ok(result)
                 });
 
-            tx.send(sorted_batch)
+            // failing here is OK, the receiver is gone and does not care about the result
+            tx.send(sorted_batch).ok();
         });
 
         Self {
             output: rx,
             finished: false,
             schema,
-            output_rows,
+            drop_helper: AbortOnDropSingle::new(join_handle),
         }
     }
 }
@@ -275,8 +276,6 @@ impl Stream for SortStream {
     type Item = ArrowResult<RecordBatch>;
 
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        let output_rows = self.output_rows.clone();
-
         if self.finished {
             return Poll::Ready(None);
         }
@@ -295,10 +294,6 @@ impl Stream for SortStream {
                     Ok(result) => result.transpose(),
                 };
 
-                if let Some(Ok(batch)) = &result {
-                    output_rows.add(batch.num_rows());
-                }
-
                 Poll::Ready(result)
             }
             Poll::Pending => Poll::Pending,
@@ -315,29 +310,43 @@ impl RecordBatchStream for SortStream {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::datasource::object_store::local::LocalFileSystem;
     use crate::physical_plan::coalesce_partitions::CoalescePartitionsExec;
     use crate::physical_plan::expressions::col;
     use crate::physical_plan::memory::MemoryExec;
     use crate::physical_plan::{
         collect,
-        csv::{CsvExec, CsvReadOptions},
+        file_format::{CsvExec, PhysicalPlanConfig},
     };
-    use crate::test;
+    use crate::test::assert_is_pending;
+    use crate::test::exec::assert_strong_count_converges_to_zero;
+    use crate::test::{self, exec::BlockingExec};
+    use crate::test_util;
     use arrow::array::*;
     use arrow::datatypes::*;
+    use futures::FutureExt;
 
     #[tokio::test]
     async fn test_sort() -> Result<()> {
-        let schema = test::aggr_test_schema();
+        let schema = test_util::aggr_test_schema();
         let partitions = 4;
-        let path = test::create_partitioned_csv("aggregate_test_100.csv", partitions)?;
-        let csv = CsvExec::try_new(
-            &path,
-            CsvReadOptions::new().schema(&schema),
-            None,
-            1024,
-            None,
-        )?;
+        let (_, files) =
+            test::create_partitioned_csv("aggregate_test_100.csv", partitions)?;
+
+        let csv = CsvExec::new(
+            PhysicalPlanConfig {
+                object_store: Arc::new(LocalFileSystem {}),
+                file_schema: Arc::clone(&schema),
+                file_groups: files,
+                statistics: Statistics::default(),
+                projection: None,
+                batch_size: 1024,
+                limit: None,
+                table_partition_cols: vec![],
+            },
+            true,
+            b',',
+        );
 
         let sort_exec = Arc::new(SortExec::try_new(
             vec![
@@ -438,8 +447,9 @@ mod tests {
         assert_eq!(DataType::Float64, *sort_exec.schema().field(1).data_type());
 
         let result: Vec<RecordBatch> = collect(sort_exec.clone()).await?;
-        assert!(sort_exec.metrics().get("sortTime").unwrap().value() > 0);
-        assert_eq!(sort_exec.metrics().get("outputRows").unwrap().value(), 8);
+        let metrics = sort_exec.metrics().unwrap();
+        assert!(metrics.elapsed_compute().unwrap() > 0);
+        assert_eq!(metrics.output_rows().unwrap(), 8);
         assert_eq!(result.len(), 1);
 
         let columns = result[0].columns();
@@ -479,6 +489,31 @@ mod tests {
         ];
 
         assert_eq!(expected, result);
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_drop_cancel() -> Result<()> {
+        let schema =
+            Arc::new(Schema::new(vec![Field::new("a", DataType::Float32, true)]));
+
+        let blocking_exec = Arc::new(BlockingExec::new(Arc::clone(&schema), 1));
+        let refs = blocking_exec.refs();
+        let sort_exec = Arc::new(SortExec::try_new(
+            vec![PhysicalSortExpr {
+                expr: col("a", &schema)?,
+                options: SortOptions::default(),
+            }],
+            blocking_exec,
+        )?);
+
+        let fut = collect(sort_exec);
+        let mut fut = fut.boxed();
+
+        assert_is_pending(&mut fut);
+        drop(fut);
+        assert_strong_count_converges_to_zero(refs).await;
 
         Ok(())
     }

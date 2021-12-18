@@ -53,19 +53,20 @@ where
 
     let null_bit_buffer = array
         .data_ref()
-        .null_bitmap()
-        .as_ref()
-        .map(|b| b.bits.clone());
+        .null_buffer()
+        .map(|b| b.bit_slice(array.offset(), array.len()));
 
-    let data = ArrayData::new(
-        data_type,
-        array.len(),
-        None,
-        null_bit_buffer,
-        0,
-        vec![buffer],
-        vec![],
-    );
+    let data = unsafe {
+        ArrayData::new_unchecked(
+            data_type,
+            array.len(),
+            None,
+            null_bit_buffer,
+            0,
+            vec![buffer],
+            vec![],
+        )
+    };
     make_array(data)
 }
 
@@ -101,7 +102,7 @@ where
 /// * this only accepts StringArray/Utf8 and LargeString/LargeUtf8
 /// * length of null is null.
 /// * length is in number of bytes
-pub fn length(array: &Array) -> Result<ArrayRef> {
+pub fn length(array: &dyn Array) -> Result<ArrayRef> {
     match array.data_type() {
         DataType::Utf8 => Ok(octet_length::<i32, Int32Type>(array)),
         DataType::LargeUtf8 => Ok(octet_length::<i64, Int64Type>(array)),
@@ -117,7 +118,7 @@ pub fn length(array: &Array) -> Result<ArrayRef> {
 /// * this only accepts StringArray/Utf8 and LargeString/LargeUtf8
 /// * bit_length of null is null.
 /// * bit_length is in number of bits
-pub fn bit_length(array: &Array) -> Result<ArrayRef> {
+pub fn bit_length(array: &dyn Array) -> Result<ArrayRef> {
     match array.data_type() {
         DataType::Utf8 => Ok(bit_length_impl::<i32, Int32Type>(array)),
         DataType::LargeUtf8 => Ok(bit_length_impl::<i64, Int64Type>(array)),
@@ -243,18 +244,13 @@ mod tests {
     /// Tests with an offset
     #[test]
     fn length_offsets() -> Result<()> {
-        let a = StringArray::from(vec!["hello", " ", "world"]);
-        let b = make_array(
-            ArrayData::builder(DataType::Utf8)
-                .len(2)
-                .offset(1)
-                .buffers(a.data_ref().buffers().to_vec())
-                .build(),
-        );
+        let a = StringArray::from(vec![Some("hello"), Some(" "), Some("world"), None]);
+        let b = a.slice(1, 3);
         let result = length(b.as_ref())?;
+        let result: &Int32Array = as_primitive_array(&result);
 
-        let expected = Int32Array::from(vec![1, 5]);
-        assert_eq!(expected.data(), result.data());
+        let expected = Int32Array::from(vec![Some(1), Some(5), None]);
+        assert_eq!(&expected, result);
 
         Ok(())
     }
@@ -371,18 +367,13 @@ mod tests {
     /// Tests with an offset
     #[test]
     fn bit_length_offsets() -> Result<()> {
-        let a = StringArray::from(vec!["hello", " ", "world"]);
-        let b = make_array(
-            ArrayData::builder(DataType::Utf8)
-                .len(2)
-                .offset(1)
-                .buffers(a.data_ref().buffers().to_vec())
-                .build(),
-        );
+        let a = StringArray::from(vec![Some("hello"), Some(" "), Some("world"), None]);
+        let b = a.slice(1, 3);
         let result = bit_length(b.as_ref())?;
+        let result: &Int32Array = as_primitive_array(&result);
 
-        let expected = Int32Array::from(vec![8, 40]);
-        assert_eq!(expected.data(), result.data());
+        let expected = Int32Array::from(vec![Some(8), Some(40), None]);
+        assert_eq!(&expected, result);
 
         Ok(())
     }

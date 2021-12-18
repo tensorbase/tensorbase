@@ -107,6 +107,36 @@ impl Field {
         self.nullable
     }
 
+    /// Returns a (flattened) vector containing all fields contained within this field (including it self)
+    pub(crate) fn fields(&self) -> Vec<&Field> {
+        let mut collected_fields = vec![self];
+        match &self.data_type {
+            DataType::Struct(fields) | DataType::Union(fields) => {
+                collected_fields.extend(fields.iter().map(|f| f.fields()).flatten())
+            }
+            DataType::List(field)
+            | DataType::LargeList(field)
+            | DataType::FixedSizeList(field, _)
+            | DataType::Map(field, _) => collected_fields.push(field),
+            _ => (),
+        }
+
+        collected_fields
+    }
+
+    /// Returns a vector containing all (potentially nested) `Field` instances selected by the
+    /// dictionary ID they use
+    #[inline]
+    pub(crate) fn fields_with_dict_id(&self, id: i64) -> Vec<&Field> {
+        self.fields()
+            .into_iter()
+            .filter(|&field| {
+                matches!(field.data_type(), DataType::Dictionary(_, _))
+                    && field.dict_id == id
+            })
+            .collect()
+    }
+
     /// Returns the dictionary ID, if this is a dictionary type.
     #[inline]
     pub const fn dict_id(&self) -> Option<i64> {
@@ -256,7 +286,7 @@ impl Field {
                     DataType::Struct(mut fields) => match map.get("children") {
                         Some(Value::Array(values)) => {
                             let struct_fields: Result<Vec<Field>> =
-                                values.iter().map(|v| Field::from(v)).collect();
+                                values.iter().map(Field::from).collect();
                             fields.append(&mut struct_fields?);
                             DataType::Struct(fields)
                         }
@@ -271,6 +301,35 @@ impl Field {
                             ));
                         }
                     },
+                    DataType::Map(_, keys_sorted) => {
+                        match map.get("children") {
+                            Some(Value::Array(values)) if values.len() == 1 => {
+                                let child = Self::from(&values[0])?;
+                                // child must be a struct
+                                match child.data_type() {
+                                    DataType::Struct(map_fields) if map_fields.len() == 2 => {
+                                        DataType::Map(Box::new(child), keys_sorted)
+                                    }
+                                    t  => {
+                                        return Err(ArrowError::ParseError(
+                                            format!("Map children should be a struct with 2 fields, found {:?}",  t)
+                                        ))
+                                    }
+                                }
+                            }
+                            Some(_) => {
+                                return Err(ArrowError::ParseError(
+                                    "Field 'children' must be an array with 1 element"
+                                        .to_string(),
+                                ))
+                            }
+                            None => {
+                                return Err(ArrowError::ParseError(
+                                    "Field missing 'children' attribute".to_string(),
+                                ));
+                            }
+                        }
+                    }
                     _ => data_type,
                 };
 
@@ -329,6 +388,9 @@ impl Field {
             DataType::List(field) => vec![field.to_json()],
             DataType::LargeList(field) => vec![field.to_json()],
             DataType::FixedSizeList(field, _) => vec![field.to_json()],
+            DataType::Map(field, _) => {
+                vec![field.to_json()]
+            }
             _ => vec![],
         };
         match self.data_type() {
@@ -408,7 +470,7 @@ impl Field {
                                 continue;
                             }
                             is_new_field = false;
-                            self_field.try_merge(&from_field)?;
+                            self_field.try_merge(from_field)?;
                         }
                         if is_new_field {
                             nested_fields.push(from_field.clone());
@@ -445,6 +507,8 @@ impl Field {
                 }
             },
             DataType::Null
+            | DataType::Date16
+            | DataType::Timestamp32(_)
             | DataType::Boolean
             | DataType::Int8
             | DataType::Int16
@@ -457,9 +521,7 @@ impl Field {
             | DataType::Float16
             | DataType::Float32
             | DataType::Float64
-            | DataType::Timestamp32(_)
             | DataType::Timestamp(_, _)
-            | DataType::Date16
             | DataType::Date32
             | DataType::Date64
             | DataType::Time32(_)
@@ -470,6 +532,7 @@ impl Field {
             | DataType::Interval(_)
             | DataType::LargeList(_)
             | DataType::List(_)
+            | DataType::Map(_, _)
             | DataType::Dictionary(_, _)
             | DataType::FixedSizeList(_, _)
             | DataType::FixedSizeBinary(_)
@@ -539,5 +602,63 @@ impl Field {
 impl std::fmt::Display for Field {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         write!(f, "{:?}", self)
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::{DataType, Field};
+
+    #[test]
+    fn test_fields_with_dict_id() {
+        let dict1 = Field::new_dict(
+            "dict1",
+            DataType::Dictionary(DataType::Utf8.into(), DataType::Int32.into()),
+            false,
+            10,
+            false,
+        );
+        let dict2 = Field::new_dict(
+            "dict2",
+            DataType::Dictionary(DataType::Int32.into(), DataType::Int8.into()),
+            false,
+            20,
+            false,
+        );
+
+        let field = Field::new(
+            "struct<dict1, list[struct<dict2, list[struct<dict1]>]>",
+            DataType::Struct(vec![
+                dict1.clone(),
+                Field::new(
+                    "list[struct<dict1, list[struct<dict2>]>]",
+                    DataType::List(Box::new(Field::new(
+                        "struct<dict1, list[struct<dict2>]>",
+                        DataType::Struct(vec![
+                            dict1.clone(),
+                            Field::new(
+                                "list[struct<dict2>]",
+                                DataType::List(Box::new(Field::new(
+                                    "struct<dict2>",
+                                    DataType::Struct(vec![dict2.clone()]),
+                                    false,
+                                ))),
+                                false,
+                            ),
+                        ]),
+                        false,
+                    ))),
+                    false,
+                ),
+            ]),
+            false,
+        );
+
+        for field in field.fields_with_dict_id(10) {
+            assert_eq!(dict1, *field);
+        }
+        for field in field.fields_with_dict_id(20) {
+            assert_eq!(dict2, *field);
+        }
     }
 }

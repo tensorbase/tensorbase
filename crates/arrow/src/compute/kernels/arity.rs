@@ -26,23 +26,28 @@ fn into_primitive_array_data<I: ArrowPrimitiveType, O: ArrowPrimitiveType>(
     array: &PrimitiveArray<I>,
     buffer: Buffer,
 ) -> ArrayData {
-    ArrayData::new(
-        O::DATA_TYPE,
-        array.len(),
-        None,
-        array.data_ref().null_buffer().cloned(),
-        0,
-        vec![buffer],
-        vec![],
-    )
+    unsafe {
+        ArrayData::new_unchecked(
+            O::DATA_TYPE,
+            array.len(),
+            None,
+            array
+                .data_ref()
+                .null_buffer()
+                .map(|b| b.bit_slice(array.offset(), array.len())),
+            0,
+            vec![buffer],
+            vec![],
+        )
+    }
 }
 
-/// Applies an unary and infalible function to a primitive array.
+/// Applies an unary and infallible function to a primitive array.
 /// This is the fastest way to perform an operation on a primitive array when
 /// the benefits of a vectorized operation outweights the cost of branching nulls and non-nulls.
 /// # Implementation
 /// This will apply the function for all values, including those on null slots.
-/// This implies that the operation must be infalible for any value of the corresponding type
+/// This implies that the operation must be infallible for any value of the corresponding type
 /// or this function may panic.
 /// # Example
 /// ```rust
@@ -71,4 +76,23 @@ where
 
     let data = into_primitive_array_data::<_, O>(array, buffer);
     PrimitiveArray::<O>::from(data)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::array::{as_primitive_array, Float64Array};
+
+    #[test]
+    fn test_unary_f64_slice() {
+        let input =
+            Float64Array::from(vec![Some(5.1f64), None, Some(6.8), None, Some(7.2)]);
+        let input_slice = input.slice(1, 4);
+        let input_slice: &Float64Array = as_primitive_array(&input_slice);
+        let result = unary(input_slice, |n| n.round());
+        assert_eq!(
+            result,
+            Float64Array::from(vec![None, Some(7.0), None, Some(7.0)])
+        )
+    }
 }

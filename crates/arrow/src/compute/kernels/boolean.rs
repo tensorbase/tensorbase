@@ -33,7 +33,7 @@ use crate::datatypes::{ArrowNumericType, DataType};
 use crate::error::{ArrowError, Result};
 use crate::util::bit_util::{ceil, round_upto_multiple_of_64};
 use core::iter;
-use lexical_core::Integer;
+use num::Zero;
 
 fn binary_boolean_kleene_kernel<F>(
     left: &BooleanArray,
@@ -159,21 +159,23 @@ where
     let bool_buffer: Buffer = value_buffer.into();
     let bool_valid_buffer: Buffer = valid_buffer.into();
 
-    let array_data = ArrayData::new(
-        DataType::Boolean,
-        len,
-        None,
-        Some(bool_valid_buffer),
-        left_offset,
-        vec![bool_buffer],
-        vec![],
-    );
+    let array_data = unsafe {
+        ArrayData::new_unchecked(
+            DataType::Boolean,
+            len,
+            None,
+            Some(bool_valid_buffer),
+            left_offset,
+            vec![bool_buffer],
+            vec![],
+        )
+    };
 
     Ok(BooleanArray::from(array_data))
 }
 
 /// Helper function to implement binary kernels
-fn binary_boolean_kernel<F>(
+pub(crate) fn binary_boolean_kernel<F>(
     left: &BooleanArray,
     right: &BooleanArray,
     op: F,
@@ -191,24 +193,26 @@ where
 
     let left_data = left.data_ref();
     let right_data = right.data_ref();
-    let null_bit_buffer = combine_option_bitmap(&left_data, &right_data, len)?;
+    let null_bit_buffer = combine_option_bitmap(left_data, right_data, len)?;
 
     let left_buffer = &left_data.buffers()[0];
     let right_buffer = &right_data.buffers()[0];
     let left_offset = left.offset();
     let right_offset = right.offset();
 
-    let values = op(&left_buffer, left_offset, &right_buffer, right_offset, len);
+    let values = op(left_buffer, left_offset, right_buffer, right_offset, len);
 
-    let data = ArrayData::new(
-        DataType::Boolean,
-        len,
-        None,
-        null_bit_buffer,
-        0,
-        vec![values],
-        vec![],
-    );
+    let data = unsafe {
+        ArrayData::new_unchecked(
+            DataType::Boolean,
+            len,
+            None,
+            null_bit_buffer,
+            0,
+            vec![values],
+            vec![],
+        )
+    };
     Ok(BooleanArray::from(data))
 }
 
@@ -230,7 +234,7 @@ where
 /// # }
 /// ```
 pub fn and(left: &BooleanArray, right: &BooleanArray) -> Result<BooleanArray> {
-    binary_boolean_kernel(&left, &right, buffer_bin_and)
+    binary_boolean_kernel(left, right, buffer_bin_and)
 }
 
 /// Logical 'and' boolean values with Kleene logic
@@ -300,7 +304,7 @@ pub fn and_kleene(left: &BooleanArray, right: &BooleanArray) -> Result<BooleanAr
 /// # }
 /// ```
 pub fn or(left: &BooleanArray, right: &BooleanArray) -> Result<BooleanArray> {
-    binary_boolean_kernel(&left, &right, buffer_bin_or)
+    binary_boolean_kernel(left, right, buffer_bin_or)
 }
 
 /// Logical 'or' boolean values with Kleene logic
@@ -380,15 +384,17 @@ pub fn not(left: &BooleanArray) -> Result<BooleanArray> {
 
     let values = buffer_unary_not(&data.buffers()[0], left_offset, len);
 
-    let data = ArrayData::new(
-        DataType::Boolean,
-        len,
-        None,
-        null_bit_buffer,
-        0,
-        vec![values],
-        vec![],
-    );
+    let data = unsafe {
+        ArrayData::new_unchecked(
+            DataType::Boolean,
+            len,
+            None,
+            null_bit_buffer,
+            0,
+            vec![values],
+            vec![],
+        )
+    };
     Ok(BooleanArray::from(data))
 }
 
@@ -407,7 +413,7 @@ pub fn not(left: &BooleanArray) -> Result<BooleanArray> {
 /// # Ok(())
 /// # }
 /// ```
-pub fn is_null(input: &Array) -> Result<BooleanArray> {
+pub fn is_null(input: &dyn Array) -> Result<BooleanArray> {
     let len = input.len();
 
     let output = match input.data_ref().null_buffer() {
@@ -418,8 +424,17 @@ pub fn is_null(input: &Array) -> Result<BooleanArray> {
         Some(buffer) => buffer_unary_not(buffer, input.offset(), len),
     };
 
-    let data =
-        ArrayData::new(DataType::Boolean, len, None, None, 0, vec![output], vec![]);
+    let data = unsafe {
+        ArrayData::new_unchecked(
+            DataType::Boolean,
+            len,
+            None,
+            None,
+            0,
+            vec![output],
+            vec![],
+        )
+    };
 
     Ok(BooleanArray::from(data))
 }
@@ -439,7 +454,7 @@ pub fn is_null(input: &Array) -> Result<BooleanArray> {
 /// # Ok(())
 /// # }
 /// ```
-pub fn is_not_null(input: &Array) -> Result<BooleanArray> {
+pub fn is_not_null(input: &dyn Array) -> Result<BooleanArray> {
     let len = input.len();
 
     let output = match input.data_ref().null_buffer() {
@@ -452,8 +467,17 @@ pub fn is_not_null(input: &Array) -> Result<BooleanArray> {
         Some(buffer) => buffer.bit_slice(input.offset(), len),
     };
 
-    let data =
-        ArrayData::new(DataType::Boolean, len, None, None, 0, vec![output], vec![]);
+    let data = unsafe {
+        ArrayData::new_unchecked(
+            DataType::Boolean,
+            len,
+            None,
+            None,
+            0,
+            vec![output],
+            vec![],
+        )
+    };
 
     Ok(BooleanArray::from(data))
 }
@@ -537,15 +561,17 @@ where
 
     // Construct new array with same values but modified null bitmap
     // TODO: shift data buffer as needed
-    let data = ArrayData::new(
-        T::DATA_TYPE,
-        left.len(),
-        None, // force new to compute the number of null bits
-        modified_null_buffer,
-        0, // No need for offset since left data has been shifted
-        data_buffers,
-        left_data.child_data().to_vec(),
-    );
+    let data = unsafe {
+        ArrayData::new_unchecked(
+            T::DATA_TYPE,
+            left.len(),
+            None, // force new to compute the number of null bits
+            modified_null_buffer,
+            0, // No need for offset since left data has been shifted
+            data_buffers,
+            left_data.child_data().to_vec(),
+        )
+    };
     Ok(PrimitiveArray::<T>::from(data))
 }
 
@@ -818,7 +844,7 @@ mod tests {
         let a = BooleanArray::from(vec![None, Some(true), Some(false), None, Some(true)]);
         let a = a.slice(1, 4);
         let a = a.as_any().downcast_ref::<BooleanArray>().unwrap();
-        let c = not(&a).unwrap();
+        let c = not(a).unwrap();
 
         let expected =
             BooleanArray::from(vec![Some(false), Some(true), None, Some(false)]);
@@ -883,7 +909,7 @@ mod tests {
         let b = b.slice(8, 4);
         let b = b.as_any().downcast_ref::<BooleanArray>().unwrap();
 
-        let c = and(&a, &b).unwrap();
+        let c = and(a, b).unwrap();
 
         let expected = BooleanArray::from(vec![false, false, false, true]);
 
@@ -906,7 +932,7 @@ mod tests {
         let b = b.slice(8, 4);
         let b = b.as_any().downcast_ref::<BooleanArray>().unwrap();
 
-        let c = and(&a, &b).unwrap();
+        let c = and(a, b).unwrap();
 
         let expected = BooleanArray::from(vec![false, false, false, true]);
 
@@ -924,7 +950,7 @@ mod tests {
         let a = a.slice(8, 4);
         let a = a.as_any().downcast_ref::<BooleanArray>().unwrap();
 
-        let c = and(&a, &b).unwrap();
+        let c = and(a, &b).unwrap();
 
         let expected = BooleanArray::from(vec![false, false, false, true]);
 
@@ -942,7 +968,7 @@ mod tests {
         let b = b.slice(8, 4);
         let b = b.as_any().downcast_ref::<BooleanArray>().unwrap();
 
-        let c = and(&a, &b).unwrap();
+        let c = and(&a, b).unwrap();
 
         let expected = BooleanArray::from(vec![false, false, false, true]);
 
@@ -967,7 +993,7 @@ mod tests {
         let b = b.slice(2, 4);
         let b = b.as_any().downcast_ref::<BooleanArray>().unwrap();
 
-        let c = and(&a, &b).unwrap();
+        let c = and(a, b).unwrap();
 
         let expected =
             BooleanArray::from(vec![Some(false), Some(false), None, Some(true)]);
@@ -1147,7 +1173,7 @@ mod tests {
         ]);
         let comp = comp.slice(2, 3); // Some(false), None, Some(true)
         let comp = comp.as_any().downcast_ref::<BooleanArray>().unwrap();
-        let res = nullif(&a, &comp).unwrap();
+        let res = nullif(a, comp).unwrap();
 
         let expected = Int32Array::from(vec![
             Some(15), // False => keep it

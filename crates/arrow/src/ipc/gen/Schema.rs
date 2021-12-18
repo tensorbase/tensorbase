@@ -784,7 +784,6 @@ impl Type {
     pub const LargeUtf8: Self = Self(20);
     pub const LargeList: Self = Self(21);
     pub const Timestamp32: Self = Self(100);//XXX
-
     pub const ENUM_MIN: u8 = 0;
     pub const ENUM_MAX: u8 = 21;
     pub const ENUM_VALUES: &'static [Self] = &[

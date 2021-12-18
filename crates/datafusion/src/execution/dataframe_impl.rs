@@ -31,6 +31,11 @@ use crate::{
     physical_plan::{collect, collect_partitioned},
 };
 
+use crate::arrow::util::pretty;
+use crate::physical_plan::{
+    execute_stream, execute_stream_partitioned, ExecutionPlan, SendableRecordBatchStream,
+};
+use crate::sql::utils::find_window_exprs;
 use async_trait::async_trait;
 
 /// Implementation of DataFrame API
@@ -46,6 +51,14 @@ impl DataFrameImpl {
             ctx_state,
             plan: plan.clone(),
         }
+    }
+
+    /// Create a physical plan
+    async fn create_physical_plan(&self) -> Result<Arc<dyn ExecutionPlan>> {
+        let state = self.ctx_state.lock().unwrap().clone();
+        let ctx = ExecutionContext::from(Arc::new(Mutex::new(state)));
+        let plan = ctx.optimize(&self.plan)?;
+        ctx.create_physical_plan(&plan).await
     }
 }
 
@@ -63,10 +76,17 @@ impl DataFrame for DataFrameImpl {
 
     /// Create a projection based on arbitrary expressions
     fn select(&self, expr_list: Vec<Expr>) -> Result<Arc<dyn DataFrame>> {
-        let plan = LogicalPlanBuilder::from(self.to_logical_plan())
-            .project(expr_list)?
-            .build()?;
-        Ok(Arc::new(DataFrameImpl::new(self.ctx_state.clone(), &plan)))
+        let window_func_exprs = find_window_exprs(&expr_list);
+        let plan = if window_func_exprs.is_empty() {
+            self.to_logical_plan()
+        } else {
+            LogicalPlanBuilder::window_plan(self.to_logical_plan(), window_func_exprs)?
+        };
+        let project_plan = LogicalPlanBuilder::from(plan).project(expr_list)?.build()?;
+        Ok(Arc::new(DataFrameImpl::new(
+            self.ctx_state.clone(),
+            &project_plan,
+        )))
     }
 
     /// Create a filter based on a predicate expression
@@ -117,8 +137,7 @@ impl DataFrame for DataFrameImpl {
             .join(
                 &right.to_logical_plan(),
                 join_type,
-                left_cols.to_vec(),
-                right_cols.to_vec(),
+                (left_cols.to_vec(), right_cols.to_vec()),
             )?
             .build()?;
         Ok(Arc::new(DataFrameImpl::new(self.ctx_state.clone(), &plan)))
@@ -139,24 +158,45 @@ impl DataFrame for DataFrameImpl {
         self.plan.clone()
     }
 
-    // Convert the logical plan represented by this DataFrame into a physical plan and
-    // execute it
+    /// Convert the logical plan represented by this DataFrame into a physical plan and
+    /// execute it, collecting all resulting batches into memory
     async fn collect(&self) -> Result<Vec<RecordBatch>> {
-        let state = self.ctx_state.lock().unwrap().clone();
-        let ctx = ExecutionContext::from(Arc::new(Mutex::new(state)));
-        let plan = ctx.optimize(&self.plan)?;
-        let plan = ctx.create_physical_plan(&plan)?;
+        let plan = self.create_physical_plan().await?;
         Ok(collect(plan).await?)
     }
 
-    // Convert the logical plan represented by this DataFrame into a physical plan and
-    // execute it
+    /// Print results.
+    async fn show(&self) -> Result<()> {
+        let results = self.collect().await?;
+        Ok(pretty::print_batches(&results)?)
+    }
+
+    /// Print results and limit rows.
+    async fn show_limit(&self, num: usize) -> Result<()> {
+        let results = self.limit(num)?.collect().await?;
+        Ok(pretty::print_batches(&results)?)
+    }
+
+    /// Convert the logical plan represented by this DataFrame into a physical plan and
+    /// execute it, returning a stream over a single partition
+    async fn execute_stream(&self) -> Result<SendableRecordBatchStream> {
+        let plan = self.create_physical_plan().await?;
+        execute_stream(plan).await
+    }
+
+    /// Convert the logical plan represented by this DataFrame into a physical plan and
+    /// execute it, collecting all resulting batches into memory while maintaining
+    /// partitioning
     async fn collect_partitioned(&self) -> Result<Vec<Vec<RecordBatch>>> {
-        let state = self.ctx_state.lock().unwrap().clone();
-        let ctx = ExecutionContext::from(Arc::new(Mutex::new(state)));
-        let plan = ctx.optimize(&self.plan)?;
-        let plan = ctx.create_physical_plan(&plan)?;
+        let plan = self.create_physical_plan().await?;
         Ok(collect_partitioned(plan).await?)
+    }
+
+    /// Convert the logical plan represented by this DataFrame into a physical plan and
+    /// execute it, returning a stream for each partition
+    async fn execute_stream_partitioned(&self) -> Result<Vec<SendableRecordBatchStream>> {
+        let plan = self.create_physical_plan().await?;
+        Ok(execute_stream_partitioned(plan).await?)
     }
 
     /// Returns the schema from the logical plan
@@ -164,9 +204,9 @@ impl DataFrame for DataFrameImpl {
         self.plan.schema()
     }
 
-    fn explain(&self, verbose: bool) -> Result<Arc<dyn DataFrame>> {
+    fn explain(&self, verbose: bool, analyze: bool) -> Result<Arc<dyn DataFrame>> {
         let plan = LogicalPlanBuilder::from(self.to_logical_plan())
-            .explain(verbose)?
+            .explain(verbose, analyze)?
             .build()?;
         Ok(Arc::new(DataFrameImpl::new(self.ctx_state.clone(), &plan)))
     }
@@ -182,6 +222,33 @@ impl DataFrame for DataFrameImpl {
             .build()?;
         Ok(Arc::new(DataFrameImpl::new(self.ctx_state.clone(), &plan)))
     }
+
+    fn distinct(&self) -> Result<Arc<dyn DataFrame>> {
+        Ok(Arc::new(DataFrameImpl::new(
+            self.ctx_state.clone(),
+            &LogicalPlanBuilder::from(self.to_logical_plan())
+                .distinct()?
+                .build()?,
+        )))
+    }
+
+    fn intersect(&self, dataframe: Arc<dyn DataFrame>) -> Result<Arc<dyn DataFrame>> {
+        let left_plan = self.to_logical_plan();
+        let right_plan = dataframe.to_logical_plan();
+        Ok(Arc::new(DataFrameImpl::new(
+            self.ctx_state.clone(),
+            &LogicalPlanBuilder::intersect(left_plan, right_plan, true)?,
+        )))
+    }
+
+    fn except(&self, dataframe: Arc<dyn DataFrame>) -> Result<Arc<dyn DataFrame>> {
+        let left_plan = self.to_logical_plan();
+        let right_plan = dataframe.to_logical_plan();
+        Ok(Arc::new(DataFrameImpl::new(
+            self.ctx_state.clone(),
+            &LogicalPlanBuilder::except(left_plan, right_plan, true)?,
+        )))
+    }
 }
 
 #[cfg(test)]
@@ -189,37 +256,23 @@ mod tests {
     use std::vec;
 
     use super::*;
-    use crate::logical_plan::*;
+    use crate::execution::options::CsvReadOptions;
+    use crate::physical_plan::functions::ScalarFunctionImplementation;
+    use crate::physical_plan::functions::Volatility;
+    use crate::physical_plan::{window_functions, ColumnarValue};
     use crate::{assert_batches_sorted_eq, execution::context::ExecutionContext};
-    use crate::{datasource::csv::CsvReadOptions, physical_plan::ColumnarValue};
-    use crate::{physical_plan::functions::ScalarFunctionImplementation, test};
+    use crate::{logical_plan::*, test_util};
     use arrow::datatypes::DataType;
 
-    #[test]
-    fn select_columns() -> Result<()> {
+    #[tokio::test]
+    async fn select_columns() -> Result<()> {
         // build plan using Table API
-        let t = test_table()?;
+        let t = test_table().await?;
         let t2 = t.select_columns(&["c1", "c2", "c11"])?;
         let plan = t2.to_logical_plan();
 
         // build query using SQL
-        let sql_plan = create_plan("SELECT c1, c2, c11 FROM aggregate_test_100")?;
-
-        // the two plans should be identical
-        assert_same_plan(&plan, &sql_plan);
-
-        Ok(())
-    }
-
-    #[test]
-    fn select_expr() -> Result<()> {
-        // build plan using Table API
-        let t = test_table()?;
-        let t2 = t.select(vec![col("c1"), col("c2"), col("c11")])?;
-        let plan = t2.to_logical_plan();
-
-        // build query using SQL
-        let sql_plan = create_plan("SELECT c1, c2, c11 FROM aggregate_test_100")?;
+        let sql_plan = create_plan("SELECT c1, c2, c11 FROM aggregate_test_100").await?;
 
         // the two plans should be identical
         assert_same_plan(&plan, &sql_plan);
@@ -228,9 +281,50 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn select_expr() -> Result<()> {
+        // build plan using Table API
+        let t = test_table().await?;
+        let t2 = t.select(vec![col("c1"), col("c2"), col("c11")])?;
+        let plan = t2.to_logical_plan();
+
+        // build query using SQL
+        let sql_plan = create_plan("SELECT c1, c2, c11 FROM aggregate_test_100").await?;
+
+        // the two plans should be identical
+        assert_same_plan(&plan, &sql_plan);
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn select_with_window_exprs() -> Result<()> {
+        // build plan using Table API
+        let t = test_table().await?;
+        let first_row = Expr::WindowFunction {
+            fun: window_functions::WindowFunction::BuiltInWindowFunction(
+                window_functions::BuiltInWindowFunction::FirstValue,
+            ),
+            args: vec![col("aggregate_test_100.c1")],
+            partition_by: vec![col("aggregate_test_100.c2")],
+            order_by: vec![],
+            window_frame: None,
+        };
+        let t2 = t.select(vec![col("c1"), first_row])?;
+        let plan = t2.to_logical_plan();
+
+        let sql_plan = create_plan(
+            "select c1, first_value(c1) over (partition by c2) from aggregate_test_100",
+        )
+        .await?;
+
+        assert_same_plan(&plan, &sql_plan);
+        Ok(())
+    }
+
+    #[tokio::test]
     async fn aggregate() -> Result<()> {
         // build plan using DataFrame API
-        let df = test_table()?;
+        let df = test_table().await?;
         let group_expr = vec![col("c1")];
         let aggr_expr = vec![
             min(col("c12")),
@@ -245,15 +339,15 @@ mod tests {
 
         assert_batches_sorted_eq!(
             vec![
-            "+----+----------------------+--------------------+---------------------+--------------------+------------+---------------------+",
-            "| c1 | MIN(c12)             | MAX(c12)           | AVG(c12)            | SUM(c12)           | COUNT(c12) | COUNT(DISTINCT c12) |",
-            "+----+----------------------+--------------------+---------------------+--------------------+------------+---------------------+",
-            "| a  | 0.02182578039211991  | 0.9800193410444061 | 0.48754517466109415 | 10.238448667882977 | 21         | 21                  |",
-            "| b  | 0.04893135681998029  | 0.9185813970744787 | 0.41040709263815384 | 7.797734760124923  | 19         | 19                  |",
-            "| c  | 0.0494924465469434   | 0.991517828651004  | 0.6600456536439784  | 13.860958726523545 | 21         | 21                  |",
-            "| d  | 0.061029375346466685 | 0.9748360509016578 | 0.48855379387549824 | 8.793968289758968  | 18         | 18                  |",
-            "| e  | 0.01479305307777301  | 0.9965400387585364 | 0.48600669271341534 | 10.206140546981722 | 21         | 21                  |",
-            "+----+----------------------+--------------------+---------------------+--------------------+------------+---------------------+",
+                "+----+-----------------------------+-----------------------------+-----------------------------+-----------------------------+-------------------------------+----------------------------------------+",
+                "| c1 | MIN(aggregate_test_100.c12) | MAX(aggregate_test_100.c12) | AVG(aggregate_test_100.c12) | SUM(aggregate_test_100.c12) | COUNT(aggregate_test_100.c12) | COUNT(DISTINCT aggregate_test_100.c12) |",
+                "+----+-----------------------------+-----------------------------+-----------------------------+-----------------------------+-------------------------------+----------------------------------------+",
+                "| a  | 0.02182578039211991         | 0.9800193410444061          | 0.48754517466109415         | 10.238448667882977          | 21                            | 21                                     |",
+                "| b  | 0.04893135681998029         | 0.9185813970744787          | 0.41040709263815384         | 7.797734760124923           | 19                            | 19                                     |",
+                "| c  | 0.0494924465469434          | 0.991517828651004           | 0.6600456536439784          | 13.860958726523545          | 21                            | 21                                     |",
+                "| d  | 0.061029375346466685        | 0.9748360509016578          | 0.48855379387549824         | 8.793968289758968           | 18                            | 18                                     |",
+                "| e  | 0.01479305307777301         | 0.9965400387585364          | 0.48600669271341534         | 10.206140546981722          | 21                            | 21                                     |",
+                "+----+-----------------------------+-----------------------------+-----------------------------+-----------------------------+-------------------------------+----------------------------------------+",
             ],
             &df
         );
@@ -263,8 +357,10 @@ mod tests {
 
     #[tokio::test]
     async fn join() -> Result<()> {
-        let left = test_table()?.select_columns(&["c1", "c2"])?;
-        let right = test_table_with_name("c2")?.select_columns(&["c1", "c3"])?;
+        let left = test_table().await?.select_columns(&["c1", "c2"])?;
+        let right = test_table_with_name("c2")
+            .await?
+            .select_columns(&["c1", "c3"])?;
         let left_rows = left.collect().await?;
         let right_rows = right.collect().await?;
         let join = left.join(right, JoinType::Inner, &["c1"], &["c1"])?;
@@ -275,16 +371,16 @@ mod tests {
         Ok(())
     }
 
-    #[test]
-    fn limit() -> Result<()> {
+    #[tokio::test]
+    async fn limit() -> Result<()> {
         // build query using Table API
-        let t = test_table()?;
+        let t = test_table().await?;
         let t2 = t.select_columns(&["c1", "c2", "c11"])?.limit(10)?;
         let plan = t2.to_logical_plan();
 
         // build query using SQL
         let sql_plan =
-            create_plan("SELECT c1, c2, c11 FROM aggregate_test_100 LIMIT 10")?;
+            create_plan("SELECT c1, c2, c11 FROM aggregate_test_100 LIMIT 10").await?;
 
         // the two plans should be identical
         assert_same_plan(&plan, &sql_plan);
@@ -292,19 +388,20 @@ mod tests {
         Ok(())
     }
 
-    #[test]
-    fn explain() -> Result<()> {
+    #[tokio::test]
+    async fn explain() -> Result<()> {
         // build query using Table API
-        let df = test_table()?;
+        let df = test_table().await?;
         let df = df
             .select_columns(&["c1", "c2", "c11"])?
             .limit(10)?
-            .explain(false)?;
+            .explain(false, false)?;
         let plan = df.to_logical_plan();
 
         // build query using SQL
         let sql_plan =
-            create_plan("EXPLAIN SELECT c1, c2, c11 FROM aggregate_test_100 LIMIT 10")?;
+            create_plan("EXPLAIN SELECT c1, c2, c11 FROM aggregate_test_100 LIMIT 10")
+                .await?;
 
         // the two plans should be identical
         assert_same_plan(&plan, &sql_plan);
@@ -312,10 +409,10 @@ mod tests {
         Ok(())
     }
 
-    #[test]
-    fn registry() -> Result<()> {
+    #[tokio::test]
+    async fn registry() -> Result<()> {
         let mut ctx = ExecutionContext::new();
-        register_aggregate_csv(&mut ctx, "aggregate_test_100")?;
+        register_aggregate_csv(&mut ctx, "aggregate_test_100").await?;
 
         // declare the udf
         let my_fn: ScalarFunctionImplementation =
@@ -326,6 +423,7 @@ mod tests {
             "my_fn",
             vec![DataType::Float64],
             Arc::new(DataType::Float64),
+            Volatility::Immutable,
             my_fn,
         ));
 
@@ -349,7 +447,7 @@ mod tests {
 
     #[tokio::test]
     async fn sendable() {
-        let df = test_table().unwrap();
+        let df = test_table().await.unwrap();
         // dataframes should be sendable between threads/tasks
         let task = tokio::task::spawn(async move {
             df.select_columns(&["c1"])
@@ -358,39 +456,68 @@ mod tests {
         task.await.expect("task completed successfully");
     }
 
+    #[tokio::test]
+    async fn intersect() -> Result<()> {
+        let df = test_table().await?.select_columns(&["c1", "c3"])?;
+        let plan = df.intersect(df.clone())?;
+        let result = plan.to_logical_plan();
+        let expected = create_plan(
+            "SELECT c1, c3 FROM aggregate_test_100
+            INTERSECT ALL SELECT c1, c3 FROM aggregate_test_100",
+        )
+        .await?;
+        assert_same_plan(&result, &expected);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn except() -> Result<()> {
+        let df = test_table().await?.select_columns(&["c1", "c3"])?;
+        let plan = df.except(df.clone())?;
+        let result = plan.to_logical_plan();
+        let expected = create_plan(
+            "SELECT c1, c3 FROM aggregate_test_100
+            EXCEPT ALL SELECT c1, c3 FROM aggregate_test_100",
+        )
+        .await?;
+        assert_same_plan(&result, &expected);
+        Ok(())
+    }
+
     /// Compare the formatted string representation of two plans for equality
     fn assert_same_plan(plan1: &LogicalPlan, plan2: &LogicalPlan) {
         assert_eq!(format!("{:?}", plan1), format!("{:?}", plan2));
     }
 
     /// Create a logical plan from a SQL query
-    fn create_plan(sql: &str) -> Result<LogicalPlan> {
+    async fn create_plan(sql: &str) -> Result<LogicalPlan> {
         let mut ctx = ExecutionContext::new();
-        register_aggregate_csv(&mut ctx, "aggregate_test_100")?;
+        register_aggregate_csv(&mut ctx, "aggregate_test_100").await?;
         ctx.create_logical_plan(sql)
     }
 
-    fn test_table_with_name(name: &str) -> Result<Arc<dyn DataFrame + 'static>> {
+    async fn test_table_with_name(name: &str) -> Result<Arc<dyn DataFrame + 'static>> {
         let mut ctx = ExecutionContext::new();
-        register_aggregate_csv(&mut ctx, name)?;
+        register_aggregate_csv(&mut ctx, name).await?;
         ctx.table(name)
     }
 
-    fn test_table() -> Result<Arc<dyn DataFrame + 'static>> {
-        test_table_with_name("aggregate_test_100")
+    async fn test_table() -> Result<Arc<dyn DataFrame + 'static>> {
+        test_table_with_name("aggregate_test_100").await
     }
 
-    fn register_aggregate_csv(
+    async fn register_aggregate_csv(
         ctx: &mut ExecutionContext,
         table_name: &str,
     ) -> Result<()> {
-        let schema = test::aggr_test_schema();
+        let schema = test_util::aggr_test_schema();
         let testdata = crate::test_util::arrow_test_data();
         ctx.register_csv(
             table_name,
             &format!("{}/csv/aggregate_test_100.csv", testdata),
             CsvReadOptions::new().schema(schema.as_ref()),
-        )?;
+        )
+        .await?;
         Ok(())
     }
 }

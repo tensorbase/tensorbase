@@ -20,6 +20,7 @@
 
 use std::any::Any;
 use std::sync::Arc;
+use std::task::Poll;
 
 use futures::channel::mpsc;
 use futures::Stream;
@@ -29,7 +30,9 @@ use async_trait::async_trait;
 use arrow::record_batch::RecordBatch;
 use arrow::{datatypes::SchemaRef, error::Result as ArrowResult};
 
-use super::RecordBatchStream;
+use super::common::AbortOnDropMany;
+use super::metrics::{BaselineMetrics, ExecutionPlanMetricsSet, MetricsSet};
+use super::{RecordBatchStream, Statistics};
 use crate::error::{DataFusionError, Result};
 use crate::physical_plan::{DisplayFormatType, ExecutionPlan, Partitioning};
 
@@ -43,12 +46,17 @@ use pin_project_lite::pin_project;
 pub struct CoalescePartitionsExec {
     /// Input execution plan
     input: Arc<dyn ExecutionPlan>,
+    /// Execution metrics
+    metrics: ExecutionPlanMetricsSet,
 }
 
 impl CoalescePartitionsExec {
     /// Create a new CoalescePartitionsExec
     pub fn new(input: Arc<dyn ExecutionPlan>) -> Self {
-        CoalescePartitionsExec { input }
+        CoalescePartitionsExec {
+            input,
+            metrics: ExecutionPlanMetricsSet::new(),
+        }
     }
 
     /// Input execution plan
@@ -104,10 +112,16 @@ impl ExecutionPlan for CoalescePartitionsExec {
                 "CoalescePartitionsExec requires at least one input partition".to_owned(),
             )),
             1 => {
-                // bypass any threading if there is a single partition
+                // bypass any threading / metrics if there is a single partition
                 self.input.execute(0).await
             }
             _ => {
+                let baseline_metrics = BaselineMetrics::new(&self.metrics, partition);
+                // record the (very) minimal work done so that
+                // elapsed_compute is not reported as 0
+                let elapsed_compute = baseline_metrics.elapsed_compute().clone();
+                let _timer = elapsed_compute.timer();
+
                 // use a stream that allows each sender to put in at
                 // least one result in an attempt to maximize
                 // parallelism.
@@ -116,13 +130,20 @@ impl ExecutionPlan for CoalescePartitionsExec {
 
                 // spawn independent tasks whose resulting streams (of batches)
                 // are sent to the channel for consumption.
+                let mut join_handles = Vec::with_capacity(input_partitions);
                 for part_i in 0..input_partitions {
-                    spawn_execution(self.input.clone(), sender.clone(), part_i);
+                    join_handles.push(spawn_execution(
+                        self.input.clone(),
+                        sender.clone(),
+                        part_i,
+                    ));
                 }
 
                 Ok(Box::pin(MergeStream {
                     input: receiver,
                     schema: self.schema(),
+                    baseline_metrics,
+                    drop_helper: AbortOnDropMany(join_handles),
                 }))
             }
         }
@@ -139,6 +160,14 @@ impl ExecutionPlan for CoalescePartitionsExec {
             }
         }
     }
+
+    fn metrics(&self) -> Option<MetricsSet> {
+        Some(self.metrics.clone_inner())
+    }
+
+    fn statistics(&self) -> Statistics {
+        self.input.statistics()
+    }
 }
 
 pin_project! {
@@ -146,6 +175,8 @@ pin_project! {
         schema: SchemaRef,
         #[pin]
         input: mpsc::Receiver<ArrowResult<RecordBatch>>,
+        baseline_metrics: BaselineMetrics,
+        drop_helper: AbortOnDropMany<()>,
     }
 }
 
@@ -155,9 +186,10 @@ impl Stream for MergeStream {
     fn poll_next(
         self: std::pin::Pin<&mut Self>,
         cx: &mut std::task::Context<'_>,
-    ) -> std::task::Poll<Option<Self::Item>> {
+    ) -> Poll<Option<Self::Item>> {
         let this = self.project();
-        this.input.poll_next(cx)
+        let poll = this.input.poll_next(cx);
+        this.baseline_metrics.record_poll(poll)
     }
 }
 
@@ -170,26 +202,38 @@ impl RecordBatchStream for MergeStream {
 #[cfg(test)]
 mod tests {
 
+    use arrow::datatypes::{DataType, Field, Schema};
+    use futures::FutureExt;
+
     use super::*;
-    use crate::physical_plan::common;
-    use crate::physical_plan::csv::{CsvExec, CsvReadOptions};
-    use crate::test;
+    use crate::datasource::object_store::local::LocalFileSystem;
+    use crate::physical_plan::file_format::{CsvExec, PhysicalPlanConfig};
+    use crate::physical_plan::{collect, common};
+    use crate::test::exec::{assert_strong_count_converges_to_zero, BlockingExec};
+    use crate::test::{self, assert_is_pending};
+    use crate::test_util;
 
     #[tokio::test]
     async fn merge() -> Result<()> {
-        let schema = test::aggr_test_schema();
+        let schema = test_util::aggr_test_schema();
 
         let num_partitions = 4;
-        let path =
+        let (_, files) =
             test::create_partitioned_csv("aggregate_test_100.csv", num_partitions)?;
-
-        let csv = CsvExec::try_new(
-            &path,
-            CsvReadOptions::new().schema(&schema),
-            None,
-            1024,
-            None,
-        )?;
+        let csv = CsvExec::new(
+            PhysicalPlanConfig {
+                object_store: Arc::new(LocalFileSystem {}),
+                file_schema: schema,
+                file_groups: files,
+                statistics: Statistics::default(),
+                projection: None,
+                batch_size: 1024,
+                limit: None,
+                table_partition_cols: vec![],
+            },
+            true,
+            b',',
+        );
 
         // input should have 4 partitions
         assert_eq!(csv.output_partitioning().partition_count(), num_partitions);
@@ -207,6 +251,26 @@ mod tests {
         // there should be a total of 100 rows
         let row_count: usize = batches.iter().map(|batch| batch.num_rows()).sum();
         assert_eq!(row_count, 100);
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_drop_cancel() -> Result<()> {
+        let schema =
+            Arc::new(Schema::new(vec![Field::new("a", DataType::Float32, true)]));
+
+        let blocking_exec = Arc::new(BlockingExec::new(Arc::clone(&schema), 2));
+        let refs = blocking_exec.refs();
+        let coaelesce_partitions_exec =
+            Arc::new(CoalescePartitionsExec::new(blocking_exec));
+
+        let fut = collect(coaelesce_partitions_exec);
+        let mut fut = fut.boxed();
+
+        assert_is_pending(&mut fut);
+        drop(fut);
+        assert_strong_count_converges_to_zero(refs).await;
 
         Ok(())
     }

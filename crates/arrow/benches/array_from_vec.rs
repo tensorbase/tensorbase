@@ -22,19 +22,11 @@ use criterion::Criterion;
 extern crate arrow;
 
 use arrow::array::*;
-use arrow::buffer::Buffer;
-use arrow::datatypes::*;
 use std::{convert::TryFrom, sync::Arc};
 
 fn array_from_vec(n: usize) {
-    let mut v: Vec<u8> = Vec::with_capacity(n);
-    for i in 0..n {
-        v.push((i & 0xffff) as u8);
-    }
-    let arr_data = ArrayDataBuilder::new(DataType::Int32)
-        .add_buffer(Buffer::from(v))
-        .build();
-    criterion::black_box(Int32Array::from(arr_data));
+    let v: Vec<i32> = (0..n as i32).collect();
+    criterion::black_box(Int32Array::from(v));
 }
 
 fn array_string_from_vec(n: usize) {
@@ -97,22 +89,22 @@ fn criterion_benchmark(c: &mut Criterion) {
 
     let (field1, strings, field2, ints) = struct_array_values(128);
     c.bench_function("struct_array_from_vec 128", |b| {
-        b.iter(|| struct_array_from_vec(&field1, &strings, &field2, &ints))
+        b.iter(|| struct_array_from_vec(field1, &strings, field2, &ints))
     });
 
     let (field1, strings, field2, ints) = struct_array_values(256);
     c.bench_function("struct_array_from_vec 256", |b| {
-        b.iter(|| struct_array_from_vec(&field1, &strings, &field2, &ints))
+        b.iter(|| struct_array_from_vec(field1, &strings, field2, &ints))
     });
 
     let (field1, strings, field2, ints) = struct_array_values(512);
     c.bench_function("struct_array_from_vec 512", |b| {
-        b.iter(|| struct_array_from_vec(&field1, &strings, &field2, &ints))
+        b.iter(|| struct_array_from_vec(field1, &strings, field2, &ints))
     });
 
     let (field1, strings, field2, ints) = struct_array_values(1024);
     c.bench_function("struct_array_from_vec 1024", |b| {
-        b.iter(|| struct_array_from_vec(&field1, &strings, &field2, &ints))
+        b.iter(|| struct_array_from_vec(field1, &strings, field2, &ints))
     });
 }
 

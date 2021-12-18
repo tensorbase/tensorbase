@@ -223,7 +223,7 @@ impl BitWriter {
         }
     }
 
-    /// Extend buffer size
+    /// Extend buffer size by `increment` bytes
     #[inline]
     pub fn extend(&mut self, increment: usize) {
         self.max_bytes += increment;
@@ -231,7 +231,7 @@ impl BitWriter {
         self.buffer.extend(extra);
     }
 
-    /// Report buffer size
+    /// Report buffer size, in bytes
     #[inline]
     pub fn capacity(&mut self) -> usize {
         self.max_bytes
@@ -332,6 +332,7 @@ impl BitWriter {
         self.max_bytes
     }
 
+    /// Writes the entire byte `value` at the byte `offset`
     pub fn write_at(&mut self, offset: usize, value: u8) {
         self.buffer[offset] = value;
     }
@@ -382,8 +383,8 @@ impl BitWriter {
             // TODO: should we return `Result` for this func?
             return false;
         }
-        let mut ptr = result.unwrap();
-        memcpy_value(&val, num_bytes, &mut ptr);
+        let ptr = result.unwrap();
+        memcpy_value(&val, num_bytes, ptr);
         true
     }
 
@@ -553,7 +554,6 @@ impl BitReader {
         unsafe {
             let in_buf = &self.buffer.data()[self.byte_offset..];
             let mut in_ptr = in_buf as *const [u8] as *const u8 as *const u32;
-            // FIXME assert!(memory::is_ptr_aligned(in_ptr));
             if size_of::<T>() == 4 {
                 while values_to_read - i >= 32 {
                     let out_ptr = &mut batch[i..] as *mut [T] as *mut T as *mut u32;
@@ -677,6 +677,15 @@ impl From<Vec<u8>> for BitReader {
     fn from(buffer: Vec<u8>) -> Self {
         BitReader::new(ByteBufferPtr::new(buffer))
     }
+}
+
+/// Returns the nearest multiple of `factor` that is `>=` than `num`. Here `factor` must
+/// be a power of 2.
+///
+/// Copied from the arrow crate to make arrow optional
+pub fn round_upto_power_of_2(num: usize, factor: usize) -> usize {
+    debug_assert!(factor > 0 && (factor & (factor - 1)) == 0);
+    (num + (factor - 1)) & !(factor - 1)
 }
 
 #[cfg(test)]

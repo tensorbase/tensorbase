@@ -18,6 +18,7 @@
 use std::{fmt, str::FromStr};
 
 use base::datetimes::TimeZoneId;
+
 use serde_derive::{Deserialize, Serialize};
 use serde_json::{json, Value, Value::String as VString};
 
@@ -81,20 +82,20 @@ pub enum DataType {
     /// * An absolute time zone offset of the form +XX:XX or -XX:XX, such as +07:30
     Timestamp(TimeUnit, Option<String>),
     /// A timestamp with an optional timezone.
-    ///
-    /// Time is measured as a Unix epoch, counting the seconds from
-    /// 00:00:00 on 1 January 1970, excluding leap seconds,
-    /// as a 32-bit integer.
-    ///
-    /// The time zone is a string indicating the name of a time zone, one of:
-    ///
-    /// * As used in the Olson time zone database (the "tz database" or
-    ///   "tzdata"), such as "America/New_York"
-    /// * An absolute time zone offset of the form +XX:XX or -XX:XX, such as +07:30
-    Timestamp32(Option<TimeZoneId>),
-    /// A 16-bit date representing the elapsed time since UNIX epoch (1970-01-01)
-    /// in days (16 bits unsigned).
-    Date16,
+///
+/// Time is measured as a Unix epoch, counting the seconds from
+/// 00:00:00 on 1 January 1970, excluding leap seconds,
+/// as a 32-bit integer.
+///
+/// The time zone is a string indicating the name of a time zone, one of:
+///
+/// * As used in the Olson time zone database (the "tz database" or
+///   "tzdata"), such as "America/New_York"
+/// * An absolute time zone offset of the form +XX:XX or -XX:XX, such as +07:30
+Timestamp32(Option<TimeZoneId>),
+/// A 16-bit date representing the elapsed time since UNIX epoch (1970-01-01)
+/// in days (16 bits unsigned).
+Date16,
     /// A 32-bit date representing the elapsed time since UNIX epoch (1970-01-01)
     /// in days (32 bits).
     Date32,
@@ -145,6 +146,20 @@ pub enum DataType {
     Dictionary(Box<DataType>, Box<DataType>),
     /// Decimal value with precision and scale
     Decimal(usize, usize),
+    /// A Map is a logical nested type that is represented as
+    ///
+    /// `List<entries: Struct<key: K, value: V>>`
+    ///
+    /// The keys and values are each respectively contiguous.
+    /// The key and value types are not constrained, but keys should be
+    /// hashable and unique.
+    /// Whether the keys are sorted can be set in the `bool` after the `Field`.
+    ///
+    /// In a field with Map type, the field has a child Struct field, which then
+    /// has two children: key type and the second the value type. The names of the
+    /// child fields may be respectively "entries", "key", and "value", but this is
+    /// not enforced.
+    Map(Box<Field>, bool),
 }
 
 /// An absolute length of time in seconds, milliseconds, microseconds or nanoseconds.
@@ -365,6 +380,16 @@ impl DataType {
                     // return an empty `struct` type as its children aren't defined in the map
                     Ok(DataType::Struct(vec![]))
                 }
+                Some(s) if s == "map" => {
+                    if let Some(Value::Bool(keys_sorted)) = map.get("keysSorted") {
+                        // Return a map with an empty type as its children aren't defined in the map
+                        Ok(DataType::Map(Box::new(default_field), *keys_sorted))
+                    } else {
+                        Err(ArrowError::ParseError(
+                            "Expecting a keysSorted for map".to_string(),
+                        ))
+                    }
+                }
                 Some(other) => Err(ArrowError::ParseError(format!(
                     "invalid or unsupported type name: {} in {:?}",
                     other, json
@@ -415,6 +440,15 @@ impl DataType {
                     TimeUnit::Nanosecond => "NANOSECOND",
                 }})
             }
+            DataType::Date16 => {
+                json!({"name": "date", "unit": "UDAY"})
+            }
+                         DataType::Timestamp32(None) => {
+                             json!({"name": "timestamp32"})
+                         }
+                         DataType::Timestamp32(Some(tz)) => {
+                             json!({"name": "timestamp32", "timezone": tz})
+                         }
             DataType::Time64(unit) => {
                 json!({"name": "time", "bitWidth": 64, "unit": match unit {
                     TimeUnit::Second => "SECOND",
@@ -422,9 +456,6 @@ impl DataType {
                     TimeUnit::Microsecond => "MICROSECOND",
                     TimeUnit::Nanosecond => "NANOSECOND",
                 }})
-            }
-            DataType::Date16 => {
-                json!({"name": "date", "unit": "UDAY"})
             }
             DataType::Date32 => {
                 json!({"name": "date", "unit": "DAY"})
@@ -448,12 +479,6 @@ impl DataType {
                     TimeUnit::Nanosecond => "NANOSECOND",
                 }, "timezone": tz})
             }
-            DataType::Timestamp32(None) => {
-                json!({"name": "timestamp32"})
-            }
-            DataType::Timestamp32(Some(tz)) => {
-                json!({"name": "timestamp32", "timezone": tz})
-            }
             DataType::Interval(unit) => json!({"name": "interval", "unit": match unit {
                 IntervalUnit::YearMonth => "YEAR_MONTH",
                 IntervalUnit::DayTime => "DAY_TIME",
@@ -467,6 +492,9 @@ impl DataType {
             DataType::Dictionary(_, _) => json!({ "name": "dictionary"}),
             DataType::Decimal(precision, scale) => {
                 json!({"name": "decimal", "precision": precision, "scale": scale})
+            }
+            DataType::Map(_, keys_sorted) => {
+                json!({"name": "map", "keysSorted": keys_sorted})
             }
         }
     }
@@ -486,6 +514,16 @@ impl DataType {
                 | Int64
                 | Float32
                 | Float64
+        )
+    }
+
+    /// Returns true if this type is valid as a dictionary key
+    /// (e.g. [`super::ArrowDictionaryKeyType`]
+    pub fn is_dictionary_key_type(t: &DataType) -> bool {
+        use DataType::*;
+        matches!(
+            t,
+            UInt8 | UInt16 | UInt32 | UInt64 | Int8 | Int16 | Int32 | Int64
         )
     }
 
@@ -510,6 +548,10 @@ impl DataType {
                             && a.data_type().equals_datatype(b.data_type())
                     })
             }
+            (
+                DataType::Map(a_field, a_is_sorted),
+                DataType::Map(b_field, b_is_sorted),
+            ) => a_field == b_field && a_is_sorted == b_is_sorted,
             _ => self == other,
         }
     }

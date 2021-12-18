@@ -303,7 +303,7 @@ fn serverblock_to_recordbatch(b: ServerBlock) -> BaseRtResult<RecordBatch> {
                 .len(nrows)
                 .add_buffer(buf)
                 .build()
-        };
+        }?;
         match arrow_type {
             DataType::Int8 => {
                 cols.push(Arc::new(Int8Array::from(data)));
@@ -390,7 +390,7 @@ fn basedatablock_to_recordbatch(b: BaseDataBlock) -> BaseRtResult<RecordBatch> {
                 .len(nrows)
                 .add_buffer(buf)
                 .build()
-        };
+        }?;
         match arrow_type {
             DataType::Int8 => {
                 cols.push(Arc::new(Int8Array::from(data)));

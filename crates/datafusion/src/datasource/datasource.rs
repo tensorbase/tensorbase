@@ -20,34 +20,12 @@
 use std::any::Any;
 use std::sync::Arc;
 
+use async_trait::async_trait;
+
+use crate::arrow::datatypes::SchemaRef;
 use crate::error::Result;
 use crate::logical_plan::Expr;
 use crate::physical_plan::ExecutionPlan;
-use crate::{arrow::datatypes::SchemaRef, scalar::ScalarValue};
-
-/// This table statistics are estimates.
-/// It can not be used directly in the precise compute
-#[derive(Debug, Clone, Default, PartialEq)]
-pub struct Statistics {
-    /// The number of table rows
-    pub num_rows: Option<usize>,
-    /// total byte of the table rows
-    pub total_byte_size: Option<usize>,
-    /// Statistics on a column level
-    pub column_statistics: Option<Vec<ColumnStatistics>>,
-}
-/// This table statistics are estimates about column
-#[derive(Clone, Debug, PartialEq)]
-pub struct ColumnStatistics {
-    /// Number of null values on column
-    pub null_count: Option<usize>,
-    /// Maximum value of column
-    pub max_value: Option<ScalarValue>,
-    /// Minimum value of column
-    pub min_value: Option<ScalarValue>,
-    /// Number of distinct values
-    pub distinct_count: Option<usize>,
-}
 
 /// Indicates whether and how a filter expression can be handled by a
 /// TableProvider for table scans.
@@ -78,6 +56,7 @@ pub enum TableType {
 }
 
 /// Source table
+#[async_trait]
 pub trait TableProvider: Sync + Send {
     /// Returns the table provider as [`Any`](std::any::Any) so that it can be
     /// downcast to a specific implementation.
@@ -92,7 +71,10 @@ pub trait TableProvider: Sync + Send {
     }
 
     /// Create an ExecutionPlan that will scan the table.
-    fn scan(
+    /// The table provider will be usually responsible of grouping
+    /// the source data into partitions that can be efficiently
+    /// parallelized or distributed.
+    async fn scan(
         &self,
         projection: &Option<Vec<usize>>,
         batch_size: usize,
@@ -103,15 +85,6 @@ pub trait TableProvider: Sync + Send {
         // The datasource should return *at least* this number of rows if available.
         limit: Option<usize>,
     ) -> Result<Arc<dyn ExecutionPlan>>;
-
-    /// Returns the table Statistics
-    /// Statistics should be optional because not all data sources can provide statistics.
-    fn statistics(&self) -> Statistics;
-
-    /// Returns whether statistics provided are exact values or estimates
-    fn has_exact_statistics(&self) -> bool {
-        false
-    }
 
     /// Tests whether the table provider can make use of a filter expression
     /// to optimise data retrieval.

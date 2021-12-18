@@ -119,7 +119,7 @@ impl Buffer {
     }
 
     /// Returns the capacity of this buffer.
-    /// For exernally owned buffers, this returns zero
+    /// For externally owned buffers, this returns zero
     pub fn capacity(&self) -> usize {
         self.data.capacity()
     }
@@ -164,10 +164,6 @@ impl Buffer {
     /// `ArrowNativeType` is public so that it can be used as a trait bound for other public
     /// components, such as the `ToByteSlice` trait.  However, this means that it can be
     /// implemented by user defined types, which it is not intended for.
-    ///
-    /// Also `typed_data::<bool>` is unsafe as `0x00` and `0x01` are the only valid values for
-    /// `bool` in Rust.  However, `bool` arrays in Arrow are bit-packed which breaks this condition.
-    /// View buffer as typed slice.
     pub unsafe fn typed_data<T: ArrowNativeType + num::Num>(&self) -> &[T] {
         // JUSTIFICATION
         //  Benefit
@@ -184,18 +180,18 @@ impl Buffer {
     /// If the offset is byte-aligned the returned buffer is a shallow clone,
     /// otherwise a new buffer is allocated and filled with a copy of the bits in the range.
     pub fn bit_slice(&self, offset: usize, len: usize) -> Self {
-        if offset % 8 == 0 && len % 8 == 0 {
+        if offset % 8 == 0 {
             return self.slice(offset / 8);
         }
 
-        bitwise_unary_op_helper(&self, offset, len, |a| a)
+        bitwise_unary_op_helper(self, offset, len, |a| a)
     }
 
     /// Returns a `BitChunks` instance which can be used to iterate over this buffers bits
     /// in larger chunks and starting at arbitrary bit offsets.
     /// Note that both `offset` and `length` are measured in bits.
     pub fn bit_chunks(&self, offset: usize, len: usize) -> BitChunks {
-        BitChunks::new(&self.as_slice(), offset, len)
+        BitChunks::new(self.as_slice(), offset, len)
     }
 
     /// Returns the number of 1-bits in this buffer.

@@ -74,25 +74,31 @@ fn generic_substring<OffsetSize: StringOffsetSizeTrait>(
         new_values.extend_from_slice(&data[start..start + length]);
     });
 
-    let data = ArrayData::new(
-        <OffsetSize as StringOffsetSizeTrait>::DATA_TYPE,
-        array.len(),
-        None,
-        null_bit_buffer,
-        0,
-        vec![
-            Buffer::from_slice_ref(&new_offsets),
-            Buffer::from_slice_ref(&new_values),
-        ],
-        vec![],
-    );
+    let data = unsafe {
+        ArrayData::new_unchecked(
+            <OffsetSize as StringOffsetSizeTrait>::DATA_TYPE,
+            array.len(),
+            None,
+            null_bit_buffer,
+            0,
+            vec![
+                Buffer::from_slice_ref(&new_offsets),
+                Buffer::from_slice_ref(&new_values),
+            ],
+            vec![],
+        )
+    };
     Ok(make_array(data))
 }
 
 /// Returns an ArrayRef with a substring starting from `start` and with optional length `length` of each of the elements in `array`.
 /// `start` can be negative, in which case the start counts from the end of the string.
 /// this function errors when the passed array is not a \[Large\]String array.
-pub fn substring(array: &Array, start: i64, length: &Option<u64>) -> Result<ArrayRef> {
+pub fn substring(
+    array: &dyn Array,
+    start: i64,
+    length: &Option<u64>,
+) -> Result<ArrayRef> {
     match array.data_type() {
         DataType::LargeUtf8 => generic_substring(
             array

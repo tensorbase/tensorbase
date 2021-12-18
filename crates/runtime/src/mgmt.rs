@@ -13,7 +13,6 @@ use base::{
 use basejit::jit;
 use bigdecimal::BigDecimal;
 use bytes::BytesMut;
-use chrono::NaiveDateTime;
 use clap::{App, Arg};
 use client::prelude::Pool;
 use client::prelude::PoolBuilder;

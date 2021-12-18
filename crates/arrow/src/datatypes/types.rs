@@ -49,11 +49,6 @@ make_type!(UInt64Type, u64, DataType::UInt64);
 make_type!(Float32Type, f32, DataType::Float32);
 make_type!(Float64Type, f64, DataType::Float64);
 make_type!(
-    Timestamp32Type,
-    i32,
-    DataType::Timestamp32(None)
-);
-make_type!(
     TimestampSecondType,
     i64,
     DataType::Timestamp(TimeUnit::Second, None)
@@ -73,7 +68,6 @@ make_type!(
     i64,
     DataType::Timestamp(TimeUnit::Nanosecond, None)
 );
-make_type!(Date16Type, u16, DataType::Date16);
 make_type!(Date32Type, i32, DataType::Date32);
 make_type!(Date64Type, i64, DataType::Date64);
 make_type!(Time32SecondType, i32, DataType::Time32(TimeUnit::Second));
@@ -122,6 +116,15 @@ make_type!(
     i64,
     DataType::Duration(TimeUnit::Nanosecond)
 );
+make_type!(
+    Timestamp32Type,
+    i32,
+    DataType::Timestamp32(None)
+);
+make_type!(Date16Type, u16, DataType::Date16);
+
+impl ArrowTemporalType for Date16Type {}
+impl ArrowTemporalType for Timestamp32Type {}
 
 /// A subtype of primitive type that represents legal dictionary keys.
 /// See <https://arrow.apache.org/docs/format/Columnar.html>
@@ -150,20 +153,18 @@ impl ArrowTemporalType for TimestampSecondType {}
 impl ArrowTemporalType for TimestampMillisecondType {}
 impl ArrowTemporalType for TimestampMicrosecondType {}
 impl ArrowTemporalType for TimestampNanosecondType {}
-impl ArrowTemporalType for Date16Type {}
 impl ArrowTemporalType for Date32Type {}
 impl ArrowTemporalType for Date64Type {}
 impl ArrowTemporalType for Time32SecondType {}
 impl ArrowTemporalType for Time32MillisecondType {}
 impl ArrowTemporalType for Time64MicrosecondType {}
-impl ArrowTemporalType for Timestamp32Type {}
+impl ArrowTemporalType for Time64NanosecondType {}
 // impl ArrowTemporalType for IntervalYearMonthType {}
 // impl ArrowTemporalType for IntervalDayTimeType {}
 impl ArrowTemporalType for DurationSecondType {}
 impl ArrowTemporalType for DurationMillisecondType {}
 impl ArrowTemporalType for DurationMicrosecondType {}
 impl ArrowTemporalType for DurationNanosecondType {}
-impl ArrowTemporalType for Time64NanosecondType {}
 
 /// A timestamp type allows us to create array builders that take a timestamp.
 pub trait ArrowTimestampType: ArrowTemporalType {

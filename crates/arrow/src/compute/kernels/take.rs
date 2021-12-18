@@ -77,7 +77,7 @@ macro_rules! downcast_dict_take {
 /// # }
 /// ```
 pub fn take<IndexType>(
-    values: &Array,
+    values: &dyn Array,
     indices: &PrimitiveArray<IndexType>,
     options: Option<TakeOptions>,
 ) -> Result<ArrayRef>
@@ -89,7 +89,7 @@ where
 }
 
 fn take_impl<IndexType>(
-    values: &Array,
+    values: &dyn Array,
     indices: &PrimitiveArray<IndexType>,
     options: Option<TakeOptions>,
 ) -> Result<ArrayRef>
@@ -141,9 +141,12 @@ where
         DataType::UInt64 => downcast_take!(UInt64Type, values, indices),
         DataType::Float32 => downcast_take!(Float32Type, values, indices),
         DataType::Float64 => downcast_take!(Float64Type, values, indices),
-        DataType::Date16 => downcast_take!(Date16Type, values, indices),
         DataType::Date32 => downcast_take!(Date32Type, values, indices),
         DataType::Date64 => downcast_take!(Date64Type, values, indices),
+        DataType::Date16 => downcast_take!(Date16Type, values, indices),
+DataType::Timestamp32(_) => {
+    downcast_take!(Timestamp32Type, values, indices)
+}
         DataType::Time32(Second) => downcast_take!(Time32SecondType, values, indices),
         DataType::Time32(Millisecond) => {
             downcast_take!(Time32MillisecondType, values, indices)
@@ -153,9 +156,6 @@ where
         }
         DataType::Time64(Nanosecond) => {
             downcast_take!(Time64NanosecondType, values, indices)
-        }
-        DataType::Timestamp32(_) => {
-            downcast_take!(Timestamp32Type, values, indices)
         }
         DataType::Timestamp(Second, _) => {
             downcast_take!(TimestampSecondType, values, indices)
@@ -263,12 +263,44 @@ where
             DataType::UInt64 => downcast_dict_take!(UInt64Type, values, indices),
             t => unimplemented!("Take not supported for dictionary key type {:?}", t),
         },
+        DataType::Binary => {
+            let values = values
+                .as_any()
+                .downcast_ref::<GenericBinaryArray<i32>>()
+                .unwrap();
+            Ok(Arc::new(take_binary(values, indices)?))
+        }
+        DataType::LargeBinary => {
+            let values = values
+                .as_any()
+                .downcast_ref::<GenericBinaryArray<i64>>()
+                .unwrap();
+            Ok(Arc::new(take_binary(values, indices)?))
+        }
+        DataType::FixedSizeBinary(_) => {
+            let values = values
+                .as_any()
+                .downcast_ref::<FixedSizeBinaryArray>()
+                .unwrap();
+            Ok(Arc::new(take_fixed_size_binary(values, indices)?))
+        }
+        DataType::Null => {
+            // Take applied to a null array produces a null array.
+            if values.len() >= indices.len() {
+                // If the existing null array is as big as the indices, we can use a slice of it
+                // to avoid allocating a new null array.
+                Ok(values.slice(0, indices.len()))
+            } else {
+                // If the existing null array isn't big enough, create a new one.
+                Ok(new_null_array(&DataType::Null, indices.len()))
+            }
+        }
         t => unimplemented!("Take not supported for data type {:?}", t),
     }
 }
 
 /// Options that define how `take` should behave
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub struct TakeOptions {
     /// Perform bounds check before taking indices from values.
     /// If enabled, an `ArrowError` is returned if the indices are out of bounds.
@@ -276,29 +308,18 @@ pub struct TakeOptions {
     pub check_bounds: bool,
 }
 
-impl Default for TakeOptions {
-    fn default() -> Self {
-        Self {
-            check_bounds: false,
-        }
-    }
-}
-
 #[inline(always)]
-fn maybe_usize<I: ArrowPrimitiveType>(index: I::Native) -> Result<usize> {
+fn maybe_usize<I: ArrowNativeType>(index: I) -> Result<usize> {
     index
         .to_usize()
         .ok_or_else(|| ArrowError::ComputeError("Cast to usize failed".to_string()))
 }
 
 // take implementation when neither values nor indices contain nulls
-fn take_no_nulls<T, I>(
-    values: &[T::Native],
-    indices: &[I::Native],
-) -> Result<(Buffer, Option<Buffer>)>
+fn take_no_nulls<T, I>(values: &[T], indices: &[I]) -> Result<(Buffer, Option<Buffer>)>
 where
-    T: ArrowPrimitiveType,
-    I: ArrowNumericType,
+    T: ArrowNativeType,
+    I: ArrowNativeType,
 {
     let values = indices
         .iter()
@@ -312,27 +333,36 @@ where
 // take implementation when only values contain nulls
 fn take_values_nulls<T, I>(
     values: &PrimitiveArray<T>,
-    indices: &[I::Native],
+    indices: &[I],
 ) -> Result<(Buffer, Option<Buffer>)>
 where
     T: ArrowPrimitiveType,
-    I: ArrowNumericType,
-    I::Native: ToPrimitive,
+    I: ArrowNativeType,
+{
+    take_values_nulls_inner(values.data(), values.values(), indices)
+}
+
+fn take_values_nulls_inner<T, I>(
+    values_data: &ArrayData,
+    values: &[T],
+    indices: &[I],
+) -> Result<(Buffer, Option<Buffer>)>
+where
+    T: ArrowNativeType,
+    I: ArrowNativeType,
 {
     let num_bytes = bit_util::ceil(indices.len(), 8);
     let mut nulls = MutableBuffer::new(num_bytes).with_bitset(num_bytes, true);
     let null_slice = nulls.as_slice_mut();
     let mut null_count = 0;
 
-    let values_values = values.values();
-
     let values = indices.iter().enumerate().map(|(i, index)| {
         let index = maybe_usize::<I>(*index)?;
-        if values.is_null(index) {
+        if values_data.is_null(index) {
             null_count += 1;
             bit_util::unset_bit(null_slice, i);
         }
-        Result::Ok(values_values[index])
+        Result::Ok(values[index])
     });
     // Soundness: `slice.map` is `TrustedLen`.
     let buffer = unsafe { Buffer::try_from_trusted_len_iter(values)? };
@@ -349,21 +379,33 @@ where
 
 // take implementation when only indices contain nulls
 fn take_indices_nulls<T, I>(
-    values: &[T::Native],
+    values: &[T],
     indices: &PrimitiveArray<I>,
 ) -> Result<(Buffer, Option<Buffer>)>
 where
-    T: ArrowPrimitiveType,
+    T: ArrowNativeType,
     I: ArrowNumericType,
     I::Native: ToPrimitive,
 {
-    let values = indices.values().iter().map(|index| {
+    take_indices_nulls_inner(values, indices.values(), indices.data())
+}
+
+fn take_indices_nulls_inner<T, I>(
+    values: &[T],
+    indices: &[I],
+    indices_data: &ArrayData,
+) -> Result<(Buffer, Option<Buffer>)>
+where
+    T: ArrowNativeType,
+    I: ArrowNativeType,
+{
+    let values = indices.iter().map(|index| {
         let index = maybe_usize::<I>(*index)?;
         Result::Ok(match values.get(index) {
             Some(value) => *value,
             None => {
-                if indices.is_null(index) {
-                    T::Native::default()
+                if indices_data.is_null(index) {
+                    T::default()
                 } else {
                     panic!("Out-of-bounds index {}", index)
                 }
@@ -376,10 +418,9 @@ where
 
     Ok((
         buffer,
-        indices
-            .data_ref()
+        indices_data
             .null_buffer()
-            .map(|b| b.bit_slice(indices.offset(), indices.len())),
+            .map(|b| b.bit_slice(indices_data.offset(), indices.len())),
     ))
 }
 
@@ -393,25 +434,41 @@ where
     I: ArrowNumericType,
     I::Native: ToPrimitive,
 {
+    take_values_indices_nulls_inner(
+        values.values(),
+        values.data(),
+        indices.values(),
+        indices.data(),
+    )
+}
+
+fn take_values_indices_nulls_inner<T, I>(
+    values: &[T],
+    values_data: &ArrayData,
+    indices: &[I],
+    indices_data: &ArrayData,
+) -> Result<(Buffer, Option<Buffer>)>
+where
+    T: ArrowNativeType,
+    I: ArrowNativeType,
+{
     let num_bytes = bit_util::ceil(indices.len(), 8);
     let mut nulls = MutableBuffer::new(num_bytes).with_bitset(num_bytes, true);
     let null_slice = nulls.as_slice_mut();
     let mut null_count = 0;
 
-    let values_values = values.values();
-    let values = indices.iter().enumerate().map(|(i, index)| match index {
-        Some(index) => {
+    let values = indices.iter().enumerate().map(|(i, &index)| {
+        if indices_data.is_null(i) {
+            null_count += 1;
+            bit_util::unset_bit(null_slice, i);
+            Ok(T::default())
+        } else {
             let index = maybe_usize::<I>(index)?;
-            if values.is_null(index) {
+            if values_data.is_null(index) {
                 null_count += 1;
                 bit_util::unset_bit(null_slice, i);
             }
-            Result::Ok(values_values[index])
-        }
-        None => {
-            null_count += 1;
-            bit_util::unset_bit(null_slice, i);
-            Ok(T::Native::default())
+            Result::Ok(values[index])
         }
     });
     // Soundness: `slice.map` is `TrustedLen`.
@@ -454,17 +511,17 @@ where
         (false, false) => {
             // * no nulls
             // * all `indices.values()` are valid
-            take_no_nulls::<T, I>(values.values(), indices.values())?
+            take_no_nulls::<T::Native, I::Native>(values.values(), indices.values())?
         }
         (true, false) => {
             // * nulls come from `values` alone
             // * all `indices.values()` are valid
-            take_values_nulls::<T, I>(values, indices.values())?
+            take_values_nulls::<T, I::Native>(values, indices.values())?
         }
         (false, true) => {
             // in this branch it is unsound to read and use `index.values()`,
             // as doing so is UB when they come from a null slot.
-            take_indices_nulls::<T, I>(values.values(), indices)?
+            take_indices_nulls::<T::Native, I>(values.values(), indices)?
         }
         (true, true) => {
             // in this branch it is unsound to read and use `index.values()`,
@@ -473,15 +530,17 @@ where
         }
     };
 
-    let data = ArrayData::new(
-        T::DATA_TYPE,
-        indices.len(),
-        None,
-        nulls,
-        0,
-        vec![buffer],
-        vec![],
-    );
+    let data = unsafe {
+        ArrayData::new_unchecked(
+            T::DATA_TYPE,
+            indices.len(),
+            None,
+            nulls,
+            0,
+            vec![buffer],
+            vec![],
+        )
+    };
     Ok(PrimitiveArray::<T>::from(data))
 }
 
@@ -548,15 +607,17 @@ where
         };
     }
 
-    let data = ArrayData::new(
-        DataType::Boolean,
-        indices.len(),
-        None,
-        nulls,
-        0,
-        vec![val_buf.into()],
-        vec![],
-    );
+    let data = unsafe {
+        ArrayData::new_unchecked(
+            DataType::Boolean,
+            indices.len(),
+            None,
+            nulls,
+            0,
+            vec![val_buf.into()],
+            vec![],
+        )
+    };
     Ok(BooleanArray::from(data))
 }
 
@@ -663,14 +724,17 @@ where
         };
     }
 
-    let mut data = ArrayData::builder(<OffsetSize as StringOffsetSizeTrait>::DATA_TYPE)
-        .len(data_len)
-        .add_buffer(offsets_buffer.into())
-        .add_buffer(values.into());
+    let mut array_data =
+        ArrayData::builder(<OffsetSize as StringOffsetSizeTrait>::DATA_TYPE)
+            .len(data_len)
+            .add_buffer(offsets_buffer.into())
+            .add_buffer(values.into());
     if let Some(null_buffer) = nulls {
-        data = data.null_bit_buffer(null_buffer);
+        array_data = array_data.null_bit_buffer(null_buffer);
     }
-    Ok(GenericStringArray::<OffsetSize>::from(data.build()))
+    let array_data = unsafe { array_data.build_unchecked() };
+
+    Ok(GenericStringArray::<OffsetSize>::from(array_data))
 }
 
 /// `take` implementation for list arrays
@@ -718,8 +782,10 @@ where
         .null_bit_buffer(null_buf.into())
         .offset(0)
         .add_child_data(taken.data().clone())
-        .add_buffer(value_offsets)
-        .build();
+        .add_buffer(value_offsets);
+
+    let list_data = unsafe { list_data.build_unchecked() };
+
     Ok(GenericListArray::<OffsetType::Native>::from(list_data))
 }
 
@@ -758,10 +824,64 @@ where
         .len(indices.len())
         .null_bit_buffer(null_buf.into())
         .offset(0)
-        .add_child_data(taken.data().clone())
-        .build();
+        .add_child_data(taken.data().clone());
+
+    let list_data = unsafe { list_data.build_unchecked() };
 
     Ok(FixedSizeListArray::from(list_data))
+}
+
+fn take_binary<IndexType, OffsetType>(
+    values: &GenericBinaryArray<OffsetType>,
+    indices: &PrimitiveArray<IndexType>,
+) -> Result<GenericBinaryArray<OffsetType>>
+where
+    OffsetType: BinaryOffsetSizeTrait,
+    IndexType: ArrowNumericType,
+    IndexType::Native: ToPrimitive,
+{
+    let data_ref = values.data_ref();
+    let array_iter = indices
+        .values()
+        .iter()
+        .map(|idx| {
+            let idx = maybe_usize::<IndexType::Native>(*idx)?;
+            if data_ref.is_valid(idx) {
+                Ok(Some(values.value(idx)))
+            } else {
+                Ok(None)
+            }
+        })
+        .collect::<Result<Vec<_>>>()?
+        .into_iter();
+
+    Ok(array_iter.collect::<GenericBinaryArray<OffsetType>>())
+}
+
+fn take_fixed_size_binary<IndexType>(
+    values: &FixedSizeBinaryArray,
+    indices: &PrimitiveArray<IndexType>,
+) -> Result<FixedSizeBinaryArray>
+where
+    IndexType: ArrowNumericType,
+    IndexType::Native: ToPrimitive,
+{
+    let data_ref = values.data_ref();
+    let array_iter = indices
+        .values()
+        .iter()
+        .map(|idx| {
+            let idx = maybe_usize::<IndexType::Native>(*idx)?;
+            if data_ref.is_valid(idx) {
+                Ok(Some(values.value(idx)))
+            } else {
+                Ok(None)
+            }
+        })
+        .collect::<Result<Vec<_>>>()?
+        .into_iter();
+
+    FixedSizeBinaryArray::try_from_sparse_iter(array_iter)
 }
 
 /// `take` implementation for dictionary arrays
@@ -781,15 +901,17 @@ where
     let new_keys = take_primitive::<T, I>(values.keys(), indices)?;
     let new_keys_data = new_keys.data_ref();
 
-    let data = ArrayData::new(
-        values.data_type().clone(),
-        new_keys.len(),
-        Some(new_keys_data.null_count()),
-        new_keys_data.null_buffer().cloned(),
-        0,
-        new_keys_data.buffers().to_vec(),
-        values.data().child_data().to_vec(),
-    );
+    let data = unsafe {
+        ArrayData::new_unchecked(
+            values.data_type().clone(),
+            new_keys.len(),
+            Some(new_keys_data.null_count()),
+            new_keys_data.null_buffer().cloned(),
+            0,
+            new_keys_data.buffers().to_vec(),
+            values.data().child_data().to_vec(),
+        )
+    };
 
     Ok(DictionaryArray::<T>::from(data))
 }
@@ -945,7 +1067,7 @@ mod tests {
 
         test_take_primitive_arrays_non_null::<Int64Type>(
             vec![0, 10, 20, 30, 40, 50],
-            &index,
+            index,
             None,
             vec![Some(20), Some(30), None, None],
         )
@@ -966,7 +1088,7 @@ mod tests {
 
         test_take_primitive_arrays::<Int64Type>(
             vec![None, None, Some(20), Some(30), Some(40), Some(50)],
-            &index,
+            index,
             None,
             vec![Some(20), Some(30), None, None],
         )
@@ -1221,7 +1343,7 @@ mod tests {
         // boolean
         test_take_boolean_arrays(
             vec![Some(false), None, Some(true), Some(false), None],
-            &index,
+            index,
             None,
             vec![None, Some(false), Some(true), None],
         );
@@ -1280,7 +1402,8 @@ mod tests {
                 .len(3)
                 .add_buffer(value_offsets)
                 .add_child_data(value_data)
-                .build();
+                .build()
+                .unwrap();
             let list_array = $list_array_type::from(list_data);
 
             // index returns: [[2,3], null, [-1,-2,-1], [2,3], [0,0,0]]
@@ -1318,7 +1441,8 @@ mod tests {
                 )
                 .add_buffer(expected_offsets)
                 .add_child_data(expected_data)
-                .build();
+                .build()
+                .unwrap();
             let expected_list_array = $list_array_type::from(expected_list_data);
 
             assert_eq!(a, &expected_list_array);
@@ -1355,7 +1479,8 @@ mod tests {
                 .add_buffer(value_offsets)
                 .null_bit_buffer(Buffer::from([0b10111101, 0b00000000]))
                 .add_child_data(value_data)
-                .build();
+                .build()
+                .unwrap();
             let list_array = $list_array_type::from(list_data);
 
             // index returns: [[null], null, [-1,-2,3], [2,null], [0,null,0]]
@@ -1392,7 +1517,8 @@ mod tests {
                 )
                 .add_buffer(expected_offsets)
                 .add_child_data(expected_data)
-                .build();
+                .build()
+                .unwrap();
             let expected_list_array = $list_array_type::from(expected_list_data);
 
             assert_eq!(a, &expected_list_array);
@@ -1428,7 +1554,8 @@ mod tests {
                 .add_buffer(value_offsets)
                 .null_bit_buffer(Buffer::from([0b01111101]))
                 .add_child_data(value_data)
-                .build();
+                .build()
+                .unwrap();
             let list_array = $list_array_type::from(list_data);
 
             // index returns: [null, null, [-1,-2,3], [5,null], [0,null,0]]
@@ -1466,7 +1593,8 @@ mod tests {
                 .null_bit_buffer(Buffer::from(null_bits))
                 .add_buffer(expected_offsets)
                 .add_child_data(expected_data)
-                .build();
+                .build()
+                .unwrap();
             let expected_list_array = $list_array_type::from(expected_list_data);
 
             assert_eq!(a, &expected_list_array);
@@ -1595,7 +1723,8 @@ mod tests {
             .len(3)
             .add_buffer(value_offsets)
             .add_child_data(value_data)
-            .build();
+            .build()
+            .unwrap();
         let list_array = ListArray::from(list_data);
 
         let index = UInt32Array::from(vec![1000]);
@@ -1689,6 +1818,38 @@ mod tests {
             vec![None],
         )
         .unwrap();
+    }
+
+    #[test]
+    fn test_null_array_smaller_than_indices() {
+        let values = NullArray::new(2);
+        let indices = UInt32Array::from(vec![Some(0), None, Some(15)]);
+
+        let result = take(&values, &indices, None).unwrap();
+        let expected: ArrayRef = Arc::new(NullArray::new(3));
+        assert_eq!(&result, &expected);
+    }
+
+    #[test]
+    fn test_null_array_larger_than_indices() {
+        let values = NullArray::new(5);
+        let indices = UInt32Array::from(vec![Some(0), None, Some(15)]);
+
+        let result = take(&values, &indices, None).unwrap();
+        let expected: ArrayRef = Arc::new(NullArray::new(3));
+        assert_eq!(&result, &expected);
+    }
+
+    #[test]
+    fn test_null_array_indices_out_of_bounds() {
+        let values = NullArray::new(5);
+        let indices = UInt32Array::from(vec![Some(0), None, Some(15)]);
+
+        let result = take(&values, &indices, Some(TakeOptions { check_bounds: true }));
+        assert_eq!(
+            result.unwrap_err().to_string(),
+            "Compute error: Array index out of bounds, cannot get item at index 15 from 5 entries"
+        );
     }
 
     #[test]

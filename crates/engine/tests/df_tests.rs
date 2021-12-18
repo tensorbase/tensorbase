@@ -123,7 +123,7 @@ async fn run_ker_test_arrow(
     )?;
 
     println!("Optimized logical plan:\n{:?}", plan);
-    let ep = ctx.create_physical_plan(&plan)?;
+    let ep = ctx.create_physical_plan(&plan).await?;
     // println!(
     //     "from gen BaseTable to create_physical_plan took {} micros",
     //     start.elapsed().as_micros(),
@@ -150,7 +150,7 @@ async fn run_ker_test_arrow(
             let data = ArrayData::builder(DataType::UInt32)
                 .len(cpi.size)
                 .add_buffer(buf)
-                .build();
+                .build()?;
             cols.push(Arc::new(UInt32Array::from(data)));
         }
         let batch = RecordBatch::try_new(schema.clone(), cols)?;
@@ -188,7 +188,7 @@ async fn run_ker_test_arrow(
 
     let plan = ctx.create_logical_plan(sql)?;
     let plan = ctx.optimize(&plan)?;
-    let ep = ctx.create_physical_plan(&plan)?;
+    let ep = ctx.create_physical_plan(&plan).await?;
     let result = collect(ep).await?;
 
     println!(

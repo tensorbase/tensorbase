@@ -22,20 +22,25 @@ use arrow::array::*;
 use arrow::compute::kernels::arithmetic::{
     add, divide, divide_scalar, modulus, modulus_scalar, multiply, subtract,
 };
-use arrow::compute::kernels::boolean::{and_kleene, or_kleene};
+use arrow::compute::kernels::boolean::{and_kleene, not, or_kleene};
 use arrow::compute::kernels::comparison::{eq, gt, gt_eq, lt, lt_eq, neq};
+use arrow::compute::kernels::comparison::{
+    eq_bool, eq_bool_scalar, gt_bool, gt_bool_scalar, gt_eq_bool, gt_eq_bool_scalar,
+    lt_bool, lt_bool_scalar, lt_eq_bool, lt_eq_bool_scalar, neq_bool, neq_bool_scalar,
+};
 use arrow::compute::kernels::comparison::{
     eq_scalar, gt_eq_scalar, gt_scalar, lt_eq_scalar, lt_scalar, neq_scalar,
 };
 use arrow::compute::kernels::comparison::{
-    eq_utf8, gt_eq_utf8, gt_utf8, like_utf8, like_utf8_scalar, lt_eq_utf8, lt_utf8,
-    neq_utf8, nlike_utf8, nlike_utf8_scalar,
+    eq_utf8, gt_eq_utf8, gt_utf8, like_utf8, lt_eq_utf8, lt_utf8, neq_utf8, nlike_utf8,
+    regexp_is_match_utf8,
 };
 use arrow::compute::kernels::comparison::{
-    eq_utf8_scalar, gt_eq_utf8_scalar, gt_utf8_scalar, lt_eq_utf8_scalar, lt_utf8_scalar,
-    neq_utf8_scalar,
+    eq_utf8_scalar, gt_eq_utf8_scalar, gt_utf8_scalar, like_utf8_scalar,
+    lt_eq_utf8_scalar, lt_utf8_scalar, neq_utf8_scalar, nlike_utf8_scalar,
+    regexp_is_match_utf8_scalar,
 };
-use arrow::datatypes::{DataType, Schema, TimeUnit};
+use arrow::datatypes::{ArrowNumericType, DataType, Schema, TimeUnit};
 use arrow::record_batch::RecordBatch;
 
 use crate::error::{DataFusionError, Result};
@@ -44,7 +49,61 @@ use crate::physical_plan::expressions::try_cast;
 use crate::physical_plan::{ColumnarValue, PhysicalExpr};
 use crate::scalar::ScalarValue;
 
-use super::coercion::{eq_coercion, numerical_coercion, order_coercion, string_coercion};
+use super::coercion::{
+    eq_coercion, like_coercion, numerical_coercion, order_coercion, string_coercion,
+};
+
+/// Invoke a compute kernel on a data array and a scalar value
+macro_rules! compute_largeutf8_op_scalar {
+    ($LEFT:expr, $RIGHT:expr, $OP:ident, $DT:ident) => {{
+        let ll = $LEFT
+            .as_any()
+            .downcast_ref::<$DT>()
+            .expect("compute_op failed to downcast array");
+        if let ScalarValue::LargeUtf8(Some(string_value)) = $RIGHT {
+            //FIXME debug_assert!(self.len()<128);
+            let mut s = String::new();
+            debug_assert!(string_value.len()<128);
+            s.push(string_value.len() as u8 as char);
+            s.push_str(&string_value);
+            Ok(Arc::new(paste::expr! {[<$OP _utf8_scalar>]}(
+                &ll,
+                &s,
+            )?))
+        } else {
+            Err(DataFusionError::Internal(format!(
+                "compute_largeutf8_op_scalar failed to cast literal value {}",
+                $RIGHT
+            )))
+        }
+    }};
+}
+
+// Simple (low performance) kernels until optimized kernels are added to arrow
+// See https://github.com/apache/arrow-rs/issues/960
+
+fn is_distinct_from_bool(
+    left: &BooleanArray,
+    right: &BooleanArray,
+) -> Result<BooleanArray> {
+    // Different from `neq_bool` because `null is distinct from null` is false and not null
+    Ok(left
+        .iter()
+        .zip(right.iter())
+        .map(|(left, right)| Some(left != right))
+        .collect())
+}
+
+fn is_not_distinct_from_bool(
+    left: &BooleanArray,
+    right: &BooleanArray,
+) -> Result<BooleanArray> {
+    Ok(left
+        .iter()
+        .zip(right.iter())
+        .map(|(left, right)| Some(left == right))
+        .collect())
+}
 
 /// Binary expression
 #[derive(Debug)]
@@ -115,36 +174,52 @@ macro_rules! compute_utf8_op_scalar {
             )?))
         } else {
             Err(DataFusionError::Internal(format!(
-                "compute_utf8_op_scalar failed to cast literal value {}",
+                "compute_utf8_op_scalar for '{}' failed to cast literal value {}",
+                stringify!($OP),
                 $RIGHT
             )))
         }
     }};
 }
 
-/// Invoke a compute kernel on a data array and a scalar value
-macro_rules! compute_largeutf8_op_scalar {
+/// Invoke a compute kernel on a boolean data array and a scalar value
+macro_rules! compute_bool_op_scalar {
     ($LEFT:expr, $RIGHT:expr, $OP:ident, $DT:ident) => {{
+        use std::convert::TryInto;
         let ll = $LEFT
             .as_any()
             .downcast_ref::<$DT>()
             .expect("compute_op failed to downcast array");
-        if let ScalarValue::LargeUtf8(Some(string_value)) = $RIGHT {
-            //FIXME debug_assert!(self.len()<128);
-            let mut s = String::new();
-            debug_assert!(string_value.len()<128);
-            s.push(string_value.len() as u8 as char);
-            s.push_str(&string_value);
-            Ok(Arc::new(paste::expr! {[<$OP _utf8_scalar>]}(
-                &ll,
-                &s,
-            )?))
-        } else {
-            Err(DataFusionError::Internal(format!(
-                "compute_largeutf8_op_scalar failed to cast literal value {}",
-                $RIGHT
-            )))
-        }
+        // generate the scalar function name, such as lt_scalar, from the $OP parameter
+        // (which could have a value of lt) and the suffix _scalar
+        Ok(Arc::new(paste::expr! {[<$OP _bool_scalar>]}(
+            &ll,
+            $RIGHT.try_into()?,
+        )?))
+    }};
+}
+
+/// Invoke a bool compute kernel on array(s)
+macro_rules! compute_bool_op {
+    // invoke binary operator
+    ($LEFT:expr, $RIGHT:expr, $OP:ident, $DT:ident) => {{
+        let ll = $LEFT
+            .as_any()
+            .downcast_ref::<$DT>()
+            .expect("compute_op failed to downcast left side array");
+        let rr = $RIGHT
+            .as_any()
+            .downcast_ref::<$DT>()
+            .expect("compute_op failed to downcast right side array");
+        Ok(Arc::new(paste::expr! {[<$OP _bool>]}(&ll, &rr)?))
+    }};
+    // invoke unary operator
+    ($OPERAND:expr, $OP:ident, $DT:ident) => {{
+        let operand = $OPERAND
+            .as_any()
+            .downcast_ref::<$DT>()
+            .expect("compute_op failed to downcast operant array");
+        Ok(Arc::new(paste::expr! {[<$OP _bool>]}(&operand)?))
     }};
 }
 
@@ -195,8 +270,8 @@ macro_rules! binary_string_array_op_scalar {
             DataType::Utf8 => compute_utf8_op_scalar!($LEFT, $RIGHT, $OP, StringArray),
             DataType::LargeUtf8 => compute_largeutf8_op_scalar!($LEFT, $RIGHT, $OP, LargeStringArray),
             other => Err(DataFusionError::Internal(format!(
-                "Data type {:?} not supported for scalar operation on string array",
-                other
+                "Data type {:?} not supported for scalar operation '{}' on string array",
+                other, stringify!($OP)
             ))),
         };
         Some(result)
@@ -208,8 +283,8 @@ macro_rules! binary_string_array_op {
         match $LEFT.data_type() {
             DataType::Utf8 => compute_utf8_op!($LEFT, $RIGHT, $OP, StringArray),
             other => Err(DataFusionError::Internal(format!(
-                "Data type {:?} not supported for binary operation on string arrays",
-                other
+                "Data type {:?} not supported for binary operation '{}' on string arrays",
+                other, stringify!($OP)
             ))),
         }
     }};
@@ -232,8 +307,8 @@ macro_rules! binary_primitive_array_op {
             DataType::Float32 => compute_op!($LEFT, $RIGHT, $OP, Float32Array),
             DataType::Float64 => compute_op!($LEFT, $RIGHT, $OP, Float64Array),
             other => Err(DataFusionError::Internal(format!(
-                "Data type {:?} not supported for binary operation on primitive arrays",
-                other
+                "Data type {:?} not supported for binary operation '{}' on primitive arrays",
+                other, stringify!($OP)
             ))),
         }
     }};
@@ -256,8 +331,8 @@ macro_rules! binary_primitive_array_op_scalar {
             DataType::Float32 => compute_op_scalar!($LEFT, $RIGHT, $OP, Float32Array),
             DataType::Float64 => compute_op_scalar!($LEFT, $RIGHT, $OP, Float64Array),
             other => Err(DataFusionError::Internal(format!(
-                "Data type {:?} not supported for scalar operation on primitive array",
-                other
+                "Data type {:?} not supported for scalar operation '{}' on primitive array",
+                other, stringify!($OP)
             ))),
         };
         Some(result)
@@ -303,9 +378,10 @@ macro_rules! binary_array_op_scalar {
             DataType::Date64 => {
                 compute_op_scalar!($LEFT, $RIGHT, $OP, Date64Array)
             }
+            DataType::Boolean => compute_bool_op_scalar!($LEFT, $RIGHT, $OP, BooleanArray),
             other => Err(DataFusionError::Internal(format!(
-                "Data type {:?} not supported for scalar operation on dyn array",
-                other
+                "Data type {:?} not supported for scalar operation '{}' on dyn array",
+                other, stringify!($OP)
             ))),
         };
         Some(result)
@@ -347,9 +423,10 @@ macro_rules! binary_array_op {
             DataType::Date64 => {
                 compute_op!($LEFT, $RIGHT, $OP, Date64Array)
             }
+            DataType::Boolean => compute_bool_op!($LEFT, $RIGHT, $OP, BooleanArray),
             other => Err(DataFusionError::Internal(format!(
-                "Data type {:?} not supported for binary operation on dyn arrays",
-                other
+                "Data type {:?} not supported for binary operation '{}' on dyn arrays",
+                other, stringify!($OP)
             ))),
         }
     }};
@@ -370,6 +447,91 @@ macro_rules! boolean_op {
     }};
 }
 
+macro_rules! binary_string_array_flag_op {
+    ($LEFT:expr, $RIGHT:expr, $OP:ident, $NOT:expr, $FLAG:expr) => {{
+        match $LEFT.data_type() {
+            DataType::Utf8 => {
+                compute_utf8_flag_op!($LEFT, $RIGHT, $OP, StringArray, $NOT, $FLAG)
+            }
+            DataType::LargeUtf8 => {
+                compute_utf8_flag_op!($LEFT, $RIGHT, $OP, LargeStringArray, $NOT, $FLAG)
+            }
+            other => Err(DataFusionError::Internal(format!(
+                "Data type {:?} not supported for binary_string_array_flag_op operation '{}' on string array",
+                other, stringify!($OP)
+            ))),
+        }
+    }};
+}
+
+/// Invoke a compute kernel on a pair of binary data arrays with flags
+macro_rules! compute_utf8_flag_op {
+    ($LEFT:expr, $RIGHT:expr, $OP:ident, $ARRAYTYPE:ident, $NOT:expr, $FLAG:expr) => {{
+        let ll = $LEFT
+            .as_any()
+            .downcast_ref::<$ARRAYTYPE>()
+            .expect("compute_utf8_flag_op failed to downcast array");
+        let rr = $RIGHT
+            .as_any()
+            .downcast_ref::<$ARRAYTYPE>()
+            .expect("compute_utf8_flag_op failed to downcast array");
+
+        let flag = if $FLAG {
+            Some($ARRAYTYPE::from(vec!["i"; ll.len()]))
+        } else {
+            None
+        };
+        let mut array = paste::expr! {[<$OP _utf8>]}(&ll, &rr, flag.as_ref())?;
+        if $NOT {
+            array = not(&array).unwrap();
+        }
+        Ok(Arc::new(array))
+    }};
+}
+
+macro_rules! binary_string_array_flag_op_scalar {
+    ($LEFT:expr, $RIGHT:expr, $OP:ident, $NOT:expr, $FLAG:expr) => {{
+        let result: Result<Arc<dyn Array>> = match $LEFT.data_type() {
+            DataType::Utf8 => {
+                compute_utf8_flag_op_scalar!($LEFT, $RIGHT, $OP, StringArray, $NOT, $FLAG)
+            }
+            DataType::LargeUtf8 => {
+                compute_utf8_flag_op_scalar!($LEFT, $RIGHT, $OP, LargeStringArray, $NOT, $FLAG)
+            }
+            other => Err(DataFusionError::Internal(format!(
+                "Data type {:?} not supported for binary_string_array_flag_op_scalar operation '{}' on string array",
+                other, stringify!($OP)
+            ))),
+        };
+        Some(result)
+    }};
+}
+
+/// Invoke a compute kernel on a data array and a scalar value with flag
+macro_rules! compute_utf8_flag_op_scalar {
+    ($LEFT:expr, $RIGHT:expr, $OP:ident, $ARRAYTYPE:ident, $NOT:expr, $FLAG:expr) => {{
+        let ll = $LEFT
+            .as_any()
+            .downcast_ref::<$ARRAYTYPE>()
+            .expect("compute_utf8_flag_op_scalar failed to downcast array");
+
+        if let ScalarValue::Utf8(Some(string_value)) = $RIGHT {
+            let flag = if $FLAG { Some("i") } else { None };
+            let mut array =
+                paste::expr! {[<$OP _utf8_scalar>]}(&ll, &string_value, flag)?;
+            if $NOT {
+                array = not(&array).unwrap();
+            }
+            Ok(Arc::new(array))
+        } else {
+            Err(DataFusionError::Internal(format!(
+                "compute_utf8_flag_op_scalar failed to cast literal value {} for operation '{}'",
+                $RIGHT, stringify!($OP)
+            )))
+        }
+    }};
+}
+
 /// Coercion rules for all binary operators. Returns the output type
 /// of applying `op` to an argument of `lhs_type` and `rhs_type`.
 fn common_binary_type(
@@ -387,7 +549,7 @@ fn common_binary_type(
         // logical equality operators have their own rules, and always return a boolean
         Operator::Eq | Operator::NotEq => eq_coercion(lhs_type, rhs_type),
         // "like" operators operate on strings and always return a boolean
-        Operator::Like | Operator::NotLike => string_coercion(lhs_type, rhs_type),
+        Operator::Like | Operator::NotLike => like_coercion(lhs_type, rhs_type),
         // order-comparison operators have their own rules
         Operator::Lt | Operator::Gt | Operator::GtEq | Operator::LtEq => {
             order_coercion(lhs_type, rhs_type)
@@ -396,9 +558,16 @@ fn common_binary_type(
         // because coercion favours higher information types
         Operator::Plus
         | Operator::Minus
-        | Operator::Modulus
+        | Operator::Modulo
         | Operator::Divide
         | Operator::Multiply => numerical_coercion(lhs_type, rhs_type),
+        Operator::RegexMatch
+        | Operator::RegexIMatch
+        | Operator::RegexNotMatch
+        | Operator::RegexNotIMatch => string_coercion(lhs_type, rhs_type),
+        Operator::IsDistinctFrom | Operator::IsNotDistinctFrom => {
+            eq_coercion(lhs_type, rhs_type)
+        }
     };
 
     // re-write the error message of failed coercions to include the operator's information
@@ -423,7 +592,7 @@ pub fn binary_operator_data_type(
     rhs_type: &DataType,
 ) -> Result<DataType> {
     // validate that it is possible to perform the operation on incoming types.
-    // (or the return datatype cannot be infered)
+    // (or the return datatype cannot be inferred)
     let common_type = common_binary_type(lhs_type, op, rhs_type)?;
 
     match op {
@@ -437,13 +606,19 @@ pub fn binary_operator_data_type(
         | Operator::Lt
         | Operator::Gt
         | Operator::GtEq
-        | Operator::LtEq => Ok(DataType::Boolean),
+        | Operator::LtEq
+        | Operator::RegexMatch
+        | Operator::RegexIMatch
+        | Operator::RegexNotMatch
+        | Operator::RegexNotIMatch
+        | Operator::IsDistinctFrom
+        | Operator::IsNotDistinctFrom => Ok(DataType::Boolean),
         // math operations return the same value as the common coerced type
         Operator::Plus
         | Operator::Minus
         | Operator::Divide
         | Operator::Multiply
-        | Operator::Modulus => Ok(common_type),
+        | Operator::Modulo => Ok(common_type),
     }
 }
 
@@ -478,58 +653,17 @@ impl PhysicalExpr for BinaryExpr {
             )));
         }
 
+        // Attempt to use special kernels if one input is scalar and the other is an array
         let scalar_result = match (&left_value, &right_value) {
             (ColumnarValue::Array(array), ColumnarValue::Scalar(scalar)) => {
                 // if left is array and right is literal - use scalar operations
-                match &self.op {
-                    Operator::Lt => binary_array_op_scalar!(array, scalar.clone(), lt),
-                    Operator::LtEq => {
-                        binary_array_op_scalar!(array, scalar.clone(), lt_eq)
-                    }
-                    Operator::Gt => binary_array_op_scalar!(array, scalar.clone(), gt),
-                    Operator::GtEq => {
-                        binary_array_op_scalar!(array, scalar.clone(), gt_eq)
-                    }
-                    Operator::Eq => binary_array_op_scalar!(array, scalar.clone(), eq),
-                    Operator::NotEq => {
-                        binary_array_op_scalar!(array, scalar.clone(), neq)
-                    }
-                    Operator::Like => {
-                        binary_string_array_op_scalar!(array, scalar.clone(), like)
-                    }
-                    Operator::NotLike => {
-                        binary_string_array_op_scalar!(array, scalar.clone(), nlike)
-                    }
-                    Operator::Divide => {
-                        binary_primitive_array_op_scalar!(array, scalar.clone(), divide)
-                    }
-                    Operator::Modulus => {
-                        binary_primitive_array_op_scalar!(array, scalar.clone(), modulus)
-                    }
-                    // if scalar operation is not supported - fallback to array implementation
-                    _ => None,
-                }
+                self.evaluate_array_scalar(array, scalar)?
             }
             (ColumnarValue::Scalar(scalar), ColumnarValue::Array(array)) => {
                 // if right is literal and left is array - reverse operator and parameters
-                match &self.op {
-                    Operator::Lt => binary_array_op_scalar!(array, scalar.clone(), gt),
-                    Operator::LtEq => {
-                        binary_array_op_scalar!(array, scalar.clone(), gt_eq)
-                    }
-                    Operator::Gt => binary_array_op_scalar!(array, scalar.clone(), lt),
-                    Operator::GtEq => {
-                        binary_array_op_scalar!(array, scalar.clone(), lt_eq)
-                    }
-                    Operator::Eq => binary_array_op_scalar!(array, scalar.clone(), eq),
-                    Operator::NotEq => {
-                        binary_array_op_scalar!(array, scalar.clone(), neq)
-                    }
-                    // if scalar operation is not supported - fallback to array implementation
-                    _ => None,
-                }
+                self.evaluate_scalar_array(scalar, array)?
             }
-            (_, _) => None,
+            (_, _) => None, // default to array implementation
         };
 
         if let Some(result) = scalar_result {
@@ -541,8 +675,113 @@ impl PhysicalExpr for BinaryExpr {
             left_value.into_array(batch.num_rows()),
             right_value.into_array(batch.num_rows()),
         );
+        self.evaluate_with_resolved_args(left, &left_data_type, right, &right_data_type)
+            .map(|a| ColumnarValue::Array(a))
+    }
+}
 
-        let result: Result<ArrayRef> = match &self.op {
+impl BinaryExpr {
+    /// Evaluate the expression of the left input is an array and
+    /// right is literal - use scalar operations
+    fn evaluate_array_scalar(
+        &self,
+        array: &ArrayRef,
+        scalar: &ScalarValue,
+    ) -> Result<Option<Result<ArrayRef>>> {
+        let scalar_result = match &self.op {
+            Operator::Lt => binary_array_op_scalar!(array, scalar.clone(), lt),
+            Operator::LtEq => {
+                binary_array_op_scalar!(array, scalar.clone(), lt_eq)
+            }
+            Operator::Gt => binary_array_op_scalar!(array, scalar.clone(), gt),
+            Operator::GtEq => {
+                binary_array_op_scalar!(array, scalar.clone(), gt_eq)
+            }
+            Operator::Eq => binary_array_op_scalar!(array, scalar.clone(), eq),
+            Operator::NotEq => {
+                binary_array_op_scalar!(array, scalar.clone(), neq)
+            }
+            Operator::Like => {
+                binary_string_array_op_scalar!(array, scalar.clone(), like)
+            }
+            Operator::NotLike => {
+                binary_string_array_op_scalar!(array, scalar.clone(), nlike)
+            }
+            Operator::Divide => {
+                binary_primitive_array_op_scalar!(array, scalar.clone(), divide)
+            }
+            Operator::Modulo => {
+                binary_primitive_array_op_scalar!(array, scalar.clone(), modulus)
+            }
+            Operator::RegexMatch => binary_string_array_flag_op_scalar!(
+                array,
+                scalar.clone(),
+                regexp_is_match,
+                false,
+                false
+            ),
+            Operator::RegexIMatch => binary_string_array_flag_op_scalar!(
+                array,
+                scalar.clone(),
+                regexp_is_match,
+                false,
+                true
+            ),
+            Operator::RegexNotMatch => binary_string_array_flag_op_scalar!(
+                array,
+                scalar.clone(),
+                regexp_is_match,
+                true,
+                false
+            ),
+            Operator::RegexNotIMatch => binary_string_array_flag_op_scalar!(
+                array,
+                scalar.clone(),
+                regexp_is_match,
+                true,
+                true
+            ),
+            // if scalar operation is not supported - fallback to array implementation
+            _ => None,
+        };
+
+        Ok(scalar_result)
+    }
+
+    /// Evaluate the expression if the left input is a literal and the
+    /// right is an array - reverse operator and parameters
+    fn evaluate_scalar_array(
+        &self,
+        scalar: &ScalarValue,
+        array: &ArrayRef,
+    ) -> Result<Option<Result<ArrayRef>>> {
+        let scalar_result = match &self.op {
+            Operator::Lt => binary_array_op_scalar!(array, scalar.clone(), gt),
+            Operator::LtEq => {
+                binary_array_op_scalar!(array, scalar.clone(), gt_eq)
+            }
+            Operator::Gt => binary_array_op_scalar!(array, scalar.clone(), lt),
+            Operator::GtEq => {
+                binary_array_op_scalar!(array, scalar.clone(), lt_eq)
+            }
+            Operator::Eq => binary_array_op_scalar!(array, scalar.clone(), eq),
+            Operator::NotEq => {
+                binary_array_op_scalar!(array, scalar.clone(), neq)
+            }
+            // if scalar operation is not supported - fallback to array implementation
+            _ => None,
+        };
+        Ok(scalar_result)
+    }
+
+    fn evaluate_with_resolved_args(
+        &self,
+        left: Arc<dyn Array>,
+        left_data_type: &DataType,
+        right: Arc<dyn Array>,
+        right_data_type: &DataType,
+    ) -> Result<ArrayRef> {
+        match &self.op {
             Operator::Like => binary_string_array_op!(left, right, like),
             Operator::NotLike => binary_string_array_op!(left, right, nlike),
             Operator::Lt => binary_array_op!(left, right, lt),
@@ -551,13 +790,17 @@ impl PhysicalExpr for BinaryExpr {
             Operator::GtEq => binary_array_op!(left, right, gt_eq),
             Operator::Eq => binary_array_op!(left, right, eq),
             Operator::NotEq => binary_array_op!(left, right, neq),
+            Operator::IsDistinctFrom => binary_array_op!(left, right, is_distinct_from),
+            Operator::IsNotDistinctFrom => {
+                binary_array_op!(left, right, is_not_distinct_from)
+            }
             Operator::Plus => binary_primitive_array_op!(left, right, add),
             Operator::Minus => binary_primitive_array_op!(left, right, subtract),
             Operator::Multiply => binary_primitive_array_op!(left, right, multiply),
             Operator::Divide => binary_primitive_array_op!(left, right, divide),
-            Operator::Modulus => binary_primitive_array_op!(left, right, modulus),
+            Operator::Modulo => binary_primitive_array_op!(left, right, modulus),
             Operator::And => {
-                if left_data_type == DataType::Boolean {
+                if left_data_type == &DataType::Boolean {
                     boolean_op!(left, right, and_kleene)
                 } else {
                     return Err(DataFusionError::Internal(format!(
@@ -569,7 +812,7 @@ impl PhysicalExpr for BinaryExpr {
                 }
             }
             Operator::Or => {
-                if left_data_type == DataType::Boolean {
+                if left_data_type == &DataType::Boolean {
                     boolean_op!(left, right, or_kleene)
                 } else {
                     return Err(DataFusionError::Internal(format!(
@@ -578,9 +821,70 @@ impl PhysicalExpr for BinaryExpr {
                     )));
                 }
             }
-        };
-        result.map(|a| ColumnarValue::Array(a))
+            Operator::RegexMatch => {
+                binary_string_array_flag_op!(left, right, regexp_is_match, false, false)
+            }
+            Operator::RegexIMatch => {
+                binary_string_array_flag_op!(left, right, regexp_is_match, false, true)
+            }
+            Operator::RegexNotMatch => {
+                binary_string_array_flag_op!(left, right, regexp_is_match, true, false)
+            }
+            Operator::RegexNotIMatch => {
+                binary_string_array_flag_op!(left, right, regexp_is_match, true, true)
+            }
+        }
     }
+}
+
+fn is_distinct_from<T>(
+    left: &PrimitiveArray<T>,
+    right: &PrimitiveArray<T>,
+) -> Result<BooleanArray>
+where
+    T: ArrowNumericType,
+{
+    Ok(left
+        .iter()
+        .zip(right.iter())
+        .map(|(x, y)| Some(x != y))
+        .collect())
+}
+
+fn is_distinct_from_utf8<OffsetSize: StringOffsetSizeTrait>(
+    left: &GenericStringArray<OffsetSize>,
+    right: &GenericStringArray<OffsetSize>,
+) -> Result<BooleanArray> {
+    Ok(left
+        .iter()
+        .zip(right.iter())
+        .map(|(x, y)| Some(x != y))
+        .collect())
+}
+
+fn is_not_distinct_from<T>(
+    left: &PrimitiveArray<T>,
+    right: &PrimitiveArray<T>,
+) -> Result<BooleanArray>
+where
+    T: ArrowNumericType,
+{
+    Ok(left
+        .iter()
+        .zip(right.iter())
+        .map(|(x, y)| Some(x == y))
+        .collect())
+}
+
+fn is_not_distinct_from_utf8<OffsetSize: StringOffsetSizeTrait>(
+    left: &GenericStringArray<OffsetSize>,
+    right: &GenericStringArray<OffsetSize>,
+) -> Result<BooleanArray> {
+    Ok(left
+        .iter()
+        .zip(right.iter())
+        .map(|(x, y)| Some(x == y))
+        .collect())
 }
 
 /// return two physical expressions that are optionally coerced to a
@@ -622,7 +926,7 @@ mod tests {
 
     use super::*;
     use crate::error::Result;
-    use crate::physical_plan::expressions::col;
+    use crate::physical_plan::expressions::{col, lit};
 
     // Create a binary expression without coercion. Used here when we do not want to coerce the expressions
     // to valid types. Usage can result in an execution (after plan) error.
@@ -853,6 +1157,102 @@ mod tests {
             DataType::Boolean,
             vec![true, false]
         );
+        test_coercion!(
+            StringArray,
+            DataType::Utf8,
+            vec!["abc"; 5],
+            StringArray,
+            DataType::Utf8,
+            vec!["^a", "^A", "(b|d)", "(B|D)", "^(b|c)"],
+            Operator::RegexMatch,
+            BooleanArray,
+            DataType::Boolean,
+            vec![true, false, true, false, false]
+        );
+        test_coercion!(
+            StringArray,
+            DataType::Utf8,
+            vec!["abc"; 5],
+            StringArray,
+            DataType::Utf8,
+            vec!["^a", "^A", "(b|d)", "(B|D)", "^(b|c)"],
+            Operator::RegexIMatch,
+            BooleanArray,
+            DataType::Boolean,
+            vec![true, true, true, true, false]
+        );
+        test_coercion!(
+            StringArray,
+            DataType::Utf8,
+            vec!["abc"; 5],
+            StringArray,
+            DataType::Utf8,
+            vec!["^a", "^A", "(b|d)", "(B|D)", "^(b|c)"],
+            Operator::RegexNotMatch,
+            BooleanArray,
+            DataType::Boolean,
+            vec![false, true, false, true, true]
+        );
+        test_coercion!(
+            StringArray,
+            DataType::Utf8,
+            vec!["abc"; 5],
+            StringArray,
+            DataType::Utf8,
+            vec!["^a", "^A", "(b|d)", "(B|D)", "^(b|c)"],
+            Operator::RegexNotIMatch,
+            BooleanArray,
+            DataType::Boolean,
+            vec![false, false, false, false, true]
+        );
+        test_coercion!(
+            LargeStringArray,
+            DataType::LargeUtf8,
+            vec!["abc"; 5],
+            LargeStringArray,
+            DataType::LargeUtf8,
+            vec!["^a", "^A", "(b|d)", "(B|D)", "^(b|c)"],
+            Operator::RegexMatch,
+            BooleanArray,
+            DataType::Boolean,
+            vec![true, false, true, false, false]
+        );
+        test_coercion!(
+            LargeStringArray,
+            DataType::LargeUtf8,
+            vec!["abc"; 5],
+            LargeStringArray,
+            DataType::LargeUtf8,
+            vec!["^a", "^A", "(b|d)", "(B|D)", "^(b|c)"],
+            Operator::RegexIMatch,
+            BooleanArray,
+            DataType::Boolean,
+            vec![true, true, true, true, false]
+        );
+        test_coercion!(
+            LargeStringArray,
+            DataType::LargeUtf8,
+            vec!["abc"; 5],
+            LargeStringArray,
+            DataType::LargeUtf8,
+            vec!["^a", "^A", "(b|d)", "(B|D)", "^(b|c)"],
+            Operator::RegexNotMatch,
+            BooleanArray,
+            DataType::Boolean,
+            vec![false, true, false, true, true]
+        );
+        test_coercion!(
+            LargeStringArray,
+            DataType::LargeUtf8,
+            vec!["abc"; 5],
+            LargeStringArray,
+            DataType::LargeUtf8,
+            vec!["^a", "^A", "(b|d)", "(B|D)", "^(b|c)"],
+            Operator::RegexNotIMatch,
+            BooleanArray,
+            DataType::Boolean,
+            vec![false, false, false, false, true]
+        );
         Ok(())
     }
 
@@ -1039,7 +1439,7 @@ mod tests {
         apply_arithmetic::<Int32Type>(
             schema,
             vec![a, b],
-            Operator::Modulus,
+            Operator::Modulo,
             Int32Array::from(vec![0, 0, 2, 8, 0]),
         )?;
 
@@ -1073,6 +1473,42 @@ mod tests {
         let result = arithmetic_op.evaluate(&batch)?.into_array(batch.num_rows());
 
         assert_eq!(result.as_ref(), &expected);
+        Ok(())
+    }
+
+    // Test `scalar <op> arr` produces expected
+    fn apply_logic_op_scalar_arr(
+        schema: &SchemaRef,
+        scalar: bool,
+        arr: &ArrayRef,
+        op: Operator,
+        expected: &BooleanArray,
+    ) -> Result<()> {
+        let scalar = lit(scalar.into());
+
+        let arithmetic_op = binary_simple(scalar, op, col("a", schema)?);
+        let batch = RecordBatch::try_new(Arc::clone(schema), vec![Arc::clone(arr)])?;
+        let result = arithmetic_op.evaluate(&batch)?.into_array(batch.num_rows());
+        assert_eq!(result.as_ref(), expected);
+
+        Ok(())
+    }
+
+    // Test `arr <op> scalar` produces expected
+    fn apply_logic_op_arr_scalar(
+        schema: &SchemaRef,
+        arr: &ArrayRef,
+        scalar: bool,
+        op: Operator,
+        expected: &BooleanArray,
+    ) -> Result<()> {
+        let scalar = lit(scalar.into());
+
+        let arithmetic_op = binary_simple(col("a", schema)?, op, scalar);
+        let batch = RecordBatch::try_new(Arc::clone(schema), vec![Arc::clone(arr)])?;
+        let result = arithmetic_op.evaluate(&batch)?.into_array(batch.num_rows());
+        assert_eq!(result.as_ref(), expected);
+
         Ok(())
     }
 
@@ -1166,6 +1602,293 @@ mod tests {
         Ok(())
     }
 
+    /// Returns (schema, a: BooleanArray, b: BooleanArray) with all possible inputs
+    ///
+    /// a: [true, true, true,  NULL, NULL, NULL,  false, false, false]
+    /// b: [true, NULL, false, true, NULL, false, true,  NULL,  false]
+    fn bool_test_arrays() -> (SchemaRef, BooleanArray, BooleanArray) {
+        let schema = Schema::new(vec![
+            Field::new("a", DataType::Boolean, false),
+            Field::new("b", DataType::Boolean, false),
+        ]);
+        let a = [
+            Some(true),
+            Some(true),
+            Some(true),
+            None,
+            None,
+            None,
+            Some(false),
+            Some(false),
+            Some(false),
+        ]
+        .iter()
+        .collect();
+        let b = [
+            Some(true),
+            None,
+            Some(false),
+            Some(true),
+            None,
+            Some(false),
+            Some(true),
+            None,
+            Some(false),
+        ]
+        .iter()
+        .collect();
+        (Arc::new(schema), a, b)
+    }
+
+    /// Returns (schema, BooleanArray) with [true, NULL, false]
+    fn scalar_bool_test_array() -> (SchemaRef, ArrayRef) {
+        let schema = Schema::new(vec![Field::new("a", DataType::Boolean, false)]);
+        let a: BooleanArray = vec![Some(true), None, Some(false)].iter().collect();
+        (Arc::new(schema), Arc::new(a))
+    }
+
+    #[test]
+    fn eq_op_bool() {
+        let (schema, a, b) = bool_test_arrays();
+        let expected = vec![
+            Some(true),
+            None,
+            Some(false),
+            None,
+            None,
+            None,
+            Some(false),
+            None,
+            Some(true),
+        ]
+        .iter()
+        .collect();
+        apply_logic_op(schema, a, b, Operator::Eq, expected).unwrap();
+    }
+
+    #[test]
+    fn eq_op_bool_scalar() {
+        let (schema, a) = scalar_bool_test_array();
+        let expected = [Some(true), None, Some(false)].iter().collect();
+        apply_logic_op_scalar_arr(&schema, true, &a, Operator::Eq, &expected).unwrap();
+        apply_logic_op_arr_scalar(&schema, &a, true, Operator::Eq, &expected).unwrap();
+
+        let expected = [Some(false), None, Some(true)].iter().collect();
+        apply_logic_op_scalar_arr(&schema, false, &a, Operator::Eq, &expected).unwrap();
+        apply_logic_op_arr_scalar(&schema, &a, false, Operator::Eq, &expected).unwrap();
+    }
+
+    #[test]
+    fn neq_op_bool() {
+        let (schema, a, b) = bool_test_arrays();
+        let expected = [
+            Some(false),
+            None,
+            Some(true),
+            None,
+            None,
+            None,
+            Some(true),
+            None,
+            Some(false),
+        ]
+        .iter()
+        .collect();
+        apply_logic_op(schema, a, b, Operator::NotEq, expected).unwrap();
+    }
+
+    #[test]
+    fn neq_op_bool_scalar() {
+        let (schema, a) = scalar_bool_test_array();
+        let expected = [Some(false), None, Some(true)].iter().collect();
+        apply_logic_op_scalar_arr(&schema, true, &a, Operator::NotEq, &expected).unwrap();
+        apply_logic_op_arr_scalar(&schema, &a, true, Operator::NotEq, &expected).unwrap();
+
+        let expected = [Some(true), None, Some(false)].iter().collect();
+        apply_logic_op_scalar_arr(&schema, false, &a, Operator::NotEq, &expected)
+            .unwrap();
+        apply_logic_op_arr_scalar(&schema, &a, false, Operator::NotEq, &expected)
+            .unwrap();
+    }
+
+    #[test]
+    fn lt_op_bool() {
+        let (schema, a, b) = bool_test_arrays();
+        let expected = [
+            Some(false),
+            None,
+            Some(false),
+            None,
+            None,
+            None,
+            Some(true),
+            None,
+            Some(false),
+        ]
+        .iter()
+        .collect();
+        apply_logic_op(schema, a, b, Operator::Lt, expected).unwrap();
+    }
+
+    #[test]
+    fn lt_op_bool_scalar() {
+        let (schema, a) = scalar_bool_test_array();
+        let expected = [Some(false), None, Some(false)].iter().collect();
+        apply_logic_op_scalar_arr(&schema, true, &a, Operator::Lt, &expected).unwrap();
+
+        let expected = [Some(false), None, Some(true)].iter().collect();
+        apply_logic_op_arr_scalar(&schema, &a, true, Operator::Lt, &expected).unwrap();
+
+        let expected = [Some(true), None, Some(false)].iter().collect();
+        apply_logic_op_scalar_arr(&schema, false, &a, Operator::Lt, &expected).unwrap();
+
+        let expected = [Some(false), None, Some(false)].iter().collect();
+        apply_logic_op_arr_scalar(&schema, &a, false, Operator::Lt, &expected).unwrap();
+    }
+
+    #[test]
+    fn lt_eq_op_bool() {
+        let (schema, a, b) = bool_test_arrays();
+        let expected = [
+            Some(true),
+            None,
+            Some(false),
+            None,
+            None,
+            None,
+            Some(true),
+            None,
+            Some(true),
+        ]
+        .iter()
+        .collect();
+        apply_logic_op(schema, a, b, Operator::LtEq, expected).unwrap();
+    }
+
+    #[test]
+    fn lt_eq_op_bool_scalar() {
+        let (schema, a) = scalar_bool_test_array();
+        let expected = [Some(true), None, Some(false)].iter().collect();
+        apply_logic_op_scalar_arr(&schema, true, &a, Operator::LtEq, &expected).unwrap();
+
+        let expected = [Some(true), None, Some(true)].iter().collect();
+        apply_logic_op_arr_scalar(&schema, &a, true, Operator::LtEq, &expected).unwrap();
+
+        let expected = [Some(true), None, Some(true)].iter().collect();
+        apply_logic_op_scalar_arr(&schema, false, &a, Operator::LtEq, &expected).unwrap();
+
+        let expected = [Some(false), None, Some(true)].iter().collect();
+        apply_logic_op_arr_scalar(&schema, &a, false, Operator::LtEq, &expected).unwrap();
+    }
+
+    #[test]
+    fn gt_op_bool() {
+        let (schema, a, b) = bool_test_arrays();
+        let expected = [
+            Some(false),
+            None,
+            Some(true),
+            None,
+            None,
+            None,
+            Some(false),
+            None,
+            Some(false),
+        ]
+        .iter()
+        .collect();
+        apply_logic_op(schema, a, b, Operator::Gt, expected).unwrap();
+    }
+
+    #[test]
+    fn gt_op_bool_scalar() {
+        let (schema, a) = scalar_bool_test_array();
+        let expected = [Some(false), None, Some(true)].iter().collect();
+        apply_logic_op_scalar_arr(&schema, true, &a, Operator::Gt, &expected).unwrap();
+
+        let expected = [Some(false), None, Some(false)].iter().collect();
+        apply_logic_op_arr_scalar(&schema, &a, true, Operator::Gt, &expected).unwrap();
+
+        let expected = [Some(false), None, Some(false)].iter().collect();
+        apply_logic_op_scalar_arr(&schema, false, &a, Operator::Gt, &expected).unwrap();
+
+        let expected = [Some(true), None, Some(false)].iter().collect();
+        apply_logic_op_arr_scalar(&schema, &a, false, Operator::Gt, &expected).unwrap();
+    }
+
+    #[test]
+    fn gt_eq_op_bool() {
+        let (schema, a, b) = bool_test_arrays();
+        let expected = [
+            Some(true),
+            None,
+            Some(true),
+            None,
+            None,
+            None,
+            Some(false),
+            None,
+            Some(true),
+        ]
+        .iter()
+        .collect();
+        apply_logic_op(schema, a, b, Operator::GtEq, expected).unwrap();
+    }
+
+    #[test]
+    fn gt_eq_op_bool_scalar() {
+        let (schema, a) = scalar_bool_test_array();
+        let expected = [Some(true), None, Some(true)].iter().collect();
+        apply_logic_op_scalar_arr(&schema, true, &a, Operator::GtEq, &expected).unwrap();
+
+        let expected = [Some(true), None, Some(false)].iter().collect();
+        apply_logic_op_arr_scalar(&schema, &a, true, Operator::GtEq, &expected).unwrap();
+
+        let expected = [Some(false), None, Some(true)].iter().collect();
+        apply_logic_op_scalar_arr(&schema, false, &a, Operator::GtEq, &expected).unwrap();
+
+        let expected = [Some(true), None, Some(true)].iter().collect();
+        apply_logic_op_arr_scalar(&schema, &a, false, Operator::GtEq, &expected).unwrap();
+    }
+
+    #[test]
+    fn is_distinct_from_op_bool() {
+        let (schema, a, b) = bool_test_arrays();
+        let expected = [
+            Some(false),
+            Some(true),
+            Some(true),
+            Some(true),
+            Some(false),
+            Some(true),
+            Some(true),
+            Some(true),
+            Some(false),
+        ]
+        .iter()
+        .collect();
+        apply_logic_op(schema, a, b, Operator::IsDistinctFrom, expected).unwrap();
+    }
+
+    #[test]
+    fn is_not_distinct_from_op_bool() {
+        let (schema, a, b) = bool_test_arrays();
+        let expected = [
+            Some(true),
+            Some(false),
+            Some(false),
+            Some(false),
+            Some(true),
+            Some(false),
+            Some(false),
+            Some(false),
+            Some(true),
+        ]
+        .iter()
+        .collect();
+        apply_logic_op(schema, a, b, Operator::IsNotDistinctFrom, expected).unwrap();
+    }
+
     #[test]
     fn test_coersion_error() -> Result<()> {
         let expr =
@@ -1179,5 +1902,38 @@ mod tests {
                 "Coercion should have returned an DataFusionError::Internal".to_string(),
             ))
         }
+    }
+
+    #[test]
+    fn relatively_deeply_nested() {
+        // Reproducer for https://github.com/apache/arrow-datafusion/issues/419
+
+        // where even relatively shallow binary expressions overflowed
+        // the stack in debug builds
+
+        let input: Vec<_> = vec![1, 2, 3, 4, 5].into_iter().map(Some).collect();
+        let a: Int32Array = input.iter().collect();
+
+        let batch = RecordBatch::try_from_iter(vec![("a", Arc::new(a) as _)]).unwrap();
+        let schema = batch.schema();
+
+        // build a left deep tree ((((a + a) + a) + a ....
+        let tree_depth: i32 = 100;
+        let expr = (0..tree_depth)
+            .into_iter()
+            .map(|_| col("a", schema.as_ref()).unwrap())
+            .reduce(|l, r| binary_simple(l, Operator::Plus, r))
+            .unwrap();
+
+        let result = expr
+            .evaluate(&batch)
+            .expect("evaluation")
+            .into_array(batch.num_rows());
+
+        let expected: Int32Array = input
+            .into_iter()
+            .map(|i| i.map(|i| i * tree_depth))
+            .collect();
+        assert_eq!(result.as_ref(), &expected);
     }
 }

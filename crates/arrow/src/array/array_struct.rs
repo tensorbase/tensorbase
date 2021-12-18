@@ -30,6 +30,32 @@ use crate::{
 
 /// A nested array type where each child (called *field*) is represented by a separate
 /// array.
+/// # Example: Create an array from a vector of fields
+///
+/// ```
+/// use std::sync::Arc;
+/// use arrow::array::{Array, ArrayRef, BooleanArray, Int32Array, StructArray};
+/// use arrow::datatypes::{DataType, Field};
+///
+/// let boolean = Arc::new(BooleanArray::from(vec![false, false, true, true]));
+/// let int = Arc::new(Int32Array::from(vec![42, 28, 19, 31]));
+///
+/// let struct_array = StructArray::from(vec![
+///     (
+///         Field::new("b", DataType::Boolean, false),
+///         boolean.clone() as ArrayRef,
+///     ),
+///     (
+///         Field::new("c", DataType::Int32, false),
+///         int.clone() as ArrayRef,
+///     ),
+/// ]);
+/// assert_eq!(struct_array.column(0).as_ref(), boolean.as_ref());
+/// assert_eq!(struct_array.column(1).as_ref(), int.as_ref());
+/// assert_eq!(4, struct_array.len());
+/// assert_eq!(0, struct_array.null_count());
+/// assert_eq!(0, struct_array.offset());
+/// ```
 pub struct StructArray {
     data: ArrayData,
     pub(crate) boxed_fields: Vec<ArrayRef>,
@@ -155,12 +181,14 @@ impl TryFrom<Vec<(&str, ArrayRef)>> for StructArray {
             builder = builder.null_bit_buffer(null_buffer);
         }
 
-        Ok(StructArray::from(builder.build()))
+        let array_data = unsafe { builder.build_unchecked() };
+
+        Ok(StructArray::from(array_data))
     }
 }
 
 impl Array for StructArray {
-    fn as_any(&self) -> &Any {
+    fn as_any(&self) -> &dyn Any {
         self
     }
 
@@ -193,11 +221,11 @@ impl From<Vec<(Field, ArrayRef)>> for StructArray {
             )
         }
 
-        let data = ArrayData::builder(DataType::Struct(field_types))
+        let array_data = ArrayData::builder(DataType::Struct(field_types))
             .child_data(field_values.into_iter().map(|a| a.data().clone()).collect())
-            .len(length)
-            .build();
-        Self::from(data)
+            .len(length);
+        let array_data = unsafe { array_data.build_unchecked() };
+        Self::from(array_data)
     }
 }
 
@@ -239,12 +267,12 @@ impl From<(Vec<(Field, ArrayRef)>, Buffer)> for StructArray {
             )
         }
 
-        let data = ArrayData::builder(DataType::Struct(field_types))
+        let array_data = ArrayData::builder(DataType::Struct(field_types))
             .null_bit_buffer(pair.1)
             .child_data(field_values.into_iter().map(|a| a.data().clone()).collect())
-            .len(length)
-            .build();
-        Self::from(data)
+            .len(length);
+        let array_data = unsafe { array_data.build_unchecked() };
+        Self::from(array_data)
     }
 }
 
@@ -279,7 +307,8 @@ mod tests {
             .len(4)
             .add_child_data(boolean_data.clone())
             .add_child_data(int_data.clone())
-            .build();
+            .build()
+            .unwrap();
         let struct_array = StructArray::from(struct_array_data);
 
         assert_eq!(boolean_data, struct_array.column(0).data());
@@ -338,13 +367,15 @@ mod tests {
             .null_bit_buffer(Buffer::from(&[9_u8]))
             .add_buffer(Buffer::from(&[0, 3, 3, 3, 7].to_byte_slice()))
             .add_buffer(Buffer::from(b"joemark"))
-            .build();
+            .build()
+            .unwrap();
 
         let expected_int_data = ArrayData::builder(DataType::Int32)
             .len(4)
             .null_bit_buffer(Buffer::from(&[11_u8]))
             .add_buffer(Buffer::from(&[1, 2, 0, 4].to_byte_slice()))
-            .build();
+            .build()
+            .unwrap();
 
         assert_eq!(expected_string_data, *arr.column(0).data());
         assert_eq!(expected_int_data, *arr.column(1).data());
@@ -377,17 +408,17 @@ mod tests {
         expected = "the field data types must match the array data in a StructArray"
     )]
     fn test_struct_array_from_mismatched_types() {
-        StructArray::from(vec![
+        drop(StructArray::from(vec![
             (
                 Field::new("b", DataType::Int16, false),
                 Arc::new(BooleanArray::from(vec![false, false, true, true]))
-                    as Arc<Array>,
+                    as Arc<dyn Array>,
             ),
             (
                 Field::new("c", DataType::Utf8, false),
                 Arc::new(Int32Array::from(vec![42, 28, 19, 31])),
             ),
-        ]);
+        ]));
     }
 
     #[test]
@@ -396,12 +427,14 @@ mod tests {
             .len(5)
             .add_buffer(Buffer::from([0b00010000]))
             .null_bit_buffer(Buffer::from([0b00010001]))
-            .build();
+            .build()
+            .unwrap();
         let int_data = ArrayData::builder(DataType::Int32)
             .len(5)
             .add_buffer(Buffer::from([0, 28, 42, 0, 0].to_byte_slice()))
             .null_bit_buffer(Buffer::from([0b00000110]))
-            .build();
+            .build()
+            .unwrap();
 
         let mut field_types = vec![];
         field_types.push(Field::new("a", DataType::Boolean, false));
@@ -411,7 +444,8 @@ mod tests {
             .add_child_data(boolean_data.clone())
             .add_child_data(int_data.clone())
             .null_bit_buffer(Buffer::from([0b00010111]))
-            .build();
+            .build()
+            .unwrap();
         let struct_array = StructArray::from(struct_array_data);
 
         assert_eq!(5, struct_array.len());
@@ -481,15 +515,15 @@ mod tests {
         expected = "all child arrays of a StructArray must have the same length"
     )]
     fn test_invalid_struct_child_array_lengths() {
-        StructArray::from(vec![
+        drop(StructArray::from(vec![
             (
                 Field::new("b", DataType::Float32, false),
-                Arc::new(Float32Array::from(vec![1.1])) as Arc<Array>,
+                Arc::new(Float32Array::from(vec![1.1])) as Arc<dyn Array>,
             ),
             (
                 Field::new("c", DataType::Float64, false),
                 Arc::new(Float64Array::from(vec![2.2, 3.3])),
             ),
-        ]);
+        ]));
     }
 }

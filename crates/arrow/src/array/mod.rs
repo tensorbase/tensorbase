@@ -47,8 +47,6 @@
 //!
 //! # Example
 //! ```
-//! extern crate arrow;
-//!
 //! use arrow::array::Int16Array;
 //!
 //! // Create a new builder with a capacity of 100
@@ -87,6 +85,7 @@ mod array_binary;
 mod array_boolean;
 mod array_dictionary;
 mod array_list;
+mod array_map;
 mod array_primitive;
 mod array_string;
 mod array_struct;
@@ -122,6 +121,7 @@ pub use self::array_dictionary::DictionaryArray;
 pub use self::array_list::FixedSizeListArray;
 pub use self::array_list::LargeListArray;
 pub use self::array_list::ListArray;
+pub use self::array_map::MapArray;
 pub use self::array_primitive::PrimitiveArray;
 pub use self::array_string::LargeStringArray;
 pub use self::array_string::StringArray;
@@ -133,32 +133,242 @@ pub use self::array::make_array;
 pub use self::array::new_empty_array;
 pub use self::array::new_null_array;
 
+///
+/// # Example: Using `collect`
+/// ```
+/// # use arrow::array::Int8Array;
+/// let arr : Int8Array = [Some(1), Some(2)].into_iter().collect();
+/// ```
 pub type Int8Array = PrimitiveArray<Int8Type>;
+///
+/// # Example: Using `collect`
+/// ```
+/// # use arrow::array::Int16Array;
+/// let arr : Int16Array = [Some(1), Some(2)].into_iter().collect();
+/// ```
 pub type Int16Array = PrimitiveArray<Int16Type>;
+///
+/// # Example: Using `collect`
+/// ```
+/// # use arrow::array::Int32Array;
+/// let arr : Int32Array = [Some(1), Some(2)].into_iter().collect();
+/// ```
 pub type Int32Array = PrimitiveArray<Int32Type>;
+///
+/// # Example: Using `collect`
+/// ```
+/// # use arrow::array::Int64Array;
+/// let arr : Int64Array = [Some(1), Some(2)].into_iter().collect();
+/// ```
 pub type Int64Array = PrimitiveArray<Int64Type>;
+///
+/// # Example: Using `collect`
+/// ```
+/// # use arrow::array::UInt8Array;
+/// let arr : UInt8Array = [Some(1), Some(2)].into_iter().collect();
+/// ```
 pub type UInt8Array = PrimitiveArray<UInt8Type>;
+///
+/// # Example: Using `collect`
+/// ```
+/// # use arrow::array::UInt16Array;
+/// let arr : UInt16Array = [Some(1), Some(2)].into_iter().collect();
+/// ```
 pub type UInt16Array = PrimitiveArray<UInt16Type>;
+///
+/// # Example: Using `collect`
+/// ```
+/// # use arrow::array::UInt32Array;
+/// let arr : UInt32Array = [Some(1), Some(2)].into_iter().collect();
+/// ```
 pub type UInt32Array = PrimitiveArray<UInt32Type>;
+///
+/// # Example: Using `collect`
+/// ```
+/// # use arrow::array::UInt64Array;
+/// let arr : UInt64Array = [Some(1), Some(2)].into_iter().collect();
+/// ```
 pub type UInt64Array = PrimitiveArray<UInt64Type>;
+///
+/// # Example: Using `collect`
+/// ```
+/// # use arrow::array::Float32Array;
+/// let arr : Float32Array = [Some(1.0), Some(2.0)].into_iter().collect();
+/// ```
 pub type Float32Array = PrimitiveArray<Float32Type>;
+///
+/// # Example: Using `collect`
+/// ```
+/// # use arrow::array::Float64Array;
+/// let arr : Float64Array = [Some(1.0), Some(2.0)].into_iter().collect();
+/// ```
 pub type Float64Array = PrimitiveArray<Float64Type>;
 
+///
+/// A dictionary array where each element is a single value indexed by an integer key.
+///
+/// # Example: Using `collect`
+/// ```
+/// # use arrow::array::{Array, Int8DictionaryArray, Int8Array, StringArray};
+/// # use std::sync::Arc;
+///
+/// let array: Int8DictionaryArray = vec!["a", "a", "b", "c"].into_iter().collect();
+/// let values: Arc<dyn Array> = Arc::new(StringArray::from(vec!["a", "b", "c"]));
+/// assert_eq!(array.keys(), &Int8Array::from(vec![0, 0, 1, 2]));
+/// assert_eq!(array.values(), &values);
+/// ```
 pub type Int8DictionaryArray = DictionaryArray<Int8Type>;
+///
+/// A dictionary array where each element is a single value indexed by an integer key.
+///
+/// # Example: Using `collect`
+/// ```
+/// # use arrow::array::{Array, Int16DictionaryArray, Int16Array, StringArray};
+/// # use std::sync::Arc;
+///
+/// let array: Int16DictionaryArray = vec!["a", "a", "b", "c"].into_iter().collect();
+/// let values: Arc<dyn Array> = Arc::new(StringArray::from(vec!["a", "b", "c"]));
+/// assert_eq!(array.keys(), &Int16Array::from(vec![0, 0, 1, 2]));
+/// assert_eq!(array.values(), &values);
+/// ```
 pub type Int16DictionaryArray = DictionaryArray<Int16Type>;
+///
+/// A dictionary array where each element is a single value indexed by an integer key.
+///
+/// # Example: Using `collect`
+/// ```
+/// # use arrow::array::{Array, Int32DictionaryArray, Int32Array, StringArray};
+/// # use std::sync::Arc;
+///
+/// let array: Int32DictionaryArray = vec!["a", "a", "b", "c"].into_iter().collect();
+/// let values: Arc<dyn Array> = Arc::new(StringArray::from(vec!["a", "b", "c"]));
+/// assert_eq!(array.keys(), &Int32Array::from(vec![0, 0, 1, 2]));
+/// assert_eq!(array.values(), &values);
+/// ```
 pub type Int32DictionaryArray = DictionaryArray<Int32Type>;
+///
+/// A dictionary array where each element is a single value indexed by an integer key.
+///
+/// # Example: Using `collect`
+/// ```
+/// # use arrow::array::{Array, Int64DictionaryArray, Int64Array, StringArray};
+/// # use std::sync::Arc;
+///
+/// let array: Int64DictionaryArray = vec!["a", "a", "b", "c"].into_iter().collect();
+/// let values: Arc<dyn Array> = Arc::new(StringArray::from(vec!["a", "b", "c"]));
+/// assert_eq!(array.keys(), &Int64Array::from(vec![0, 0, 1, 2]));
+/// assert_eq!(array.values(), &values);
+/// ```
 pub type Int64DictionaryArray = DictionaryArray<Int64Type>;
+///
+/// A dictionary array where each element is a single value indexed by an integer key.
+///
+/// # Example: Using `collect`
+/// ```
+/// # use arrow::array::{Array, UInt8DictionaryArray, UInt8Array, StringArray};
+/// # use std::sync::Arc;
+///
+/// let array: UInt8DictionaryArray = vec!["a", "a", "b", "c"].into_iter().collect();
+/// let values: Arc<dyn Array> = Arc::new(StringArray::from(vec!["a", "b", "c"]));
+/// assert_eq!(array.keys(), &UInt8Array::from(vec![0, 0, 1, 2]));
+/// assert_eq!(array.values(), &values);
+/// ```
 pub type UInt8DictionaryArray = DictionaryArray<UInt8Type>;
+///
+/// A dictionary array where each element is a single value indexed by an integer key.
+///
+/// # Example: Using `collect`
+/// ```
+/// # use arrow::array::{Array, UInt16DictionaryArray, UInt16Array, StringArray};
+/// # use std::sync::Arc;
+///
+/// let array: UInt16DictionaryArray = vec!["a", "a", "b", "c"].into_iter().collect();
+/// let values: Arc<dyn Array> = Arc::new(StringArray::from(vec!["a", "b", "c"]));
+/// assert_eq!(array.keys(), &UInt16Array::from(vec![0, 0, 1, 2]));
+/// assert_eq!(array.values(), &values);
+/// ```
 pub type UInt16DictionaryArray = DictionaryArray<UInt16Type>;
+///
+/// A dictionary array where each element is a single value indexed by an integer key.
+///
+/// # Example: Using `collect`
+/// ```
+/// # use arrow::array::{Array, UInt32DictionaryArray, UInt32Array, StringArray};
+/// # use std::sync::Arc;
+///
+/// let array: UInt32DictionaryArray = vec!["a", "a", "b", "c"].into_iter().collect();
+/// let values: Arc<dyn Array> = Arc::new(StringArray::from(vec!["a", "b", "c"]));
+/// assert_eq!(array.keys(), &UInt32Array::from(vec![0, 0, 1, 2]));
+/// assert_eq!(array.values(), &values);
+/// ```
 pub type UInt32DictionaryArray = DictionaryArray<UInt32Type>;
+///
+/// A dictionary array where each element is a single value indexed by an integer key.
+///
+/// # Example: Using `collect`
+/// ```
+/// # use arrow::array::{Array, UInt64DictionaryArray, UInt64Array, StringArray};
+/// # use std::sync::Arc;
+///
+/// let array: UInt64DictionaryArray = vec!["a", "a", "b", "c"].into_iter().collect();
+/// let values: Arc<dyn Array> = Arc::new(StringArray::from(vec!["a", "b", "c"]));
+/// assert_eq!(array.keys(), &UInt64Array::from(vec![0, 0, 1, 2]));
+/// assert_eq!(array.values(), &values);
+/// ```
 pub type UInt64DictionaryArray = DictionaryArray<UInt64Type>;
-
-pub type Timestamp32Array = PrimitiveArray<Timestamp32Type>;
+///
+/// A primitive array where each element is of type `TimestampSecondType.`
+/// See also [`Timestamp.`](crate::datatypes::Timestamp)
+///
+/// # Example: UTC timestamps post epoch
+/// ```
+/// # use arrow::array::TimestampSecondArray;
+/// use chrono::FixedOffset;
+/// // Corresponds to single element array with entry 1970-05-09T14:25:11+0:00
+/// let arr = TimestampSecondArray::from_vec(vec![11111111], None);
+/// // OR
+/// let arr = TimestampSecondArray::from_opt_vec(vec![Some(11111111)], None);
+/// let utc_offset = FixedOffset::east(0);
+///
+/// assert_eq!(arr.value_as_datetime_with_tz(0, utc_offset).map(|v| v.to_string()).unwrap(), "1970-05-09 14:25:11")
+/// ```
+///
+/// # Example: UTC timestamps pre epoch
+/// ```
+/// # use arrow::array::TimestampSecondArray;
+/// use chrono::FixedOffset;
+/// // Corresponds to single element array with entry 1969-08-25T09:34:49+0:00
+/// let arr = TimestampSecondArray::from_vec(vec![-11111111], None);
+/// // OR
+/// let arr = TimestampSecondArray::from_opt_vec(vec![Some(-11111111)], None);
+/// let utc_offset = FixedOffset::east(0);
+///
+/// assert_eq!(arr.value_as_datetime_with_tz(0, utc_offset).map(|v| v.to_string()).unwrap(), "1969-08-25 09:34:49")
+/// ```
+///
+/// # Example: With timezone specified
+/// ```
+/// # use arrow::array::TimestampSecondArray;
+/// use chrono::FixedOffset;
+/// // Corresponds to single element array with entry 1970-05-10T00:25:11+10:00
+/// let arr = TimestampSecondArray::from_vec(vec![11111111], Some("+10:00".to_string()));
+/// // OR
+/// let arr = TimestampSecondArray::from_opt_vec(vec![Some(11111111)], Some("+10:00".to_string()));
+/// let sydney_offset = FixedOffset::east(10 * 60 * 60);
+///
+/// assert_eq!(arr.value_as_datetime_with_tz(0, sydney_offset).map(|v| v.to_string()).unwrap(), "1970-05-10 00:25:11")
+/// ```
+///
 pub type TimestampSecondArray = PrimitiveArray<TimestampSecondType>;
+/// A primitive array where each element is of type `TimestampMillisecondType.`
+/// See examples for [`TimestampSecondArray.`](crate::array::TimestampSecondArray)
 pub type TimestampMillisecondArray = PrimitiveArray<TimestampMillisecondType>;
+/// A primitive array where each element is of type `TimestampMicrosecondType.`
+/// See examples for [`TimestampSecondArray.`](crate::array::TimestampSecondArray)
 pub type TimestampMicrosecondArray = PrimitiveArray<TimestampMicrosecondType>;
+/// A primitive array where each element is of type `TimestampNanosecondType.`
+/// See examples for [`TimestampSecondArray.`](crate::array::TimestampSecondArray)
 pub type TimestampNanosecondArray = PrimitiveArray<TimestampNanosecondType>;
-pub type Date16Array = PrimitiveArray<Date16Type>;
 pub type Date32Array = PrimitiveArray<Date32Type>;
 pub type Date64Array = PrimitiveArray<Date64Type>;
 pub type Time32SecondArray = PrimitiveArray<Time32SecondType>;
@@ -171,7 +381,8 @@ pub type DurationSecondArray = PrimitiveArray<DurationSecondType>;
 pub type DurationMillisecondArray = PrimitiveArray<DurationMillisecondType>;
 pub type DurationMicrosecondArray = PrimitiveArray<DurationMicrosecondType>;
 pub type DurationNanosecondArray = PrimitiveArray<DurationNanosecondType>;
-
+pub type Timestamp32Array = PrimitiveArray<Timestamp32Type>;
+pub type Date16Array = PrimitiveArray<Date16Type>;
 pub use self::array_binary::BinaryOffsetSizeTrait;
 pub use self::array_binary::GenericBinaryArray;
 pub use self::array_list::GenericListArray;
@@ -199,7 +410,6 @@ pub type TimestampSecondBufferBuilder = BufferBuilder<TimestampSecondType>;
 pub type TimestampMillisecondBufferBuilder = BufferBuilder<TimestampMillisecondType>;
 pub type TimestampMicrosecondBufferBuilder = BufferBuilder<TimestampMicrosecondType>;
 pub type TimestampNanosecondBufferBuilder = BufferBuilder<TimestampNanosecondType>;
-pub type Date16BufferBuilder = BufferBuilder<Date16Type>;
 pub type Date32BufferBuilder = BufferBuilder<Date32Type>;
 pub type Date64BufferBuilder = BufferBuilder<Date64Type>;
 pub type Time32SecondBufferBuilder = BufferBuilder<Time32SecondType>;
@@ -212,7 +422,8 @@ pub type DurationSecondBufferBuilder = BufferBuilder<DurationSecondType>;
 pub type DurationMillisecondBufferBuilder = BufferBuilder<DurationMillisecondType>;
 pub type DurationMicrosecondBufferBuilder = BufferBuilder<DurationMicrosecondType>;
 pub type DurationNanosecondBufferBuilder = BufferBuilder<DurationNanosecondType>;
-
+pub type Date16Builder = PrimitiveBuilder<Date16Type>;
+pub type Date16BufferBuilder = BufferBuilder<Date16Type>;
 pub use self::builder::ArrayBuilder;
 pub use self::builder::BinaryBuilder;
 pub use self::builder::BooleanBuilder;
@@ -230,6 +441,8 @@ pub use self::builder::StringBuilder;
 pub use self::builder::StringDictionaryBuilder;
 pub use self::builder::StructBuilder;
 pub use self::builder::UnionBuilder;
+pub use self::builder::MAX_DECIMAL_FOR_EACH_PRECISION;
+pub use self::builder::MIN_DECIMAL_FOR_EACH_PRECISION;
 
 pub type Int8Builder = PrimitiveBuilder<Int8Type>;
 pub type Int16Builder = PrimitiveBuilder<Int16Type>;
@@ -246,7 +459,6 @@ pub type TimestampSecondBuilder = PrimitiveBuilder<TimestampSecondType>;
 pub type TimestampMillisecondBuilder = PrimitiveBuilder<TimestampMillisecondType>;
 pub type TimestampMicrosecondBuilder = PrimitiveBuilder<TimestampMicrosecondType>;
 pub type TimestampNanosecondBuilder = PrimitiveBuilder<TimestampNanosecondType>;
-pub type Date16Builder = PrimitiveBuilder<Date16Type>;
 pub type Date32Builder = PrimitiveBuilder<Date32Type>;
 pub type Date64Builder = PrimitiveBuilder<Date64Type>;
 pub type Time32SecondBuilder = PrimitiveBuilder<Time32SecondType>;
@@ -277,9 +489,9 @@ pub use self::ord::{build_compare, DynComparator};
 // --------------------- Array downcast helper functions ---------------------
 
 pub use self::cast::{
-    as_boolean_array, as_dictionary_array, as_generic_list_array, as_large_list_array,
-    as_largestring_array, as_list_array, as_null_array, as_primitive_array,
-    as_string_array, as_struct_array,
+    as_boolean_array, as_dictionary_array, as_generic_binary_array,
+    as_generic_list_array, as_large_list_array, as_largestring_array, as_list_array,
+    as_null_array, as_primitive_array, as_string_array, as_struct_array, as_union_array,
 };
 
 // ------------------------------ C Data Interface ---------------------------

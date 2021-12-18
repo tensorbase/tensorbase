@@ -28,15 +28,15 @@ const MICROSECONDS: i64 = 1_000_000;
 /// Number of nanoseconds in a second
 const NANOSECONDS: i64 = 1_000_000_000;
 
-/// converts a `u16` representing a `date16` to [`NaiveDateTime`]
-#[inline]
-pub fn date16_to_datetime(v: u16) -> NaiveDateTime {
-    NaiveDateTime::from_timestamp(v as i64 * SECONDS_IN_DAY, 0)
-}
-
 /// converts a `i32` representing a `date32` to [`NaiveDateTime`]
 #[inline]
 pub fn date32_to_datetime(v: i32) -> NaiveDateTime {
+    NaiveDateTime::from_timestamp(v as i64 * SECONDS_IN_DAY, 0)
+}
+
+/// converts a `u16` representing a `date16` to [`NaiveDateTime`]
+#[inline]
+pub fn date16_to_datetime(v: u16) -> NaiveDateTime {
     NaiveDateTime::from_timestamp(v as i64 * SECONDS_IN_DAY, 0)
 }
 

@@ -106,7 +106,7 @@ impl TreeBuilder {
     fn reader_tree(
         &self,
         field: TypePtr,
-        mut path: &mut Vec<String>,
+        path: &mut Vec<String>,
         mut curr_def_level: i16,
         mut curr_rep_level: i16,
         paths: &HashMap<ColumnPath, usize>,
@@ -136,7 +136,7 @@ impl TreeBuilder {
                 .column_descr_ptr();
             let col_reader = row_group_reader.get_column_reader(orig_index).unwrap();
             let column = TripletIter::new(col_descr, col_reader, self.batch_size);
-            Reader::PrimitiveReader(field, column)
+            Reader::PrimitiveReader(field, Box::new(column))
         } else {
             match field.get_basic_info().converted_type() {
                 // List types
@@ -160,7 +160,7 @@ impl TreeBuilder {
                         // Support for backward compatible lists
                         let reader = self.reader_tree(
                             repeated_field,
-                            &mut path,
+                            path,
                             curr_def_level,
                             curr_rep_level,
                             paths,
@@ -180,7 +180,7 @@ impl TreeBuilder {
 
                         let reader = self.reader_tree(
                             child_field,
-                            &mut path,
+                            path,
                             curr_def_level + 1,
                             curr_rep_level + 1,
                             paths,
@@ -235,7 +235,7 @@ impl TreeBuilder {
                     );
                     let key_reader = self.reader_tree(
                         key_type.clone(),
-                        &mut path,
+                        path,
                         curr_def_level + 1,
                         curr_rep_level + 1,
                         paths,
@@ -245,7 +245,7 @@ impl TreeBuilder {
                     let value_type = &key_value_type.get_fields()[1];
                     let value_reader = self.reader_tree(
                         value_type.clone(),
-                        &mut path,
+                        path,
                         curr_def_level + 1,
                         curr_rep_level + 1,
                         paths,
@@ -278,7 +278,7 @@ impl TreeBuilder {
 
                     let reader = self.reader_tree(
                         Arc::new(required_field),
-                        &mut path,
+                        path,
                         curr_def_level,
                         curr_rep_level,
                         paths,
@@ -298,7 +298,7 @@ impl TreeBuilder {
                     for child in field.get_fields() {
                         let reader = self.reader_tree(
                             child.clone(),
-                            &mut path,
+                            path,
                             curr_def_level,
                             curr_rep_level,
                             paths,
@@ -319,7 +319,7 @@ impl TreeBuilder {
 /// Reader tree for record assembly
 pub enum Reader {
     // Primitive reader with type information and triplet iterator
-    PrimitiveReader(TypePtr, TripletIter),
+    PrimitiveReader(TypePtr, Box<TripletIter>),
     // Optional reader with definition level of a parent and a reader
     OptionReader(i16, Box<Reader>),
     // Group (struct) reader with type information, definition level and list of child
@@ -1292,7 +1292,7 @@ mod tests {
         REQUIRED INT32 b;
       }
     ";
-        let schema = parse_message_type(&schema).unwrap();
+        let schema = parse_message_type(schema).unwrap();
         let rows =
             test_file_reader_rows("nested_maps.snappy.parquet", Some(schema)).unwrap();
         let expected_rows = vec![
@@ -1360,7 +1360,7 @@ mod tests {
         }
       }
     ";
-        let schema = parse_message_type(&schema).unwrap();
+        let schema = parse_message_type(schema).unwrap();
         let rows =
             test_file_reader_rows("nested_maps.snappy.parquet", Some(schema)).unwrap();
         let expected_rows = vec![
@@ -1427,7 +1427,7 @@ mod tests {
         }
       }
     ";
-        let schema = parse_message_type(&schema).unwrap();
+        let schema = parse_message_type(schema).unwrap();
         let rows =
             test_file_reader_rows("nested_lists.snappy.parquet", Some(schema)).unwrap();
         let expected_rows = vec![
@@ -1474,7 +1474,7 @@ mod tests {
         REQUIRED BOOLEAN value;
       }
     ";
-        let schema = parse_message_type(&schema).unwrap();
+        let schema = parse_message_type(schema).unwrap();
         let res = test_file_reader_rows("nested_maps.snappy.parquet", Some(schema));
         assert!(res.is_err());
         assert_eq!(
@@ -1491,7 +1491,7 @@ mod tests {
         REQUIRED BOOLEAN value;
       }
     ";
-        let schema = parse_message_type(&schema).unwrap();
+        let schema = parse_message_type(schema).unwrap();
         let res = test_row_group_rows("nested_maps.snappy.parquet", Some(schema));
         assert!(res.is_err());
         assert_eq!(
@@ -1517,7 +1517,7 @@ mod tests {
         }
       }
     ";
-        let schema = parse_message_type(&schema).unwrap();
+        let schema = parse_message_type(schema).unwrap();
         test_file_reader_rows("nested_maps.snappy.parquet", Some(schema)).unwrap();
     }
 
@@ -1542,7 +1542,7 @@ mod tests {
             .map(|p| SerializedFileReader::try_from(p.as_path()).unwrap())
             .flat_map(|r| {
                 let schema = "message schema { OPTIONAL INT32 id; }";
-                let proj = parse_message_type(&schema).ok();
+                let proj = parse_message_type(schema).ok();
 
                 RowIter::from_file_into(Box::new(r)).project(proj).unwrap()
             })
@@ -1561,7 +1561,7 @@ mod tests {
         REQUIRED BOOLEAN value;
       }
     ";
-        let proj = parse_message_type(&schema).ok();
+        let proj = parse_message_type(schema).ok();
         let path = get_test_path("nested_maps.snappy.parquet");
         let reader = SerializedFileReader::try_from(path.as_path()).unwrap();
         let res = RowIter::from_file_into(Box::new(reader)).project(proj);

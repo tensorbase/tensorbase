@@ -18,9 +18,13 @@
 //! Stream and channel implementations for window function expressions.
 
 use crate::error::{DataFusionError, Result};
+use crate::physical_plan::common::AbortOnDropSingle;
+use crate::physical_plan::metrics::{
+    BaselineMetrics, ExecutionPlanMetricsSet, MetricsSet,
+};
 use crate::physical_plan::{
-    common, Distribution, ExecutionPlan, Partitioning, RecordBatchStream,
-    SendableRecordBatchStream, WindowExpr,
+    common, ColumnStatistics, DisplayFormatType, Distribution, ExecutionPlan,
+    Partitioning, RecordBatchStream, SendableRecordBatchStream, Statistics, WindowExpr,
 };
 use arrow::{
     array::ArrayRef,
@@ -30,7 +34,7 @@ use arrow::{
 };
 use async_trait::async_trait;
 use futures::stream::Stream;
-use futures::Future;
+use futures::FutureExt;
 use pin_project_lite::pin_project;
 use std::any::Any;
 use std::pin::Pin;
@@ -48,6 +52,8 @@ pub struct WindowAggExec {
     schema: SchemaRef,
     /// Schema before the window
     input_schema: SchemaRef,
+    /// Execution metrics
+    metrics: ExecutionPlanMetricsSet,
 }
 
 impl WindowAggExec {
@@ -59,11 +65,12 @@ impl WindowAggExec {
     ) -> Result<Self> {
         let schema = create_schema(&input_schema, &window_expr)?;
         let schema = Arc::new(schema);
-        Ok(WindowAggExec {
+        Ok(Self {
             input,
             window_expr,
             schema,
             input_schema,
+            metrics: ExecutionPlanMetricsSet::new(),
         })
     }
 
@@ -140,8 +147,52 @@ impl ExecutionPlan for WindowAggExec {
             self.schema.clone(),
             self.window_expr.clone(),
             input,
+            BaselineMetrics::new(&self.metrics, partition),
         ));
         Ok(stream)
+    }
+
+    fn fmt_as(
+        &self,
+        t: DisplayFormatType,
+        f: &mut std::fmt::Formatter,
+    ) -> std::fmt::Result {
+        match t {
+            DisplayFormatType::Default => {
+                write!(f, "WindowAggExec: ")?;
+                let g: Vec<String> = self
+                    .window_expr
+                    .iter()
+                    .map(|e| format!("{}: {:?}", e.name().to_owned(), e.field()))
+                    .collect();
+                write!(f, "wdw=[{}]", g.join(", "))?;
+            }
+        }
+        Ok(())
+    }
+
+    fn metrics(&self) -> Option<MetricsSet> {
+        Some(self.metrics.clone_inner())
+    }
+
+    fn statistics(&self) -> Statistics {
+        let input_stat = self.input.statistics();
+        let win_cols = self.window_expr.len();
+        let input_cols = self.input_schema.fields().len();
+        // TODO stats: some windowing function will maintain invariants such as min, max...
+        let mut column_statistics = vec![ColumnStatistics::default(); win_cols];
+        if let Some(input_col_stats) = input_stat.column_statistics {
+            column_statistics.extend(input_col_stats);
+        } else {
+            column_statistics.extend(vec![ColumnStatistics::default(); input_cols]);
+        }
+        Statistics {
+            is_exact: input_stat.is_exact,
+            num_rows: input_stat.num_rows,
+            column_statistics: Some(column_statistics),
+            // TODO stats: knowing the type of the new columns we can guess the output size
+            total_byte_size: None,
+        }
     }
 }
 
@@ -169,13 +220,15 @@ fn compute_window_aggregates(
 }
 
 pin_project! {
-  /// stream for window aggregation plan
-  pub struct WindowAggStream {
-      schema: SchemaRef,
-      #[pin]
-      output: futures::channel::oneshot::Receiver<ArrowResult<RecordBatch>>,
-      finished: bool,
-  }
+    /// stream for window aggregation plan
+    pub struct WindowAggStream {
+        schema: SchemaRef,
+        drop_helper: AbortOnDropSingle<()>,
+        #[pin]
+        output: futures::channel::oneshot::Receiver<ArrowResult<RecordBatch>>,
+        finished: bool,
+        baseline_metrics: BaselineMetrics,
+    }
 }
 
 impl WindowAggStream {
@@ -184,19 +237,27 @@ impl WindowAggStream {
         schema: SchemaRef,
         window_expr: Vec<Arc<dyn WindowExpr>>,
         input: SendableRecordBatchStream,
+        baseline_metrics: BaselineMetrics,
     ) -> Self {
         let (tx, rx) = futures::channel::oneshot::channel();
         let schema_clone = schema.clone();
-        tokio::spawn(async move {
+        let elapsed_compute = baseline_metrics.elapsed_compute().clone();
+        let join_handle = tokio::spawn(async move {
             let schema = schema_clone.clone();
-            let result = WindowAggStream::process(input, window_expr, schema).await;
-            tx.send(result)
+            let result =
+                WindowAggStream::process(input, window_expr, schema, elapsed_compute)
+                    .await;
+
+            // failing here is OK, the receiver is gone and does not care about the result
+            tx.send(result).ok();
         });
 
         Self {
+            schema,
+            drop_helper: AbortOnDropSingle::new(join_handle),
             output: rx,
             finished: false,
-            schema,
+            baseline_metrics,
         }
     }
 
@@ -204,11 +265,16 @@ impl WindowAggStream {
         input: SendableRecordBatchStream,
         window_expr: Vec<Arc<dyn WindowExpr>>,
         schema: SchemaRef,
+        elapsed_compute: crate::physical_plan::metrics::Time,
     ) -> ArrowResult<RecordBatch> {
         let input_schema = input.schema();
         let batches = common::collect(input)
             .await
             .map_err(DataFusionError::into_arrow_external_error)?;
+
+        // record compute time on drop
+        let _timer = elapsed_compute.timer();
+
         let batch = common::combine_batches(&batches, input_schema.clone())?;
         if let Some(batch) = batch {
             // calculate window cols
@@ -228,18 +294,31 @@ impl WindowAggStream {
 impl Stream for WindowAggStream {
     type Item = ArrowResult<RecordBatch>;
 
-    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+    fn poll_next(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+    ) -> Poll<Option<Self::Item>> {
+        let poll = self.poll_next_inner(cx);
+        self.baseline_metrics.record_poll(poll)
+    }
+}
+
+impl WindowAggStream {
+    #[inline]
+    fn poll_next_inner(
+        self: &mut Pin<&mut Self>,
+        cx: &mut Context<'_>,
+    ) -> Poll<Option<ArrowResult<RecordBatch>>> {
         if self.finished {
             return Poll::Ready(None);
         }
 
         // is the output ready?
-        let this = self.project();
-        let output_poll = this.output.poll(cx);
+        let output_poll = self.output.poll_unpin(cx);
 
         match output_poll {
             Poll::Ready(result) => {
-                *this.finished = true;
+                self.finished = true;
                 // check for error in receiving channel and unwrap actual result
                 let result = match result {
                     Err(e) => Some(Err(ArrowError::ExternalError(Box::new(e)))), // error receiving

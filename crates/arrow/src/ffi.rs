@@ -132,9 +132,9 @@ unsafe extern "C" fn release_schema(schema: *mut FFI_ArrowSchema) {
     let schema = &mut *schema;
 
     // take ownership back to release it.
-    CString::from_raw(schema.format as *mut c_char);
+    drop(CString::from_raw(schema.format as *mut c_char));
     if !schema.name.is_null() {
-        CString::from_raw(schema.name as *mut c_char);
+        drop(CString::from_raw(schema.name as *mut c_char));
     }
     if !schema.private_data.is_null() {
         let private_data = Box::from_raw(schema.private_data as *mut SchemaPrivateData);
@@ -152,7 +152,7 @@ impl FFI_ArrowSchema {
     pub fn try_new(format: &str, children: Vec<FFI_ArrowSchema>) -> Result<Self> {
         let mut this = Self::empty();
 
-        let mut children_ptr = children
+        let children_ptr = children
             .into_iter()
             .map(Box::new)
             .map(Box::into_raw)
@@ -161,11 +161,14 @@ impl FFI_ArrowSchema {
         this.format = CString::new(format).unwrap().into_raw();
         this.release = Some(release_schema);
         this.n_children = children_ptr.len() as i64;
-        this.children = children_ptr.as_mut_ptr();
 
-        let private_data = Box::new(SchemaPrivateData {
+        let mut private_data = Box::new(SchemaPrivateData {
             children: children_ptr,
         });
+
+        // intentionally set from private_data (see https://github.com/apache/arrow-rs/issues/580)
+        this.children = private_data.children.as_mut_ptr();
+
         this.private_data = Box::into_raw(private_data) as *mut c_void;
 
         Ok(this)
@@ -413,7 +416,7 @@ impl FFI_ArrowArray {
         }
     }
 
-    // create an empty `FFI_ArrowArray`, which can be used to import data into
+    /// create an empty `FFI_ArrowArray`, which can be used to import data into
     pub fn empty() -> Self {
         Self {
             length: 0,
@@ -511,15 +514,18 @@ pub trait ArrowArrayRef {
             .map(|d| d.unwrap())
             .collect();
 
-        Ok(ArrayData::new(
-            data_type,
-            len,
-            Some(null_count),
-            null_bit_buffer,
-            offset,
-            buffers,
-            child_data,
-        ))
+        // Should FFI be checking validity?
+        Ok(unsafe {
+            ArrayData::new_unchecked(
+                data_type,
+                len,
+                Some(null_count),
+                null_bit_buffer,
+                offset,
+                buffers,
+                child_data,
+            )
+        })
     }
 
     /// returns all buffers, as organized by Rust (i.e. null buffer is skipped)
@@ -774,7 +780,7 @@ mod tests {
 
         // perform some operation
         let array = array.as_any().downcast_ref::<Int32Array>().unwrap();
-        let array = kernels::arithmetic::add(&array, &array).unwrap();
+        let array = kernels::arithmetic::add(array, array).unwrap();
 
         // verify
         assert_eq!(array, Int32Array::from(vec![2, 4, 6]));
@@ -859,7 +865,8 @@ mod tests {
         let value_data = ArrayData::builder(DataType::Int32)
             .len(8)
             .add_buffer(Buffer::from_slice_ref(&[0, 1, 2, 3, 4, 5, 6, 7]))
-            .build();
+            .build()
+            .unwrap();
 
         // Construct a buffer for value offsets, for the nested array:
         //  [[0, 1, 2], [3, 4, 5], [6, 7]]
@@ -880,7 +887,8 @@ mod tests {
             .len(3)
             .add_buffer(value_offsets)
             .add_child_data(value_data)
-            .build();
+            .build()
+            .unwrap();
 
         // create an array natively
         let array = GenericListArray::<Offset>::from(list_data.clone());
@@ -979,7 +987,7 @@ mod tests {
 
         // perform some operation
         let array = array.as_any().downcast_ref::<BooleanArray>().unwrap();
-        let array = kernels::boolean::not(&array)?;
+        let array = kernels::boolean::not(array)?;
 
         // verify
         assert_eq!(

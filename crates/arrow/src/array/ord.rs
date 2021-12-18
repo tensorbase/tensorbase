@@ -39,7 +39,10 @@ fn cmp_nans_last<T: Float>(a: &T, b: &T) -> Ordering {
     }
 }
 
-fn compare_primitives<T: ArrowPrimitiveType>(left: &Array, right: &Array) -> DynComparator
+fn compare_primitives<T: ArrowPrimitiveType>(
+    left: &dyn Array,
+    right: &dyn Array,
+) -> DynComparator
 where
     T::Native: Ord,
 {
@@ -48,14 +51,17 @@ where
     Box::new(move |i, j| left.value(i).cmp(&right.value(j)))
 }
 
-fn compare_boolean(left: &Array, right: &Array) -> DynComparator {
+fn compare_boolean(left: &dyn Array, right: &dyn Array) -> DynComparator {
     let left: BooleanArray = BooleanArray::from(left.data().clone());
     let right: BooleanArray = BooleanArray::from(right.data().clone());
 
     Box::new(move |i, j| left.value(i).cmp(&right.value(j)))
 }
 
-fn compare_float<T: ArrowPrimitiveType>(left: &Array, right: &Array) -> DynComparator
+fn compare_float<T: ArrowPrimitiveType>(
+    left: &dyn Array,
+    right: &dyn Array,
+) -> DynComparator
 where
     T::Native: Float,
 {
@@ -64,17 +70,17 @@ where
     Box::new(move |i, j| cmp_nans_last(&left.value(i), &right.value(j)))
 }
 
-fn compare_string<T>(left: &Array, right: &Array) -> DynComparator
+fn compare_string<T>(left: &dyn Array, right: &dyn Array) -> DynComparator
 where
     T: StringOffsetSizeTrait,
 {
     let left: StringArray = StringArray::from(left.data().clone());
     let right: StringArray = StringArray::from(right.data().clone());
 
-    Box::new(move |i, j| left.value(i).cmp(&right.value(j)))
+    Box::new(move |i, j| left.value(i).cmp(right.value(j)))
 }
 
-fn compare_dict_string<T>(left: &Array, right: &Array) -> DynComparator
+fn compare_dict_string<T>(left: &dyn Array, right: &dyn Array) -> DynComparator
 where
     T: ArrowDictionaryKeyType,
 {
@@ -91,7 +97,7 @@ where
         let key_right = right_keys.value(j).to_usize().unwrap();
         let left = left_values.value(key_left);
         let right = right_values.value(key_right);
-        left.cmp(&right)
+        left.cmp(right)
     })
 }
 
@@ -115,7 +121,7 @@ where
 /// ```
 // This is a factory of comparisons.
 // The lifetime 'a enforces that we cannot use the closure beyond any of the array's lifetime.
-pub fn build_compare(left: &Array, right: &Array) -> Result<DynComparator> {
+pub fn build_compare(left: &dyn Array, right: &dyn Array) -> Result<DynComparator> {
     use DataType::*;
     use IntervalUnit::*;
     use TimeUnit::*;
@@ -138,6 +144,9 @@ pub fn build_compare(left: &Array, right: &Array) -> Result<DynComparator> {
         (Float64, Float64) => compare_float::<Float64Type>(left, right),
         (Date32, Date32) => compare_primitives::<Date32Type>(left, right),
         (Date64, Date64) => compare_primitives::<Date64Type>(left, right),
+        (Timestamp32(_), Timestamp32(_)) => {
+            compare_primitives::<Timestamp32Type>(left, right)
+        }
         (Time32(Second), Time32(Second)) => {
             compare_primitives::<Time32SecondType>(left, right)
         }
@@ -149,9 +158,6 @@ pub fn build_compare(left: &Array, right: &Array) -> Result<DynComparator> {
         }
         (Time64(Nanosecond), Time64(Nanosecond)) => {
             compare_primitives::<Time64NanosecondType>(left, right)
-        }
-        (Timestamp32(_), Timestamp32(_)) => {
-            compare_primitives::<Timestamp32Type>(left, right)
         }
         (Timestamp(Second, _), Timestamp(Second, _)) => {
             compare_primitives::<TimestampSecondType>(left, right)

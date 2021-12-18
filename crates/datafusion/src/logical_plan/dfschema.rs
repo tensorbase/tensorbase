@@ -159,7 +159,7 @@ impl DFSchema {
             .filter(|(_, field)| match (qualifier, &field.qualifier) {
                 // field to lookup is qualified.
                 // current field is qualified and not shared between relations, compare both
-                // qualifer and name.
+                // qualifier and name.
                 (Some(q), Some(field_q)) => q == field_q && field.name() == name,
                 // field to lookup is qualified but current field is unqualified.
                 (Some(_), None) => false,
@@ -167,11 +167,10 @@ impl DFSchema {
                 (None, Some(_)) | (None, None) => field.name() == name,
             })
             .map(|(idx, _)| idx);
-
         match matches.next() {
             None => Err(DataFusionError::Plan(format!(
                 "No field named '{}.{}'. Valid fields are {}.",
-                qualifier.unwrap_or(""),
+                qualifier.unwrap_or("<unqualified>"),
                 name,
                 self.get_field_names()
             ))),
@@ -180,7 +179,7 @@ impl DFSchema {
                 // found more than one matches
                 Some(_) => Err(DataFusionError::Internal(format!(
                     "Ambiguous reference to qualified field named '{}.{}'",
-                    qualifier.unwrap_or(""),
+                    qualifier.unwrap_or("<unqualified>"),
                     name
                 ))),
             },
@@ -289,7 +288,10 @@ impl DFSchema {
     fn get_field_names(&self) -> String {
         self.fields
             .iter()
-            .map(|f| format!("'{}'", f.name()))
+            .map(|f| match f.qualifier() {
+                Some(qualifier) => format!("'{}.{}'", qualifier, f.name()),
+                None => format!("'{}'", f.name()),
+            })
             .collect::<Vec<_>>()
             .join(", ")
     }
@@ -619,7 +621,7 @@ mod tests {
     #[test]
     fn helpful_error_messages() -> Result<()> {
         let schema = DFSchema::try_from_qualified_schema("t1", &test_schema_1())?;
-        let expected_help = "Valid fields are \'c0\', \'c1\'.";
+        let expected_help = "Valid fields are \'t1.c0\', \'t1.c1\'.";
         assert!(schema
             .field_with_qualified_name("x", "y")
             .unwrap_err()

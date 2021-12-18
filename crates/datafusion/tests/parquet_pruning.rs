@@ -21,22 +21,25 @@ use std::sync::Arc;
 
 use arrow::{
     array::{
-        Array, Date32Array, Date64Array, StringArray, TimestampMicrosecondArray,
-        TimestampMillisecondArray, TimestampNanosecondArray, TimestampSecondArray,
+        Array, ArrayRef, Date32Array, Date64Array, Float64Array, Int32Array, StringArray,
+        TimestampMicrosecondArray, TimestampMillisecondArray, TimestampNanosecondArray,
+        TimestampSecondArray,
     },
-    datatypes::{Field, Schema},
+    datatypes::{DataType, Field, Schema},
     record_batch::RecordBatch,
     util::pretty::pretty_format_batches,
 };
 use chrono::{Datelike, Duration};
 use datafusion::{
-    datasource::{parquet::ParquetTable, TableProvider},
+    datasource::TableProvider,
     logical_plan::{col, lit, Expr, LogicalPlan, LogicalPlanBuilder},
-    physical_plan::{plan_metrics, SQLMetric},
-    prelude::ExecutionContext,
+    physical_plan::{
+        accept, file_format::ParquetExec, metrics::MetricsSet, ExecutionPlan,
+        ExecutionPlanVisitor,
+    },
+    prelude::{ExecutionConfig, ExecutionContext},
     scalar::ScalarValue,
 };
-use hashbrown::HashMap;
 use parquet::{arrow::ArrowWriter, file::properties::WriterProperties};
 use tempfile::NamedTempFile;
 
@@ -136,6 +139,270 @@ async fn prune_date64() {
     assert_eq!(output.result_rows, 1, "{}", output.description());
 }
 
+#[tokio::test]
+async fn prune_disabled() {
+    let query = "SELECT * FROM t where nanos < to_timestamp('2020-01-02 01:01:11Z')";
+    let expected_rows = 10;
+
+    // with pruning
+    let output = ContextWithParquet::new(Scenario::Timestamps)
+        .await
+        .query(query)
+        .await;
+
+    // This should prune one without error
+    assert_eq!(output.predicate_evaluation_errors(), Some(0));
+    assert_eq!(output.row_groups_pruned(), Some(1));
+    assert_eq!(
+        output.result_rows,
+        expected_rows,
+        "{}",
+        output.description()
+    );
+
+    // same query, without pruning
+    let config = ExecutionConfig::new().with_parquet_pruning(false);
+
+    let output = ContextWithParquet::with_config(Scenario::Timestamps, config)
+        .await
+        .query(query)
+        .await;
+    println!("{}", output.description());
+
+    // This should not prune any
+    assert_eq!(output.predicate_evaluation_errors(), Some(0));
+    assert_eq!(output.row_groups_pruned(), Some(0));
+    assert_eq!(
+        output.result_rows,
+        expected_rows,
+        "{}",
+        output.description()
+    );
+}
+
+#[tokio::test]
+async fn prune_int32_lt() {
+    let (expected_errors, expected_row_group_pruned, expected_results) =
+        (Some(0), Some(1), 11);
+
+    // resulrt of sql "SELECT * FROM t where i < 1" is same as
+    // "SELECT * FROM t where -i > -1"
+    let output = ContextWithParquet::new(Scenario::Int32)
+        .await
+        .query("SELECT * FROM t where i < 1")
+        .await;
+
+    println!("{}", output.description());
+    // This should prune out groups without error
+    assert_eq!(output.predicate_evaluation_errors(), expected_errors);
+    assert_eq!(output.row_groups_pruned(), expected_row_group_pruned);
+    assert_eq!(
+        output.result_rows,
+        expected_results,
+        "{}",
+        output.description()
+    );
+
+    let output = ContextWithParquet::new(Scenario::Int32)
+        .await
+        .query("SELECT * FROM t where -i > -1")
+        .await;
+
+    println!("{}", output.description());
+    // This should prune out groups without error
+    assert_eq!(output.predicate_evaluation_errors(), expected_errors);
+    assert_eq!(output.row_groups_pruned(), expected_row_group_pruned);
+    assert_eq!(
+        output.result_rows,
+        expected_results,
+        "{}",
+        output.description()
+    );
+}
+
+#[tokio::test]
+async fn prune_int32_eq() {
+    // resulrt of sql "SELECT * FROM t where i = 1"
+    let output = ContextWithParquet::new(Scenario::Int32)
+        .await
+        .query("SELECT * FROM t where i = 1")
+        .await;
+
+    println!("{}", output.description());
+    // This should prune out groups without error
+    assert_eq!(output.predicate_evaluation_errors(), Some(0));
+    assert_eq!(output.row_groups_pruned(), Some(3));
+    assert_eq!(output.result_rows, 1, "{}", output.description());
+}
+
+#[tokio::test]
+async fn prune_int32_scalar_fun_and_eq() {
+    // resulrt of sql "SELECT * FROM t where abs(i) = 1 and i = 1"
+    // only use "i = 1" to prune
+    let output = ContextWithParquet::new(Scenario::Int32)
+        .await
+        .query("SELECT * FROM t where abs(i) = 1  and i = 1")
+        .await;
+
+    println!("{}", output.description());
+    // This should prune out groups without error
+    assert_eq!(output.predicate_evaluation_errors(), Some(0));
+    assert_eq!(output.row_groups_pruned(), Some(3));
+    assert_eq!(output.result_rows, 1, "{}", output.description());
+}
+
+#[tokio::test]
+async fn prune_int32_scalar_fun() {
+    // resulrt of sql "SELECT * FROM t where abs(i) = 1" is not supported
+    let output = ContextWithParquet::new(Scenario::Int32)
+        .await
+        .query("SELECT * FROM t where abs(i) = 1")
+        .await;
+
+    println!("{}", output.description());
+    // This should prune out groups with error, because there is not col to
+    // prune the row groups.
+    assert_eq!(output.predicate_evaluation_errors(), Some(1));
+    assert_eq!(output.row_groups_pruned(), Some(0));
+    assert_eq!(output.result_rows, 3, "{}", output.description());
+}
+
+#[tokio::test]
+async fn prune_int32_complex_expr() {
+    // resulrt of sql "SELECT * FROM t where i+1 = 1" is not supported
+    let output = ContextWithParquet::new(Scenario::Int32)
+        .await
+        .query("SELECT * FROM t where i+1 = 1")
+        .await;
+
+    println!("{}", output.description());
+    // This should prune out groups with error, because there is not col to
+    // prune the row groups.
+    assert_eq!(output.predicate_evaluation_errors(), Some(1));
+    assert_eq!(output.row_groups_pruned(), Some(0));
+    assert_eq!(output.result_rows, 2, "{}", output.description());
+}
+
+#[tokio::test]
+async fn prune_int32_complex_expr_subtract() {
+    // resulrt of sql "SELECT * FROM t where 1-i > 1" is not supported
+    let output = ContextWithParquet::new(Scenario::Int32)
+        .await
+        .query("SELECT * FROM t where 1-i > 1")
+        .await;
+
+    println!("{}", output.description());
+    // This should prune out groups with error, because there is not col to
+    // prune the row groups.
+    assert_eq!(output.predicate_evaluation_errors(), Some(1));
+    assert_eq!(output.row_groups_pruned(), Some(0));
+    assert_eq!(output.result_rows, 9, "{}", output.description());
+}
+
+#[tokio::test]
+async fn prune_f64_lt() {
+    let (expected_errors, expected_row_group_pruned, expected_results) =
+        (Some(0), Some(1), 11);
+
+    // resulrt of sql "SELECT * FROM t where i < 1" is same as
+    // "SELECT * FROM t where -i > -1"
+    let output = ContextWithParquet::new(Scenario::Float64)
+        .await
+        .query("SELECT * FROM t where f < 1")
+        .await;
+
+    println!("{}", output.description());
+    // This should prune out groups without error
+    assert_eq!(output.predicate_evaluation_errors(), expected_errors);
+    assert_eq!(output.row_groups_pruned(), expected_row_group_pruned);
+    assert_eq!(
+        output.result_rows,
+        expected_results,
+        "{}",
+        output.description()
+    );
+
+    let output = ContextWithParquet::new(Scenario::Float64)
+        .await
+        .query("SELECT * FROM t where -f > -1")
+        .await;
+
+    println!("{}", output.description());
+    // This should prune out groups without error
+    assert_eq!(output.predicate_evaluation_errors(), expected_errors);
+    assert_eq!(output.row_groups_pruned(), expected_row_group_pruned);
+    assert_eq!(
+        output.result_rows,
+        expected_results,
+        "{}",
+        output.description()
+    );
+}
+
+#[tokio::test]
+async fn prune_f64_scalar_fun_and_gt() {
+    // resulrt of sql "SELECT * FROM t where abs(f - 1) <= 0.000001  and f >= 0.1"
+    // only use "f >= 0" to prune
+    let output = ContextWithParquet::new(Scenario::Float64)
+        .await
+        .query("SELECT * FROM t where abs(f - 1) <= 0.000001  and f >= 0.1")
+        .await;
+
+    println!("{}", output.description());
+    // This should prune out groups without error
+    assert_eq!(output.predicate_evaluation_errors(), Some(0));
+    assert_eq!(output.row_groups_pruned(), Some(2));
+    assert_eq!(output.result_rows, 1, "{}", output.description());
+}
+
+#[tokio::test]
+async fn prune_f64_scalar_fun() {
+    // resulrt of sql "SELECT * FROM t where abs(f-1) <= 0.000001" is not supported
+    let output = ContextWithParquet::new(Scenario::Float64)
+        .await
+        .query("SELECT * FROM t where abs(f-1) <= 0.000001")
+        .await;
+
+    println!("{}", output.description());
+    // This should prune out groups with error, because there is not col to
+    // prune the row groups.
+    assert_eq!(output.predicate_evaluation_errors(), Some(1));
+    assert_eq!(output.row_groups_pruned(), Some(0));
+    assert_eq!(output.result_rows, 1, "{}", output.description());
+}
+
+#[tokio::test]
+async fn prune_f64_complex_expr() {
+    // resulrt of sql "SELECT * FROM t where f+1 > 1.1"" is not supported
+    let output = ContextWithParquet::new(Scenario::Float64)
+        .await
+        .query("SELECT * FROM t where f+1 > 1.1")
+        .await;
+
+    println!("{}", output.description());
+    // This should prune out groups with error, because there is not col to
+    // prune the row groups.
+    assert_eq!(output.predicate_evaluation_errors(), Some(1));
+    assert_eq!(output.row_groups_pruned(), Some(0));
+    assert_eq!(output.result_rows, 9, "{}", output.description());
+}
+
+#[tokio::test]
+async fn prune_f64_complex_expr_subtract() {
+    // resulrt of sql "SELECT * FROM t where 1-f > 1" is not supported
+    let output = ContextWithParquet::new(Scenario::Float64)
+        .await
+        .query("SELECT * FROM t where 1-f > 1")
+        .await;
+
+    println!("{}", output.description());
+    // This should prune out groups with error, because there is not col to
+    // prune the row groups.
+    assert_eq!(output.predicate_evaluation_errors(), Some(1));
+    assert_eq!(output.row_groups_pruned(), Some(0));
+    assert_eq!(output.result_rows, 9, "{}", output.description());
+}
+
 // ----------------------
 // Begin test fixture
 // ----------------------
@@ -144,12 +411,17 @@ async fn prune_date64() {
 enum Scenario {
     Timestamps,
     Dates,
+    Int32,
+    Float64,
 }
 
 /// Test fixture that has an execution context that has an external
 /// table "t" registered, pointing at a parquet file made with
 /// `make_test_file`
 struct ContextWithParquet {
+    #[allow(dead_code)]
+    /// temp file parquet data is written to. The file is cleaned up
+    /// when dropped
     file: NamedTempFile,
     provider: Arc<dyn TableProvider>,
     ctx: ExecutionContext,
@@ -159,8 +431,8 @@ struct ContextWithParquet {
 struct TestOutput {
     /// The input string
     sql: String,
-    /// Normalized metrics (filename replaced by a constant)
-    metrics: HashMap<String, SQLMetric>,
+    /// Execution metrics for the Parquet Scan
+    parquet_metrics: MetricsSet,
     /// number of rows in results
     result_rows: usize,
     /// the contents of the input, as a string
@@ -172,32 +444,25 @@ struct TestOutput {
 impl TestOutput {
     /// retrieve the value of the named metric, if any
     fn metric_value(&self, metric_name: &str) -> Option<usize> {
-        self.metrics.get(metric_name).map(|m| m.value())
+        self.parquet_metrics
+            .sum(|metric| metric.value().name() == metric_name)
+            .map(|v| v.as_usize())
     }
 
     /// The number of times the pruning predicate evaluation errors
     fn predicate_evaluation_errors(&self) -> Option<usize> {
-        self.metric_value("numPredicateEvaluationErrors for PARQUET_FILE")
+        self.metric_value("predicate_evaluation_errors")
     }
 
     /// The number of times the pruning predicate evaluation errors
     fn row_groups_pruned(&self) -> Option<usize> {
-        self.metric_value("numRowGroupsPruned for PARQUET_FILE")
+        self.metric_value("row_groups_pruned")
     }
 
     fn description(&self) -> String {
-        let metrics = self
-            .metrics
-            .iter()
-            .map(|(name, val)| format!("  {} = {:?}", name, val))
-            .collect::<Vec<_>>();
-
         format!(
             "Input:\n{}\nQuery:\n{}\nOutput:\n{}\nMetrics:\n{}",
-            self.pretty_input,
-            self.sql,
-            self.pretty_results,
-            metrics.join("\n")
+            self.pretty_input, self.sql, self.pretty_results, self.parquet_metrics,
         )
     }
 }
@@ -207,15 +472,18 @@ impl TestOutput {
 /// and the appropriate scenario
 impl ContextWithParquet {
     async fn new(scenario: Scenario) -> Self {
-        let file = make_test_file(scenario).await;
+        Self::with_config(scenario, ExecutionConfig::new()).await
+    }
 
-        // now, setup a the file as a data source and run a query against it
-        let mut ctx = ExecutionContext::new();
+    async fn with_config(scenario: Scenario, config: ExecutionConfig) -> Self {
+        let file = make_test_file(scenario).await;
         let parquet_path = file.path().to_string_lossy();
 
-        let table = ParquetTable::try_new(parquet_path, 4).unwrap();
+        // now, setup a the file as a data source and run a query against it
+        let mut ctx = ExecutionContext::with_config(config);
 
-        let provider = Arc::new(table);
+        ctx.register_parquet("t", &parquet_path).await.unwrap();
+        let provider = ctx.deregister_table("t").unwrap().unwrap();
         ctx.register_table("t", provider.clone()).unwrap();
 
         Self {
@@ -242,7 +510,7 @@ impl ContextWithParquet {
     /// rows and normalized execution metrics
     async fn query(&mut self, sql: &str) -> TestOutput {
         println!("Planning sql {}", sql);
-        let logical_plan = self.ctx.sql(sql).expect("planning").to_logical_plan();
+        let logical_plan = self.ctx.sql(sql).await.expect("planning").to_logical_plan();
         self.run_test(logical_plan, sql).await
     }
 
@@ -255,6 +523,7 @@ impl ContextWithParquet {
         let input = self
             .ctx
             .sql("SELECT * from t")
+            .await
             .expect("planning")
             .collect()
             .await
@@ -262,25 +531,36 @@ impl ContextWithParquet {
         let pretty_input = pretty_format_batches(&input).unwrap();
 
         let logical_plan = self.ctx.optimize(&logical_plan).expect("optimizing plan");
-        let execution_plan = self
+        let physical_plan = self
             .ctx
             .create_physical_plan(&logical_plan)
+            .await
             .expect("creating physical plan");
 
-        let results = datafusion::physical_plan::collect(execution_plan.clone())
+        let results = datafusion::physical_plan::collect(physical_plan.clone())
             .await
             .expect("Running");
 
-        // replace the path name, which varies test to test,a with some
-        // constant for test comparisons
-        let path = self.file.path();
-        let path_name = path.to_string_lossy();
-        let metrics = plan_metrics(execution_plan)
-            .into_iter()
-            .map(|(name, metric)| {
-                (name.replace(path_name.as_ref(), "PARQUET_FILE"), metric)
-            })
-            .collect();
+        // find the parquet metrics
+        struct MetricsFinder {
+            metrics: Option<MetricsSet>,
+        }
+        impl ExecutionPlanVisitor for MetricsFinder {
+            type Error = std::convert::Infallible;
+            fn pre_visit(
+                &mut self,
+                plan: &dyn ExecutionPlan,
+            ) -> Result<bool, Self::Error> {
+                if plan.as_any().downcast_ref::<ParquetExec>().is_some() {
+                    self.metrics = plan.metrics();
+                }
+                // stop searching once we have found the metrics
+                Ok(self.metrics.is_none())
+            }
+        }
+        let mut finder = MetricsFinder { metrics: None };
+        accept(physical_plan.as_ref(), &mut finder).unwrap();
+        let parquet_metrics = finder.metrics.unwrap();
 
         let result_rows = results.iter().map(|b| b.num_rows()).sum();
 
@@ -289,7 +569,7 @@ impl ContextWithParquet {
         let sql = sql.into();
         TestOutput {
             sql,
-            metrics,
+            parquet_metrics,
             result_rows,
             pretty_input,
             pretty_results,
@@ -324,6 +604,22 @@ async fn make_test_file(scenario: Scenario) -> NamedTempFile {
                 make_date_batch(Duration::days(10)),
                 make_date_batch(Duration::days(300)),
                 make_date_batch(Duration::days(3600)),
+            ]
+        }
+        Scenario::Int32 => {
+            vec![
+                make_int32_batch(-5, 0),
+                make_int32_batch(-4, 1),
+                make_int32_batch(0, 5),
+                make_int32_batch(5, 10),
+            ]
+        }
+        Scenario::Float64 => {
+            vec![
+                make_f64_batch(vec![-5.0, -4.0, -3.0, -2.0, -1.0]),
+                make_f64_batch(vec![-4.0, -3.0, -2.0, -1.0, 0.0]),
+                make_f64_batch(vec![0.0, 1.0, 2.0, 3.0, 4.0]),
+                make_f64_batch(vec![5.0, 6.0, 7.0, 8.0, 9.0]),
             ]
         }
     };
@@ -429,6 +725,27 @@ fn make_timestamp_batch(offset: Duration) -> RecordBatch {
         ],
     )
     .unwrap()
+}
+
+/// Return record batch with i32 sequence
+///
+/// Columns are named
+/// "i" -> Int32Array
+fn make_int32_batch(start: i32, end: i32) -> RecordBatch {
+    let schema = Arc::new(Schema::new(vec![Field::new("i", DataType::Int32, true)]));
+    let v: Vec<i32> = (start..end).collect();
+    let array = Arc::new(Int32Array::from(v)) as ArrayRef;
+    RecordBatch::try_new(schema, vec![array.clone()]).unwrap()
+}
+
+/// Return record batch with f64 vector
+///
+/// Columns are named
+/// "f" -> Float64Array
+fn make_f64_batch(v: Vec<f64>) -> RecordBatch {
+    let schema = Arc::new(Schema::new(vec![Field::new("f", DataType::Float64, true)]));
+    let array = Arc::new(Float64Array::from(v)) as ArrayRef;
+    RecordBatch::try_new(schema, vec![array.clone()]).unwrap()
 }
 
 /// Return record batch with a few rows of data for all of the supported date

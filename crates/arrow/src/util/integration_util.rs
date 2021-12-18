@@ -217,7 +217,7 @@ impl ArrowJsonBatch {
                 if &col.name != field.name() {
                     return false;
                 }
-                let json_array: Vec<Value> = json_from_col(&col, field.data_type());
+                let json_array: Vec<Value> = json_from_col(col, field.data_type());
                 match field.data_type() {
                     DataType::Null => {
                         let arr: &NullArray =
@@ -237,7 +237,7 @@ impl ArrowJsonBatch {
                         let arr = arr.as_any().downcast_ref::<Int16Array>().unwrap();
                         arr.equals_json(&json_array.iter().collect::<Vec<&Value>>()[..])
                     }
-                    DataType::Int32 | DataType::Date32 | DataType::Time32(_) | DataType::Timestamp32(_)=> {
+                    DataType::Int32 | DataType::Date32 | DataType::Time32(_) | DataType::Timestamp32(_) => {
                         let arr = Int32Array::from(arr.data().clone());
                         arr.equals_json(&json_array.iter().collect::<Vec<&Value>>()[..])
                     }
@@ -348,6 +348,10 @@ impl ArrowJsonBatch {
                     }
                     DataType::Struct(_) => {
                         let arr = arr.as_any().downcast_ref::<StructArray>().unwrap();
+                        arr.equals_json(&json_array.iter().collect::<Vec<&Value>>()[..])
+                    }
+                    DataType::Map(_, _) => {
+                        let arr = arr.as_any().downcast_ref::<MapArray>().unwrap();
                         arr.equals_json(&json_array.iter().collect::<Vec<&Value>>()[..])
                     }
                     DataType::Decimal(_, _) => {
@@ -492,6 +496,7 @@ fn json_from_col(col: &ArrowJsonColumn, data_type: &DataType) -> Vec<Value> {
             json_from_fixed_size_list_col(col, field.data_type(), *list_size as usize)
         }
         DataType::Struct(fields) => json_from_struct_col(col, fields),
+        DataType::Map(field, keys_sorted) => json_from_map_col(col, field, *keys_sorted),
         DataType::Int64
         | DataType::UInt64
         | DataType::Date64
@@ -649,6 +654,51 @@ fn json_from_fixed_size_list_col(
     values
 }
 
+fn json_from_map_col(
+    col: &ArrowJsonColumn,
+    field: &Field,
+    _keys_sorted: bool,
+) -> Vec<Value> {
+    let mut values = Vec::with_capacity(col.count);
+
+    // get the inner array
+    let child = &col.children.clone().expect("list type must have children")[0];
+    let offsets: Vec<usize> = col
+        .offset
+        .clone()
+        .unwrap()
+        .iter()
+        .map(|o| match o {
+            Value::String(s) => s.parse::<usize>().unwrap(),
+            Value::Number(n) => n.as_u64().unwrap() as usize,
+            _ => panic!(
+                "Offsets should be numbers or strings that are convertible to numbers"
+            ),
+        })
+        .collect();
+
+    let inner = match field.data_type() {
+        DataType::Struct(fields) => json_from_struct_col(child, fields),
+        _ => panic!("Map child must be Struct"),
+    };
+
+    for i in 0..col.count {
+        match &col.validity {
+            Some(validity) => match &validity[i] {
+                0 => values.push(Value::Null),
+                1 => {
+                    values.push(Value::Array(inner[offsets[i]..offsets[i + 1]].to_vec()))
+                }
+                _ => panic!("Validity data should be 0 or 1"),
+            },
+            None => {
+                // Null type does not have a validity vector
+            }
+        }
+    }
+
+    values
+}
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -894,7 +944,8 @@ mod tests {
             .len(3)
             .add_buffer(value_offsets)
             .add_child_data(value_data.data().clone())
-            .build();
+            .build()
+            .unwrap();
         let lists = ListArray::from(list_data);
 
         let structs_int32s = Int32Array::from(vec![None, Some(-2), None]);

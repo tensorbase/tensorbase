@@ -117,10 +117,7 @@ where
     let string_array = downcast_string_arg!(args[0], "string", T);
 
     // first map is the iterator, second is for the `Option<_>`
-    Ok(string_array
-        .iter()
-        .map(|string| string.map(|string| op(string)))
-        .collect())
+    Ok(string_array.iter().map(|string| string.map(&op)).collect())
 }
 
 fn handle<'a, F, R>(args: &'a [ColumnarValue], op: F, name: &str) -> Result<ColumnarValue>
@@ -290,6 +287,7 @@ pub fn concat(args: &[ColumnarValue]) -> Result<ColumnarValue> {
             .map(|index| {
                 let mut owned_string: String = "".to_owned();
                 for arg in args {
+                    #[allow(clippy::collapsible_match)]
                     match arg {
                         ColumnarValue::Scalar(ScalarValue::Utf8(maybe_value)) => {
                             if let Some(value) = maybe_value {

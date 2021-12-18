@@ -29,7 +29,6 @@ use num::{One, Zero};
 use crate::buffer::Buffer;
 #[cfg(feature = "simd")]
 use crate::buffer::MutableBuffer;
-#[cfg(not(feature = "simd"))]
 use crate::compute::kernels::arity::unary;
 use crate::compute::util::combine_option_bitmap;
 use crate::datatypes;
@@ -79,15 +78,20 @@ where
         },
     );
 
-    let data = ArrayData::new(
-        T::DATA_TYPE,
-        array.len(),
-        None,
-        array.data_ref().null_buffer().cloned(),
-        0,
-        vec![result.into()],
-        vec![],
-    );
+    let data = unsafe {
+        ArrayData::new_unchecked(
+            T::DATA_TYPE,
+            array.len(),
+            None,
+            array
+                .data_ref()
+                .null_buffer()
+                .map(|b| b.bit_slice(array.offset(), array.len())),
+            0,
+            vec![result.into()],
+            vec![],
+        )
+    };
     Ok(PrimitiveArray::<T>::from(data))
 }
 
@@ -128,15 +132,20 @@ where
         },
     );
 
-    let data = ArrayData::new(
-        T::DATA_TYPE,
-        array.len(),
-        None,
-        array.data_ref().null_buffer().cloned(),
-        0,
-        vec![result.into()],
-        vec![],
-    );
+    let data = unsafe {
+        ArrayData::new_unchecked(
+            T::DATA_TYPE,
+            array.len(),
+            None,
+            array
+                .data_ref()
+                .null_buffer()
+                .map(|b| b.bit_slice(array.offset(), array.len())),
+            0,
+            vec![result.into()],
+            vec![],
+        )
+    };
     Ok(PrimitiveArray::<T>::from(data))
 }
 
@@ -177,15 +186,17 @@ where
     //      `values` is an iterator with a known size.
     let buffer = unsafe { Buffer::from_trusted_len_iter(values) };
 
-    let data = ArrayData::new(
-        T::DATA_TYPE,
-        left.len(),
-        None,
-        null_bit_buffer,
-        0,
-        vec![buffer],
-        vec![],
-    );
+    let data = unsafe {
+        ArrayData::new_unchecked(
+            T::DATA_TYPE,
+            left.len(),
+            None,
+            null_bit_buffer,
+            0,
+            vec![buffer],
+            vec![],
+        )
+    };
     Ok(PrimitiveArray::<T>::from(data))
 }
 
@@ -245,15 +256,17 @@ where
         unsafe { Buffer::try_from_trusted_len_iter(values) }
     }?;
 
-    let data = ArrayData::new(
-        T::DATA_TYPE,
-        left.len(),
-        None,
-        null_bit_buffer,
-        0,
-        vec![buffer],
-        vec![],
-    );
+    let data = unsafe {
+        ArrayData::new_unchecked(
+            T::DATA_TYPE,
+            left.len(),
+            None,
+            null_bit_buffer,
+            0,
+            vec![buffer],
+            vec![],
+        )
+    };
     Ok(PrimitiveArray::<T>::from(data))
 }
 
@@ -313,15 +326,17 @@ where
         unsafe { Buffer::try_from_trusted_len_iter(values) }
     }?;
 
-    let data = ArrayData::new(
-        T::DATA_TYPE,
-        left.len(),
-        None,
-        null_bit_buffer,
-        0,
-        vec![buffer],
-        vec![],
-    );
+    let data = unsafe {
+        ArrayData::new_unchecked(
+            T::DATA_TYPE,
+            left.len(),
+            None,
+            null_bit_buffer,
+            0,
+            vec![buffer],
+            vec![],
+        )
+    };
     Ok(PrimitiveArray::<T>::from(data))
 }
 
@@ -338,19 +353,7 @@ where
         return Err(ArrowError::DivideByZero);
     }
 
-    let values = array.values().iter().map(|value| *value % modulo);
-    let buffer = unsafe { Buffer::from_trusted_len_iter(values) };
-
-    let data = ArrayData::new(
-        T::DATA_TYPE,
-        array.len(),
-        None,
-        array.data_ref().null_buffer().cloned(),
-        0,
-        vec![buffer],
-        vec![],
-    );
-    Ok(PrimitiveArray::<T>::from(data))
+    Ok(unary(array, |value| value % modulo))
 }
 
 /// Scalar-divisor version of `math_divide`.
@@ -366,19 +369,7 @@ where
         return Err(ArrowError::DivideByZero);
     }
 
-    let values = array.values().iter().map(|value| *value / divisor);
-    let buffer = unsafe { Buffer::from_trusted_len_iter(values) };
-
-    let data = ArrayData::new(
-        T::DATA_TYPE,
-        array.len(),
-        None,
-        array.data_ref().null_buffer().cloned(),
-        0,
-        vec![buffer],
-        vec![],
-    );
-    Ok(PrimitiveArray::<T>::from(data))
+    Ok(unary(array, |value| value / divisor))
 }
 
 /// SIMD vectorized version of `math_op` above.
@@ -432,15 +423,17 @@ where
             *scalar_result = scalar_op(*scalar_left, *scalar_right);
         });
 
-    let data = ArrayData::new(
-        T::DATA_TYPE,
-        left.len(),
-        None,
-        null_bit_buffer,
-        0,
-        vec![result.into()],
-        vec![],
-    );
+    let data = unsafe {
+        ArrayData::new_unchecked(
+            T::DATA_TYPE,
+            left.len(),
+            None,
+            null_bit_buffer,
+            0,
+            vec![result.into()],
+            vec![],
+        )
+    };
     Ok(PrimitiveArray::<T>::from(data))
 }
 
@@ -744,15 +737,17 @@ where
         }
     }
 
-    let data = ArrayData::new(
-        T::DATA_TYPE,
-        left.len(),
-        None,
-        null_bit_buffer,
-        0,
-        vec![result.into()],
-        vec![],
-    );
+    let data = unsafe {
+        ArrayData::new_unchecked(
+            T::DATA_TYPE,
+            left.len(),
+            None,
+            null_bit_buffer,
+            0,
+            vec![result.into()],
+            vec![],
+        )
+    };
     Ok(PrimitiveArray::<T>::from(data))
 }
 
@@ -864,15 +859,17 @@ where
         }
     }
 
-    let data = ArrayData::new(
-        T::DATA_TYPE,
-        left.len(),
-        None,
-        null_bit_buffer,
-        0,
-        vec![result.into()],
-        vec![],
-    );
+    let data = unsafe {
+        ArrayData::new_unchecked(
+            T::DATA_TYPE,
+            left.len(),
+            None,
+            null_bit_buffer,
+            0,
+            vec![result.into()],
+            vec![],
+        )
+    };
     Ok(PrimitiveArray::<T>::from(data))
 }
 
@@ -910,15 +907,20 @@ where
 
     simd_checked_modulus_scalar_remainder::<T>(array_chunks, modulo, result_chunks)?;
 
-    let data = ArrayData::new(
-        T::DATA_TYPE,
-        array.len(),
-        None,
-        array.data_ref().null_buffer().cloned(),
-        0,
-        vec![result.into()],
-        vec![],
-    );
+    let data = unsafe {
+        ArrayData::new_unchecked(
+            T::DATA_TYPE,
+            array.len(),
+            None,
+            array
+                .data_ref()
+                .null_buffer()
+                .map(|b| b.bit_slice(array.offset(), array.len())),
+            0,
+            vec![result.into()],
+            vec![],
+        )
+    };
     Ok(PrimitiveArray::<T>::from(data))
 }
 
@@ -956,15 +958,20 @@ where
 
     simd_checked_divide_scalar_remainder::<T>(array_chunks, divisor, result_chunks)?;
 
-    let data = ArrayData::new(
-        T::DATA_TYPE,
-        array.len(),
-        None,
-        array.data_ref().null_buffer().cloned(),
-        0,
-        vec![result.into()],
-        vec![],
-    );
+    let data = unsafe {
+        ArrayData::new_unchecked(
+            T::DATA_TYPE,
+            array.len(),
+            None,
+            array
+                .data_ref()
+                .null_buffer()
+                .map(|b| b.bit_slice(array.offset(), array.len())),
+            0,
+            vec![result.into()],
+            vec![],
+        )
+    };
     Ok(PrimitiveArray::<T>::from(data))
 }
 
@@ -1083,7 +1090,7 @@ where
     #[cfg(feature = "simd")]
     return simd_modulus(&left, &right);
     #[cfg(not(feature = "simd"))]
-    return math_modulus(&left, &right);
+    return math_modulus(left, right);
 }
 
 /// Perform `left / right` operation on two arrays. If either left or right value is null
@@ -1106,7 +1113,7 @@ where
     #[cfg(feature = "simd")]
     return simd_divide(&left, &right);
     #[cfg(not(feature = "simd"))]
-    return math_divide(&left, &right);
+    return math_divide(left, right);
 }
 
 /// Modulus every value in an array by a scalar. If any value in the array is null then the
@@ -1129,7 +1136,7 @@ where
     #[cfg(feature = "simd")]
     return simd_modulus_scalar(&array, modulo);
     #[cfg(not(feature = "simd"))]
-    return math_modulus_scalar(&array, modulo);
+    return math_modulus_scalar(array, modulo);
 }
 
 /// Divide every value in an array by a scalar. If any value in the array is null then the
@@ -1152,7 +1159,7 @@ where
     #[cfg(feature = "simd")]
     return simd_divide_scalar(&array, divisor);
     #[cfg(not(feature = "simd"))]
-    return math_divide_scalar(&array, divisor);
+    return math_divide_scalar(array, divisor);
 }
 
 #[cfg(test)]
@@ -1184,7 +1191,7 @@ mod tests {
         assert_eq!(5, a.value(0));
         assert_eq!(6, b.value(0));
 
-        let c = add(&a, &b).unwrap();
+        let c = add(a, b).unwrap();
         assert_eq!(5, c.len());
         assert_eq!(11, c.value(0));
         assert_eq!(13, c.value(1));
@@ -1264,12 +1271,32 @@ mod tests {
     }
 
     #[test]
+    fn test_primitive_array_divide_scalar_sliced() {
+        let a = Int32Array::from(vec![Some(15), None, Some(9), Some(8), None]);
+        let a = a.slice(1, 4);
+        let a = as_primitive_array(&a);
+        let actual = divide_scalar(a, 3).unwrap();
+        let expected = Int32Array::from(vec![None, Some(3), Some(2), None]);
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
     fn test_primitive_array_modulus_scalar() {
         let a = Int32Array::from(vec![15, 14, 9, 8, 1]);
         let b = 3;
         let c = modulus_scalar(&a, b).unwrap();
         let expected = Int32Array::from(vec![0, 2, 0, 2, 1]);
         assert_eq!(c, expected);
+    }
+
+    #[test]
+    fn test_primitive_array_modulus_scalar_sliced() {
+        let a = Int32Array::from(vec![Some(15), None, Some(9), Some(8), None]);
+        let a = a.slice(1, 4);
+        let a = as_primitive_array(&a);
+        let actual = modulus_scalar(a, 3).unwrap();
+        let expected = Int32Array::from(vec![None, Some(0), Some(2), None]);
+        assert_eq!(actual, expected);
     }
 
     #[test]
@@ -1281,7 +1308,7 @@ mod tests {
         let a = a.as_any().downcast_ref::<Int32Array>().unwrap();
         let b = b.as_any().downcast_ref::<Int32Array>().unwrap();
 
-        let c = divide(&a, &b).unwrap();
+        let c = divide(a, b).unwrap();
         assert_eq!(5, c.len());
         assert_eq!(3, c.value(0));
         assert_eq!(2, c.value(1));
@@ -1299,7 +1326,7 @@ mod tests {
         let a = a.as_any().downcast_ref::<Int32Array>().unwrap();
         let b = b.as_any().downcast_ref::<Int32Array>().unwrap();
 
-        let c = modulus(&a, &b).unwrap();
+        let c = modulus(a, b).unwrap();
         assert_eq!(5, c.len());
         assert_eq!(0, c.value(0));
         assert_eq!(3, c.value(1));
@@ -1397,7 +1424,7 @@ mod tests {
         let b = b.slice(8, 6);
         let b = b.as_any().downcast_ref::<Int32Array>().unwrap();
 
-        let c = divide(&a, &b).unwrap();
+        let c = divide(a, b).unwrap();
         assert_eq!(6, c.len());
         assert_eq!(3, c.value(0));
         assert!(c.is_null(1));
@@ -1450,7 +1477,7 @@ mod tests {
         let b = b.slice(8, 6);
         let b = b.as_any().downcast_ref::<Int32Array>().unwrap();
 
-        let c = modulus(&a, &b).unwrap();
+        let c = modulus(a, b).unwrap();
         assert_eq!(6, c.len());
         assert_eq!(0, c.value(0));
         assert!(c.is_null(1));
@@ -1516,7 +1543,7 @@ mod tests {
         let b = b.slice(63, 65);
         let b = b.as_any().downcast_ref::<UInt8Array>().unwrap();
 
-        let actual = add(&a, &b).unwrap();
+        let actual = add(a, b).unwrap();
         let actual: Vec<Option<u8>> = actual.iter().collect();
         let expected: Vec<Option<u8>> = (63..63_u8 + 65_u8)
             .into_iter()

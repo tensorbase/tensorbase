@@ -177,8 +177,13 @@ pub(crate) fn run(
     //     return Ok(res);
     // }
 
-    let df = ctx.sql(raw_query)?;
-    let res = tokio::task::block_in_place(|| Handle::current().block_on(df.collect()));
+    let res: EngineResult<Vec<RecordBatch>> = tokio::task::block_in_place(|| {
+        Handle::current().block_on(async move {
+            let df = ctx.sql(raw_query).await?;
+            let r = df.collect().await?;
+            Ok(r)
+        })
+    });
     Ok(res?)
 }
 
@@ -311,7 +316,7 @@ fn gen_arrow_arraydata(cpi: &CoPaInfo, typ: &DataType) -> EngineResult<ArrayData
             .add_buffer(buf)
             .build()
     };
-    Ok(data)
+    Ok(data?)
 }
 
 #[cfg(test)]

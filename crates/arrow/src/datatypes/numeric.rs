@@ -340,10 +340,8 @@ make_numeric_type!(TimestampSecondType, i64, i64x8, m64x8);
 make_numeric_type!(TimestampMillisecondType, i64, i64x8, m64x8);
 make_numeric_type!(TimestampMicrosecondType, i64, i64x8, m64x8);
 make_numeric_type!(TimestampNanosecondType, i64, i64x8, m64x8);
-make_numeric_type!(Date16Type, u16, u16x32, m16x32);
 make_numeric_type!(Date32Type, i32, i32x16, m32x16);
 make_numeric_type!(Date64Type, i64, i64x8, m64x8);
-make_numeric_type!(Timestamp32Type, i32, i32x16, m32x16);
 make_numeric_type!(Time32SecondType, i32, i32x16, m32x16);
 make_numeric_type!(Time32MillisecondType, i32, i32x16, m32x16);
 make_numeric_type!(Time64MicrosecondType, i64, i64x8, m64x8);
@@ -354,7 +352,8 @@ make_numeric_type!(DurationSecondType, i64, i64x8, m64x8);
 make_numeric_type!(DurationMillisecondType, i64, i64x8, m64x8);
 make_numeric_type!(DurationMicrosecondType, i64, i64x8, m64x8);
 make_numeric_type!(DurationNanosecondType, i64, i64x8, m64x8);
-
+make_numeric_type!(Date16Type, u16, u16x32, m16x32);
+make_numeric_type!(Timestamp32Type, i32, i32x16, m32x16);
 /// A subtype of primitive type that represents signed numeric values.
 ///
 /// SIMD operations are defined in this trait if available on the target system.

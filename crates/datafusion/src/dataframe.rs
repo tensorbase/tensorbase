@@ -24,6 +24,7 @@ use crate::logical_plan::{
 };
 use std::sync::Arc;
 
+use crate::physical_plan::SendableRecordBatchStream;
 use async_trait::async_trait;
 
 /// DataFrame represents a logical set of rows with the same named columns.
@@ -40,9 +41,10 @@ use async_trait::async_trait;
 /// ```
 /// # use datafusion::prelude::*;
 /// # use datafusion::error::Result;
-/// # fn main() -> Result<()> {
+/// # #[tokio::main]
+/// # async fn main() -> Result<()> {
 /// let mut ctx = ExecutionContext::new();
-/// let df = ctx.read_csv("tests/example.csv", CsvReadOptions::new())?;
+/// let df = ctx.read_csv("tests/example.csv", CsvReadOptions::new()).await?;
 /// let df = df.filter(col("a").lt_eq(col("b")))?
 ///            .aggregate(vec![col("a")], vec![min(col("b"))])?
 ///            .limit(100)?;
@@ -58,9 +60,10 @@ pub trait DataFrame: Send + Sync {
     /// ```
     /// # use datafusion::prelude::*;
     /// # use datafusion::error::Result;
-    /// # fn main() -> Result<()> {
+    /// # #[tokio::main]
+    /// # async fn main() -> Result<()> {
     /// let mut ctx = ExecutionContext::new();
-    /// let df = ctx.read_csv("tests/example.csv", CsvReadOptions::new())?;
+    /// let df = ctx.read_csv("tests/example.csv", CsvReadOptions::new()).await?;
     /// let df = df.select_columns(&["a", "b"])?;
     /// # Ok(())
     /// # }
@@ -72,9 +75,10 @@ pub trait DataFrame: Send + Sync {
     /// ```
     /// # use datafusion::prelude::*;
     /// # use datafusion::error::Result;
-    /// # fn main() -> Result<()> {
+    /// # #[tokio::main]
+    /// # async fn main() -> Result<()> {
     /// let mut ctx = ExecutionContext::new();
-    /// let df = ctx.read_csv("tests/example.csv", CsvReadOptions::new())?;
+    /// let df = ctx.read_csv("tests/example.csv", CsvReadOptions::new()).await?;
     /// let df = df.select(vec![col("a") * col("b"), col("c")])?;
     /// # Ok(())
     /// # }
@@ -86,9 +90,10 @@ pub trait DataFrame: Send + Sync {
     /// ```
     /// # use datafusion::prelude::*;
     /// # use datafusion::error::Result;
-    /// # fn main() -> Result<()> {
+    /// # #[tokio::main]
+    /// # async fn main() -> Result<()> {
     /// let mut ctx = ExecutionContext::new();
-    /// let df = ctx.read_csv("tests/example.csv", CsvReadOptions::new())?;
+    /// let df = ctx.read_csv("tests/example.csv", CsvReadOptions::new()).await?;
     /// let df = df.filter(col("a").lt_eq(col("b")))?;
     /// # Ok(())
     /// # }
@@ -100,9 +105,10 @@ pub trait DataFrame: Send + Sync {
     /// ```
     /// # use datafusion::prelude::*;
     /// # use datafusion::error::Result;
-    /// # fn main() -> Result<()> {
+    /// # #[tokio::main]
+    /// # async fn main() -> Result<()> {
     /// let mut ctx = ExecutionContext::new();
-    /// let df = ctx.read_csv("tests/example.csv", CsvReadOptions::new())?;
+    /// let df = ctx.read_csv("tests/example.csv", CsvReadOptions::new()).await?;
     ///
     /// // The following use is the equivalent of "SELECT MIN(b) GROUP BY a"
     /// let _ = df.aggregate(vec![col("a")], vec![min(col("b"))])?;
@@ -123,9 +129,10 @@ pub trait DataFrame: Send + Sync {
     /// ```
     /// # use datafusion::prelude::*;
     /// # use datafusion::error::Result;
-    /// # fn main() -> Result<()> {
+    /// # #[tokio::main]
+    /// # async fn main() -> Result<()> {
     /// let mut ctx = ExecutionContext::new();
-    /// let df = ctx.read_csv("tests/example.csv", CsvReadOptions::new())?;
+    /// let df = ctx.read_csv("tests/example.csv", CsvReadOptions::new()).await?;
     /// let df = df.limit(100)?;
     /// # Ok(())
     /// # }
@@ -137,14 +144,31 @@ pub trait DataFrame: Send + Sync {
     /// ```
     /// # use datafusion::prelude::*;
     /// # use datafusion::error::Result;
-    /// # fn main() -> Result<()> {
+    /// # #[tokio::main]
+    /// # async fn main() -> Result<()> {
     /// let mut ctx = ExecutionContext::new();
-    /// let df = ctx.read_csv("tests/example.csv", CsvReadOptions::new())?;
+    /// let df = ctx.read_csv("tests/example.csv", CsvReadOptions::new()).await?;
     /// let df = df.union(df.clone())?;
     /// # Ok(())
     /// # }
     /// ```
     fn union(&self, dataframe: Arc<dyn DataFrame>) -> Result<Arc<dyn DataFrame>>;
+
+    /// Calculate the union distinct two [`DataFrame`]s.  The two [`DataFrame`]s must have exactly the same schema
+    ///
+    /// ```
+    /// # use datafusion::prelude::*;
+    /// # use datafusion::error::Result;
+    /// # #[tokio::main]
+    /// # async fn main() -> Result<()> {
+    /// let mut ctx = ExecutionContext::new();
+    /// let df = ctx.read_csv("tests/example.csv", CsvReadOptions::new()).await?;
+    /// let df = df.union(df.clone())?;
+    /// let df = df.distinct()?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    fn distinct(&self) -> Result<Arc<dyn DataFrame>>;
 
     /// Sort the DataFrame by the specified sorting expressions. Any expression can be turned into
     /// a sort expression by calling its [sort](../logical_plan/enum.Expr.html#method.sort) method.
@@ -152,9 +176,10 @@ pub trait DataFrame: Send + Sync {
     /// ```
     /// # use datafusion::prelude::*;
     /// # use datafusion::error::Result;
-    /// # fn main() -> Result<()> {
+    /// # #[tokio::main]
+    /// # async fn main() -> Result<()> {
     /// let mut ctx = ExecutionContext::new();
-    /// let df = ctx.read_csv("tests/example.csv", CsvReadOptions::new())?;
+    /// let df = ctx.read_csv("tests/example.csv", CsvReadOptions::new()).await?;
     /// let df = df.sort(vec![col("a").sort(true, true), col("b").sort(false, false)])?;
     /// # Ok(())
     /// # }
@@ -169,8 +194,8 @@ pub trait DataFrame: Send + Sync {
     /// # #[tokio::main]
     /// # async fn main() -> Result<()> {
     /// let mut ctx = ExecutionContext::new();
-    /// let left = ctx.read_csv("tests/example.csv", CsvReadOptions::new())?;
-    /// let right = ctx.read_csv("tests/example.csv", CsvReadOptions::new())?
+    /// let left = ctx.read_csv("tests/example.csv", CsvReadOptions::new()).await?;
+    /// let right = ctx.read_csv("tests/example.csv", CsvReadOptions::new()).await?
     ///   .select(vec![
     ///     col("a").alias("a2"),
     ///     col("b").alias("b2"),
@@ -195,9 +220,10 @@ pub trait DataFrame: Send + Sync {
     /// ```
     /// # use datafusion::prelude::*;
     /// # use datafusion::error::Result;
-    /// # fn main() -> Result<()> {
+    /// # #[tokio::main]
+    /// # async fn main() -> Result<()> {
     /// let mut ctx = ExecutionContext::new();
-    /// let df = ctx.read_csv("tests/example.csv", CsvReadOptions::new())?;
+    /// let df = ctx.read_csv("tests/example.csv", CsvReadOptions::new()).await?;
     /// let df1 = df.repartition(Partitioning::RoundRobinBatch(4))?;
     /// # Ok(())
     /// # }
@@ -215,12 +241,57 @@ pub trait DataFrame: Send + Sync {
     /// # #[tokio::main]
     /// # async fn main() -> Result<()> {
     /// let mut ctx = ExecutionContext::new();
-    /// let df = ctx.read_csv("tests/example.csv", CsvReadOptions::new())?;
+    /// let df = ctx.read_csv("tests/example.csv", CsvReadOptions::new()).await?;
     /// let batches = df.collect().await?;
     /// # Ok(())
     /// # }
     /// ```
     async fn collect(&self) -> Result<Vec<RecordBatch>>;
+
+    /// Print results.
+    ///
+    /// ```
+    /// # use datafusion::prelude::*;
+    /// # use datafusion::error::Result;
+    /// # #[tokio::main]
+    /// # async fn main() -> Result<()> {
+    /// let mut ctx = ExecutionContext::new();
+    /// let df = ctx.read_csv("tests/example.csv", CsvReadOptions::new()).await?;
+    /// df.show().await?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    async fn show(&self) -> Result<()>;
+
+    /// Print results and limit rows.
+    ///
+    /// ```
+    /// # use datafusion::prelude::*;
+    /// # use datafusion::error::Result;
+    /// # #[tokio::main]
+    /// # async fn main() -> Result<()> {
+    /// let mut ctx = ExecutionContext::new();
+    /// let df = ctx.read_csv("tests/example.csv", CsvReadOptions::new()).await?;
+    /// df.show_limit(10).await?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    async fn show_limit(&self, n: usize) -> Result<()>;
+
+    /// Executes this DataFrame and returns a stream over a single partition
+    ///
+    /// ```
+    /// # use datafusion::prelude::*;
+    /// # use datafusion::error::Result;
+    /// # #[tokio::main]
+    /// # async fn main() -> Result<()> {
+    /// let mut ctx = ExecutionContext::new();
+    /// let df = ctx.read_csv("tests/example.csv", CsvReadOptions::new()).await?;
+    /// let stream = df.execute_stream().await?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    async fn execute_stream(&self) -> Result<SendableRecordBatchStream>;
 
     /// Executes this DataFrame and collects all results into a vector of vector of RecordBatch
     /// maintaining the input partitioning.
@@ -231,12 +302,27 @@ pub trait DataFrame: Send + Sync {
     /// # #[tokio::main]
     /// # async fn main() -> Result<()> {
     /// let mut ctx = ExecutionContext::new();
-    /// let df = ctx.read_csv("tests/example.csv", CsvReadOptions::new())?;
+    /// let df = ctx.read_csv("tests/example.csv", CsvReadOptions::new()).await?;
     /// let batches = df.collect_partitioned().await?;
     /// # Ok(())
     /// # }
     /// ```
     async fn collect_partitioned(&self) -> Result<Vec<Vec<RecordBatch>>>;
+
+    /// Executes this DataFrame and returns one stream per partition.
+    ///
+    /// ```
+    /// # use datafusion::prelude::*;
+    /// # use datafusion::error::Result;
+    /// # #[tokio::main]
+    /// # async fn main() -> Result<()> {
+    /// let mut ctx = ExecutionContext::new();
+    /// let df = ctx.read_csv("tests/example.csv", CsvReadOptions::new()).await?;
+    /// let batches = df.execute_stream_partitioned().await?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    async fn execute_stream_partitioned(&self) -> Result<Vec<SendableRecordBatchStream>>;
 
     /// Returns the schema describing the output of this DataFrame in terms of columns returned,
     /// where each column has a name, data type, and nullability attribute.
@@ -244,9 +330,10 @@ pub trait DataFrame: Send + Sync {
     /// ```
     /// # use datafusion::prelude::*;
     /// # use datafusion::error::Result;
-    /// # fn main() -> Result<()> {
+    /// # #[tokio::main]
+    /// # async fn main() -> Result<()> {
     /// let mut ctx = ExecutionContext::new();
-    /// let df = ctx.read_csv("tests/example.csv", CsvReadOptions::new())?;
+    /// let df = ctx.read_csv("tests/example.csv", CsvReadOptions::new()).await?;
     /// let schema = df.schema();
     /// # Ok(())
     /// # }
@@ -258,31 +345,64 @@ pub trait DataFrame: Send + Sync {
 
     /// Return a DataFrame with the explanation of its plan so far.
     ///
+    /// if `analyze` is specified, runs the plan and reports metrics
+    ///
     /// ```
     /// # use datafusion::prelude::*;
     /// # use datafusion::error::Result;
     /// # #[tokio::main]
     /// # async fn main() -> Result<()> {
     /// let mut ctx = ExecutionContext::new();
-    /// let df = ctx.read_csv("tests/example.csv", CsvReadOptions::new())?;
-    /// let batches = df.limit(100)?.explain(false)?.collect().await?;
+    /// let df = ctx.read_csv("tests/example.csv", CsvReadOptions::new()).await?;
+    /// let batches = df.limit(100)?.explain(false, false)?.collect().await?;
     /// # Ok(())
     /// # }
     /// ```
-    fn explain(&self, verbose: bool) -> Result<Arc<dyn DataFrame>>;
+    fn explain(&self, verbose: bool, analyze: bool) -> Result<Arc<dyn DataFrame>>;
 
     /// Return a `FunctionRegistry` used to plan udf's calls
     ///
     /// ```
     /// # use datafusion::prelude::*;
     /// # use datafusion::error::Result;
-    /// # fn main() -> Result<()> {
+    /// # #[tokio::main]
+    /// # async fn main() -> Result<()> {
     /// let mut ctx = ExecutionContext::new();
-    /// let df = ctx.read_csv("tests/example.csv", CsvReadOptions::new())?;
+    /// let df = ctx.read_csv("tests/example.csv", CsvReadOptions::new()).await?;
     /// let f = df.registry();
     /// // use f.udf("name", vec![...]) to use the udf
     /// # Ok(())
     /// # }
     /// ```
     fn registry(&self) -> Arc<dyn FunctionRegistry>;
+
+    /// Calculate the intersection of two [`DataFrame`]s.  The two [`DataFrame`]s must have exactly the same schema
+    ///
+    /// ```
+    /// # use datafusion::prelude::*;
+    /// # use datafusion::error::Result;
+    /// # #[tokio::main]
+    /// # async fn main() -> Result<()> {
+    /// let mut ctx = ExecutionContext::new();
+    /// let df = ctx.read_csv("tests/example.csv", CsvReadOptions::new()).await?;
+    /// let df = df.intersect(df.clone())?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    fn intersect(&self, dataframe: Arc<dyn DataFrame>) -> Result<Arc<dyn DataFrame>>;
+
+    /// Calculate the exception of two [`DataFrame`]s.  The two [`DataFrame`]s must have exactly the same schema
+    ///
+    /// ```
+    /// # use datafusion::prelude::*;
+    /// # use datafusion::error::Result;
+    /// # #[tokio::main]
+    /// # async fn main() -> Result<()> {
+    /// let mut ctx = ExecutionContext::new();
+    /// let df = ctx.read_csv("tests/example.csv", CsvReadOptions::new()).await?;
+    /// let df = df.except(df.clone())?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    fn except(&self, dataframe: Arc<dyn DataFrame>) -> Result<Arc<dyn DataFrame>>;
 }

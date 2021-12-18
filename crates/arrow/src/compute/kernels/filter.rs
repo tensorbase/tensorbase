@@ -25,7 +25,7 @@ use crate::{array::*, util::bit_chunk_iterator::BitChunkIterator};
 use std::iter::Enumerate;
 
 /// Function that can filter arbitrary arrays
-pub type Filter<'a> = Box<Fn(&ArrayData) -> ArrayData + 'a>;
+pub type Filter<'a> = Box<dyn Fn(&ArrayData) -> ArrayData + 'a>;
 
 /// Internal state of [SlicesIterator]
 #[derive(Debug, PartialEq)]
@@ -34,7 +34,7 @@ enum State {
     Bits(u64),
     // it is iterating over chunks (steps of size of 64 slots)
     Chunks,
-    // it is iterating over the remainding bits (steps of size of 1 slot)
+    // it is iterating over the remaining bits (steps of size of 1 slot)
     Remainder,
     // nothing more to iterate.
     Finish,
@@ -214,7 +214,7 @@ pub fn build_filter(filter: &BooleanArray) -> Result<Filter> {
 }
 
 /// Remove null values by do a bitmask AND operation with null bits and the boolean bits.
-fn prep_null_mask_filter(filter: &BooleanArray) -> BooleanArray {
+pub fn prep_null_mask_filter(filter: &BooleanArray) -> BooleanArray {
     let array_data = filter.data_ref();
     let null_bitmap = array_data.null_buffer().unwrap();
     let mask = filter.values();
@@ -224,8 +224,10 @@ fn prep_null_mask_filter(filter: &BooleanArray) -> BooleanArray {
 
     let array_data = ArrayData::builder(DataType::Boolean)
         .len(filter.len())
-        .add_buffer(new_mask)
-        .build();
+        .add_buffer(new_mask);
+
+    let array_data = unsafe { array_data.build_unchecked() };
+
     BooleanArray::from(array_data)
 }
 
@@ -245,7 +247,7 @@ fn prep_null_mask_filter(filter: &BooleanArray) -> BooleanArray {
 /// # Ok(())
 /// # }
 /// ```
-pub fn filter(array: &Array, predicate: &BooleanArray) -> Result<ArrayRef> {
+pub fn filter(array: &dyn Array, predicate: &BooleanArray) -> Result<ArrayRef> {
     if predicate.null_count() > 0 {
         // this greatly simplifies subsequent filtering code
         // now we only have a boolean mask to deal with
@@ -288,12 +290,21 @@ pub fn filter_record_batch(
         return filter_record_batch(record_batch, &predicate);
     }
 
-    let filter = build_filter(predicate)?;
-    let filtered_arrays = record_batch
-        .columns()
-        .iter()
-        .map(|a| make_array(filter(&a.data())))
-        .collect();
+    let num_columns = record_batch.columns().len();
+
+    let filtered_arrays = match num_columns {
+        1 => {
+            vec![filter(record_batch.columns()[0].as_ref(), predicate)?]
+        }
+        _ => {
+            let filter = build_filter(predicate)?;
+            record_batch
+                .columns()
+                .iter()
+                .map(|a| make_array(filter(a.data())))
+                .collect()
+        }
+    };
     RecordBatch::try_new(record_batch.schema(), filtered_arrays)
 }
 
@@ -462,7 +473,7 @@ mod tests {
     }
 
     #[test]
-    fn test_filter_primative_array_with_null() {
+    fn test_filter_primitive_array_with_null() {
         let a = Int32Array::from(vec![Some(5), None]);
         let b = BooleanArray::from(vec![false, true]);
         let c = filter(&a, &b).unwrap();
@@ -557,7 +568,8 @@ mod tests {
         let value_data = ArrayData::builder(DataType::Int32)
             .len(8)
             .add_buffer(Buffer::from_slice_ref(&[0, 1, 2, 3, 4, 5, 6, 7]))
-            .build();
+            .build()
+            .unwrap();
 
         let value_offsets = Buffer::from_slice_ref(&[0i64, 3, 6, 8, 8]);
 
@@ -568,7 +580,8 @@ mod tests {
             .add_buffer(value_offsets)
             .add_child_data(value_data)
             .null_bit_buffer(Buffer::from([0b00000111]))
-            .build();
+            .build()
+            .unwrap();
 
         //  a = [[0, 1, 2], [3, 4, 5], [6, 7], null]
         let a = LargeListArray::from(list_data);
@@ -579,7 +592,8 @@ mod tests {
         let value_data = ArrayData::builder(DataType::Int32)
             .len(3)
             .add_buffer(Buffer::from_slice_ref(&[3, 4, 5]))
-            .build();
+            .build()
+            .unwrap();
 
         let value_offsets = Buffer::from_slice_ref(&[0i64, 3, 3]);
 
@@ -590,7 +604,8 @@ mod tests {
             .add_buffer(value_offsets)
             .add_child_data(value_data)
             .null_bit_buffer(Buffer::from([0b00000001]))
-            .build();
+            .build()
+            .unwrap();
 
         assert_eq!(&make_array(expected), &result);
     }

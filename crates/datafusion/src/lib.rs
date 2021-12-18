@@ -25,7 +25,6 @@
     clippy::upper_case_acronyms
 )]
 #![feature(once_cell)]
-
 //! [DataFusion](https://github.com/apache/arrow-datafusion)
 //! is an extensible query execution framework that uses
 //! [Apache Arrow](https://arrow.apache.org) as its in-memory format.
@@ -40,14 +39,14 @@
 //! ```rust
 //! # use datafusion::prelude::*;
 //! # use datafusion::error::Result;
-//! # use arrow::record_batch::RecordBatch;
+//! # use datafusion::arrow::record_batch::RecordBatch;
 //!
 //! # #[tokio::main]
 //! # async fn main() -> Result<()> {
 //! let mut ctx = ExecutionContext::new();
 //!
 //! // create the dataframe
-//! let df = ctx.read_csv("tests/example.csv", CsvReadOptions::new())?;
+//! let df = ctx.read_csv("tests/example.csv", CsvReadOptions::new()).await?;
 //!
 //! // create a plan
 //! let df = df.filter(col("a").lt_eq(col("b")))?
@@ -61,11 +60,11 @@
 //! let pretty_results = arrow::util::pretty::pretty_format_batches(&results)?;
 //!
 //! let expected = vec![
-//!     "+---+--------+",
-//!     "| a | MIN(b) |",
-//!     "+---+--------+",
-//!     "| 1 | 2      |",
-//!     "+---+--------+"
+//!     "+---+--------------------------+",
+//!     "| a | MIN(tests/example.csv.b) |",
+//!     "+---+--------------------------+",
+//!     "| 1 | 2                        |",
+//!     "+---+--------------------------+"
 //! ];
 //!
 //! assert_eq!(pretty_results.trim().lines().collect::<Vec<_>>(), expected);
@@ -78,16 +77,16 @@
 //! ```
 //! # use datafusion::prelude::*;
 //! # use datafusion::error::Result;
-//! # use arrow::record_batch::RecordBatch;
+//! # use datafusion::arrow::record_batch::RecordBatch;
 //!
 //! # #[tokio::main]
 //! # async fn main() -> Result<()> {
 //! let mut ctx = ExecutionContext::new();
 //!
-//! ctx.register_csv("example", "tests/example.csv", CsvReadOptions::new())?;
+//! ctx.register_csv("example", "tests/example.csv", CsvReadOptions::new()).await?;
 //!
 //! // create a plan
-//! let df = ctx.sql("SELECT a, MIN(b) FROM example GROUP BY a LIMIT 100")?;
+//! let df = ctx.sql("SELECT a, MIN(b) FROM example GROUP BY a LIMIT 100").await?;
 //!
 //! // execute the plan
 //! let results: Vec<RecordBatch> = df.collect().await?;
@@ -96,11 +95,11 @@
 //! let pretty_results = arrow::util::pretty::pretty_format_batches(&results)?;
 //!
 //! let expected = vec![
-//!     "+---+--------+",
-//!     "| a | MIN(b) |",
-//!     "+---+--------+",
-//!     "| 1 | 2      |",
-//!     "+---+--------+"
+//!     "+---+----------------+",
+//!     "| a | MIN(example.b) |",
+//!     "+---+----------------+",
+//!     "| 1 | 2              |",
+//!     "+---+----------------+"
 //! ];
 //!
 //! assert_eq!(pretty_results.trim().lines().collect::<Vec<_>>(), expected);
@@ -133,7 +132,7 @@
 //! Logical planning yields [`logical plans`](logical_plan::LogicalPlan) and [`logical expressions`](logical_plan::Expr).
 //! These are [`Schema`](arrow::datatypes::Schema)-aware traits that represent statements whose result is independent of how it should physically be executed.
 //!
-//! A [`LogicalPlan`](logical_plan::LogicalPlan) is a Direct Asyclic graph of other [`LogicalPlan`s](logical_plan::LogicalPlan) and each node contains logical expressions ([`Expr`s](logical_plan::Expr)).
+//! A [`LogicalPlan`](logical_plan::LogicalPlan) is a Directed Acyclic Graph (DAG) of other [`LogicalPlan`s](logical_plan::LogicalPlan) and each node contains logical expressions ([`Expr`s](logical_plan::Expr)).
 //! All of these are located in [`logical_plan`](logical_plan).
 //!
 //! ### Physical plan
@@ -213,6 +212,7 @@
 
 extern crate sqlparser;
 
+pub mod avro_to_arrow;
 pub mod catalog;
 pub mod dataframe;
 pub mod datasource;
@@ -231,13 +231,14 @@ pub mod variable;
 pub use arrow;
 pub use parquet;
 
+pub(crate) mod field_util;
+
+#[cfg(feature = "pyarrow")]
+mod pyarrow;
+
 #[cfg(test)]
 pub mod test;
 pub mod test_util;
-
-#[macro_use]
-#[cfg(feature = "regex_expressions")]
-extern crate lazy_static;
 
 #[cfg(doctest)]
 doc_comment::doctest!("../../README.md", readme_example_test);

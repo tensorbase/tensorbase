@@ -43,6 +43,8 @@ pub enum FileType {
     Parquet,
     /// Comma separated values
     CSV,
+    /// Avro binary records
+    Avro,
 }
 
 impl FromStr for FileType {
@@ -53,8 +55,9 @@ impl FromStr for FileType {
             "PARQUET" => Ok(Self::Parquet),
             "NDJSON" => Ok(Self::NdJson),
             "CSV" => Ok(Self::CSV),
+            "AVRO" => Ok(Self::Avro),
             other => Err(ParserError::ParserError(format!(
-                "expect one of PARQUET, NDJSON, or CSV, found: {}",
+                "expect one of PARQUET, AVRO, NDJSON, or CSV, found: {}",
                 other
             ))),
         }
@@ -82,7 +85,7 @@ pub struct CreateExternalTable {
 #[derive(Debug, Clone, PartialEq)]
 pub enum Statement {
     /// ANSI SQL AST node
-    Statement(SQLStatement),
+    Statement(Box<SQLStatement>),
     /// Extension: `CREATE EXTERNAL TABLE`
     CreateExternalTable(CreateExternalTable),
 }
@@ -164,13 +167,17 @@ impl<'a> DFParser<'a> {
                     }
                     _ => {
                         // use the native parser
-                        Ok(Statement::Statement(self.parser.parse_statement()?))
+                        Ok(Statement::Statement(Box::from(
+                            self.parser.parse_statement()?,
+                        )))
                     }
                 }
             }
             _ => {
                 // use the native parser
-                Ok(Statement::Statement(self.parser.parse_statement()?))
+                Ok(Statement::Statement(Box::from(
+                    self.parser.parse_statement()?,
+                )))
             }
         }
     }
@@ -180,7 +187,7 @@ impl<'a> DFParser<'a> {
         if self.parser.parse_keyword(Keyword::EXTERNAL) {
             self.parse_create_external_table()
         } else {
-            Ok(Statement::Statement(self.parser.parse_create()?))
+            Ok(Statement::Statement(Box::from(self.parser.parse_create()?)))
         }
     }
 
@@ -290,8 +297,10 @@ impl<'a> DFParser<'a> {
         }
     }
 
-    fn consume_token(&mut self, expected: &str) -> bool {
-        if self.parser.peek_token().to_string() == *expected {
+    fn consume_token(&mut self, expected: &Token) -> bool {
+        let token = self.parser.peek_token().to_string().to_uppercase();
+        let token = Token::make_keyword(&token);
+        if token == *expected {
             self.parser.next_token();
             true
         } else {
@@ -300,9 +309,9 @@ impl<'a> DFParser<'a> {
     }
 
     fn parse_csv_has_header(&mut self) -> bool {
-        self.consume_token("WITH")
-            & self.consume_token("HEADER")
-            & self.consume_token("ROW")
+        self.consume_token(&Token::make_keyword("WITH"))
+            & self.consume_token(&Token::make_keyword("HEADER"))
+            & self.consume_token(&Token::make_keyword("ROW"))
     }
 }
 
@@ -359,14 +368,31 @@ mod tests {
     fn create_external_table() -> Result<(), ParserError> {
         // positive case
         let sql = "CREATE EXTERNAL TABLE t(c1 int) STORED AS CSV LOCATION 'foo.csv'";
+        let display = None;
         let expected = Statement::CreateExternalTable(CreateExternalTable {
             name: "t".into(),
-            columns: vec![make_column_def("c1", DataType::Int)],
+            columns: vec![make_column_def("c1", DataType::Int(display))],
             file_type: FileType::CSV,
             has_header: false,
             location: "foo.csv".into(),
         });
         expect_parse_ok(sql, expected)?;
+
+        // positive case: it is ok for case insensitive sql stmt with `WITH HEADER ROW` tokens
+        let sqls = vec![
+            "CREATE EXTERNAL TABLE t(c1 int) STORED AS CSV WITH HEADER ROW LOCATION 'foo.csv'",
+            "CREATE EXTERNAL TABLE t(c1 int) STORED AS CSV with header row LOCATION 'foo.csv'"
+        ];
+        for sql in sqls {
+            let expected = Statement::CreateExternalTable(CreateExternalTable {
+                name: "t".into(),
+                columns: vec![make_column_def("c1", DataType::Int(display))],
+                file_type: FileType::CSV,
+                has_header: true,
+                location: "foo.csv".into(),
+            });
+            expect_parse_ok(sql, expected)?;
+        }
 
         // positive case: it is ok for parquet files not to have columns specified
         let sql = "CREATE EXTERNAL TABLE t STORED AS PARQUET LOCATION 'foo.parquet'";
@@ -390,10 +416,21 @@ mod tests {
         });
         expect_parse_ok(sql, expected)?;
 
+        // positive case: it is ok for avro files not to have columns specified
+        let sql = "CREATE EXTERNAL TABLE t STORED AS AVRO LOCATION 'foo.avro'";
+        let expected = Statement::CreateExternalTable(CreateExternalTable {
+            name: "t".into(),
+            columns: vec![],
+            file_type: FileType::Avro,
+            has_header: false,
+            location: "foo.avro".into(),
+        });
+        expect_parse_ok(sql, expected)?;
+
         // Error cases: Invalid type
         let sql =
             "CREATE EXTERNAL TABLE t(c1 int) STORED AS UNKNOWN_TYPE LOCATION 'foo.csv'";
-        expect_parse_error(sql, "expect one of PARQUET, NDJSON, or CSV");
+        expect_parse_error(sql, "expect one of PARQUET, AVRO, NDJSON, or CSV");
 
         Ok(())
     }

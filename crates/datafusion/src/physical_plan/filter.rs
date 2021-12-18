@@ -23,9 +23,10 @@ use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{Context, Poll};
 
-use super::{RecordBatchStream, SendableRecordBatchStream};
+use super::{RecordBatchStream, SendableRecordBatchStream, Statistics};
 use crate::error::{DataFusionError, Result};
 use crate::physical_plan::{
+    metrics::{BaselineMetrics, ExecutionPlanMetricsSet, MetricsSet},
     DisplayFormatType, ExecutionPlan, Partitioning, PhysicalExpr,
 };
 use arrow::array::BooleanArray;
@@ -46,6 +47,8 @@ pub struct FilterExec {
     predicate: Arc<dyn PhysicalExpr>,
     /// The input plan
     input: Arc<dyn ExecutionPlan>,
+    /// Execution metrics
+    metrics: ExecutionPlanMetricsSet,
 }
 
 impl FilterExec {
@@ -58,6 +61,7 @@ impl FilterExec {
             DataType::Boolean => Ok(Self {
                 predicate,
                 input: input.clone(),
+                metrics: ExecutionPlanMetricsSet::new(),
             }),
             other => Err(DataFusionError::Plan(format!(
                 "Filter predicate must return boolean values, not {:?}",
@@ -115,10 +119,13 @@ impl ExecutionPlan for FilterExec {
     }
 
     async fn execute(&self, partition: usize) -> Result<SendableRecordBatchStream> {
+        let baseline_metrics = BaselineMetrics::new(&self.metrics, partition);
+
         Ok(Box::pin(FilterExecStream {
             schema: self.input.schema().clone(),
             predicate: self.predicate.clone(),
             input: self.input.execute(partition).await?,
+            baseline_metrics,
         }))
     }
 
@@ -133,6 +140,15 @@ impl ExecutionPlan for FilterExec {
             }
         }
     }
+
+    fn metrics(&self) -> Option<MetricsSet> {
+        Some(self.metrics.clone_inner())
+    }
+
+    /// The output statistics of a filtering operation are unknown
+    fn statistics(&self) -> Statistics {
+        Statistics::default()
+    }
 }
 
 /// The FilterExec streams wraps the input iterator and applies the predicate expression to
@@ -144,6 +160,8 @@ struct FilterExecStream {
     predicate: Arc<dyn PhysicalExpr>,
     /// The input partition to filter.
     input: SendableRecordBatchStream,
+    /// runtime metrics recording
+    baseline_metrics: BaselineMetrics,
 }
 
 fn batch_filter(
@@ -176,10 +194,16 @@ impl Stream for FilterExecStream {
         mut self: Pin<&mut Self>,
         cx: &mut Context<'_>,
     ) -> Poll<Option<Self::Item>> {
-        self.input.poll_next_unpin(cx).map(|x| match x {
-            Some(Ok(batch)) => Some(batch_filter(&batch, &self.predicate)),
+        let poll = self.input.poll_next_unpin(cx).map(|x| match x {
+            Some(Ok(batch)) => {
+                let timer = self.baseline_metrics.elapsed_compute().timer();
+                let filtered_batch = batch_filter(&batch, &self.predicate);
+                timer.done();
+                Some(filtered_batch)
+            }
             other => other,
-        })
+        });
+        self.baseline_metrics.record_poll(poll)
     }
 
     fn size_hint(&self) -> (usize, Option<usize>) {
@@ -198,28 +222,38 @@ impl RecordBatchStream for FilterExecStream {
 mod tests {
 
     use super::*;
-    use crate::physical_plan::csv::{CsvExec, CsvReadOptions};
+    use crate::datasource::object_store::local::LocalFileSystem;
     use crate::physical_plan::expressions::*;
+    use crate::physical_plan::file_format::{CsvExec, PhysicalPlanConfig};
     use crate::physical_plan::ExecutionPlan;
     use crate::scalar::ScalarValue;
     use crate::test;
+    use crate::test_util;
     use crate::{logical_plan::Operator, physical_plan::collect};
     use std::iter::Iterator;
 
     #[tokio::test]
     async fn simple_predicate() -> Result<()> {
-        let schema = test::aggr_test_schema();
+        let schema = test_util::aggr_test_schema();
 
         let partitions = 4;
-        let path = test::create_partitioned_csv("aggregate_test_100.csv", partitions)?;
+        let (_, files) =
+            test::create_partitioned_csv("aggregate_test_100.csv", partitions)?;
 
-        let csv = CsvExec::try_new(
-            &path,
-            CsvReadOptions::new().schema(&schema),
-            None,
-            1024,
-            None,
-        )?;
+        let csv = CsvExec::new(
+            PhysicalPlanConfig {
+                object_store: Arc::new(LocalFileSystem {}),
+                file_schema: Arc::clone(&schema),
+                file_groups: files,
+                statistics: Statistics::default(),
+                projection: None,
+                batch_size: 1024,
+                limit: None,
+                table_partition_cols: vec![],
+            },
+            true,
+            b',',
+        );
 
         let predicate: Arc<dyn PhysicalExpr> = binary(
             binary(

@@ -10,13 +10,9 @@ members = [
     "crates/test_utils",
     "crates/tests_integ",
     "crates/arrow",
-    "crates/arrow-flight",
     "crates/datafusion",
     "crates/datafusion_tests",
     "crates/parquet",
-    "crates/ballista/rust/core",
-    "crates/ballista/rust/executor",
-    "crates/ballista/rust/scheduler",
     "crates/server_mysql"
 ]
 

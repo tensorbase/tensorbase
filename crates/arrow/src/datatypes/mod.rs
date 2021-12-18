@@ -208,6 +208,66 @@ mod tests {
     }
 
     #[test]
+    fn map_field_to_json() {
+        let f = Field::new(
+            "my_map",
+            DataType::Map(
+                Box::new(Field::new(
+                    "my_entries",
+                    DataType::Struct(vec![
+                        Field::new("my_keys", DataType::Utf8, false),
+                        Field::new("my_values", DataType::UInt16, true),
+                    ]),
+                    false,
+                )),
+                true,
+            ),
+            false,
+        );
+        let value: Value = serde_json::from_str(
+            r#"{
+                "name": "my_map",
+                "nullable": false,
+                "type": {
+                    "name": "map",
+                    "keysSorted": true
+                },
+                "children": [
+                    {
+                        "name": "my_entries",
+                        "nullable": false,
+                        "type": {
+                            "name": "struct"
+                        },
+                        "children": [
+                            {
+                                "name": "my_keys",
+                                "nullable": false,
+                                "type": {
+                                    "name": "utf8"
+                                },
+                                "children": []
+                            },
+                            {
+                                "name": "my_values",
+                                "nullable": true,
+                                "type": {
+                                    "name": "int",
+                                    "bitWidth": 16,
+                                    "isSigned": false
+                                },
+                                "children": []
+                            }
+                        ]
+                    }
+                ]
+            }"#,
+        )
+        .unwrap();
+        assert_eq!(value, f.to_json());
+    }
+
+    #[test]
     fn primitive_field_to_json() {
         let f = Field::new("first_name", DataType::Utf8, false);
         let value: Value = serde_json::from_str(
@@ -263,6 +323,69 @@ mod tests {
                 Field::new("street", DataType::Utf8, false),
                 Field::new("zip", DataType::UInt16, false),
             ]),
+            false,
+        );
+
+        assert_eq!(expected, dt);
+    }
+
+    #[test]
+    fn parse_map_from_json() {
+        let json = r#"
+        {
+            "name": "my_map",
+            "nullable": false,
+            "type": {
+                "name": "map",
+                "keysSorted": true
+            },
+            "children": [
+                {
+                    "name": "my_entries",
+                    "nullable": false,
+                    "type": {
+                        "name": "struct"
+                    },
+                    "children": [
+                        {
+                            "name": "my_keys",
+                            "nullable": false,
+                            "type": {
+                                "name": "utf8"
+                            },
+                            "children": []
+                        },
+                        {
+                            "name": "my_values",
+                            "nullable": true,
+                            "type": {
+                                "name": "int",
+                                "bitWidth": 16,
+                                "isSigned": false
+                            },
+                            "children": []
+                        }
+                    ]
+                }
+            ]
+        }
+        "#;
+        let value: Value = serde_json::from_str(json).unwrap();
+        let dt = Field::from(&value).unwrap();
+
+        let expected = Field::new(
+            "my_map",
+            DataType::Map(
+                Box::new(Field::new(
+                    "my_entries",
+                    DataType::Struct(vec![
+                        Field::new("my_keys", DataType::Utf8, false),
+                        Field::new("my_values", DataType::UInt16, true),
+                    ]),
+                    false,
+                )),
+                true,
+            ),
             false,
         );
 
@@ -395,6 +518,21 @@ mod tests {
                         true,
                     ))),
                     true,
+                ),
+                Field::new(
+                    "c35",
+                    DataType::Map(
+                        Box::new(Field::new(
+                            "my_entries",
+                            DataType::Struct(vec![
+                                Field::new("my_keys", DataType::Utf8, false),
+                                Field::new("my_values", DataType::UInt16, true),
+                            ]),
+                            false,
+                        )),
+                        true,
+                    ),
+                    false,
                 ),
             ],
             metadata,
@@ -790,17 +928,54 @@ mod tests {
                                 ]
                             }
                         ]
+                    },
+                    {
+                        "name": "c35",
+                        "nullable": false,
+                        "type": {
+                            "name": "map",
+                            "keysSorted": true
+                        },
+                        "children": [
+                            {
+                                "name": "my_entries",
+                                "nullable": false,
+                                "type": {
+                                    "name": "struct"
+                                },
+                                "children": [
+                                    {
+                                        "name": "my_keys",
+                                        "nullable": false,
+                                        "type": {
+                                            "name": "utf8"
+                                        },
+                                        "children": []
+                                    },
+                                    {
+                                        "name": "my_values",
+                                        "nullable": true,
+                                        "type": {
+                                            "name": "int",
+                                            "bitWidth": 16,
+                                            "isSigned": false
+                                        },
+                                        "children": []
+                                    }
+                                ]
+                            }
+                        ]
                     }
                 ],
                 "metadata" : {
                     "Key": "Value"
                 }
             }"#;
-        let value: Value = serde_json::from_str(&json).unwrap();
+        let value: Value = serde_json::from_str(json).unwrap();
         assert_eq!(expected, value);
 
         // convert back to a schema
-        let value: Value = serde_json::from_str(&json).unwrap();
+        let value: Value = serde_json::from_str(json).unwrap();
         let schema2 = Schema::from(&value).unwrap();
 
         assert_eq!(schema, schema2);
@@ -819,7 +994,7 @@ mod tests {
                 ],
                 "metadata": {}
             }"#;
-        let value: Value = serde_json::from_str(&json).unwrap();
+        let value: Value = serde_json::from_str(json).unwrap();
         let schema = Schema::from(&value).unwrap();
         assert!(schema.metadata.is_empty());
 
@@ -836,7 +1011,7 @@ mod tests {
                     }
                 ]
             }"#;
-        let value: Value = serde_json::from_str(&json).unwrap();
+        let value: Value = serde_json::from_str(json).unwrap();
         let schema = Schema::from(&value).unwrap();
         assert!(schema.metadata.is_empty());
     }

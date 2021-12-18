@@ -308,6 +308,14 @@ pub(crate) fn get_data_type(field: ipc::Field, may_be_dictionary: bool) -> DataT
 
             DataType::Struct(fields)
         }
+        ipc::Type::Map => {
+            let map = field.type_as_map().unwrap();
+            let children = field.children().unwrap();
+            if children.len() != 1 {
+                panic!("expect a map to have one child")
+            }
+            DataType::Map(Box::new(children.get(0).into()), map.keysSorted())
+        }
         ipc::Type::Decimal => {
             let fsb = field.type_as_decimal().unwrap();
             DataType::Decimal(fsb.precision() as usize, fsb.scale() as usize)
@@ -602,26 +610,22 @@ pub(crate) fn get_fb_field_type<'a>(
             // struct's fields are children
             let mut children = vec![];
             for field in fields {
-                let inner_types =
-                    get_fb_field_type(field.data_type(), field.is_nullable(), fbb);
-                let field_name = fbb.create_string(field.name());
-                children.push(ipc::Field::create(
-                    fbb,
-                    &ipc::FieldArgs {
-                        name: Some(field_name),
-                        nullable: field.is_nullable(),
-                        type_type: inner_types.type_type,
-                        type_: Some(inner_types.type_),
-                        dictionary: None,
-                        children: inner_types.children,
-                        custom_metadata: None,
-                    },
-                ));
+                children.push(build_field(fbb, field));
             }
             FBFieldType {
                 type_type: ipc::Type::Struct_,
                 type_: ipc::Struct_Builder::new(fbb).finish().as_union_value(),
                 children: Some(fbb.create_vector(&children[..])),
+            }
+        }
+        Map(map_field, keys_sorted) => {
+            let child = build_field(fbb, map_field);
+            let mut field_type = ipc::MapBuilder::new(fbb);
+            field_type.add_keysSorted(*keys_sorted);
+            FBFieldType {
+                type_type: ipc::Type::Map,
+                type_: field_type.finish().as_union_value(),
+                children: Some(fbb.create_vector(&[child])),
             }
         }
         Dictionary(_, value_type) => {
@@ -771,6 +775,18 @@ mod tests {
                         ]),
                         true,
                     ))),
+                    false,
+                ),
+                Field::new(
+                    "struct<dictionary<int32, utf8>>",
+                    DataType::Struct(vec![Field::new(
+                        "dictionary<int32, utf8>",
+                        DataType::Dictionary(
+                            Box::new(DataType::Int32),
+                            Box::new(DataType::Utf8),
+                        ),
+                        false,
+                    )]),
                     false,
                 ),
                 Field::new(

@@ -1,14 +1,3 @@
-use std::ptr::NonNull;
-
-use crate::{
-    alloc,
-    bytes::{Bytes, Deallocation},
-    datatypes::{ArrowNativeType, ToByteSlice},
-    util::bit_util,
-};
-
-use super::Buffer;
-
 // Licensed to the Apache Software Foundation (ASF) under one
 // or more contributor license agreements.  See the NOTICE file
 // distributed with this work for additional information
@@ -25,6 +14,15 @@ use super::Buffer;
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+
+use super::Buffer;
+use crate::{
+    alloc,
+    bytes::{Bytes, Deallocation},
+    datatypes::{ArrowNativeType, ToByteSlice},
+    util::bit_util,
+};
+use std::ptr::NonNull;
 
 /// A [`MutableBuffer`] is Arrow's interface to build a [`Buffer`] out of items or slices of items.
 /// [`Buffer`]s created from [`MutableBuffer`] (via `into`) are guaranteed to have its pointer aligned
@@ -530,12 +528,22 @@ impl MutableBuffer {
             std::ptr::write(dst, item?);
             dst = dst.add(1);
         }
-        assert_eq!(
-            dst.offset_from(buffer.data.as_ptr() as *mut T) as usize,
-            upper,
-            "Trusted iterator length was not accurately reported"
-        );
-        buffer.len = len;
+        // try_from_trusted_len_iter is instantiated a lot, so we extract part of it into a less
+        // generic method to reduce compile time
+        unsafe fn finalize_buffer<T>(
+            dst: *mut T,
+            buffer: &mut MutableBuffer,
+            upper: usize,
+            len: usize,
+        ) {
+            assert_eq!(
+                dst.offset_from(buffer.data.as_ptr() as *mut T) as usize,
+                upper,
+                "Trusted iterator length was not accurately reported"
+            );
+            buffer.len = len;
+        }
+        finalize_buffer(dst, &mut buffer, upper, len);
         Ok(buffer)
     }
 }

@@ -20,7 +20,8 @@
 use async_trait::async_trait;
 use std::{
     any::Any,
-    sync::Arc,
+    pin::Pin,
+    sync::{Arc, Weak},
     task::{Context, Poll},
 };
 use tokio::sync::Barrier;
@@ -30,12 +31,15 @@ use arrow::{
     error::{ArrowError, Result as ArrowResult},
     record_batch::RecordBatch,
 };
-use futures::{Stream, StreamExt};
-use tokio_stream::wrappers::ReceiverStream;
+use futures::Stream;
 
-use crate::error::{DataFusionError, Result};
 use crate::physical_plan::{
-    ExecutionPlan, Partitioning, RecordBatchStream, SendableRecordBatchStream,
+    common, DisplayFormatType, ExecutionPlan, Partitioning, RecordBatchStream,
+    SendableRecordBatchStream, Statistics,
+};
+use crate::{
+    error::{DataFusionError, Result},
+    physical_plan::stream::RecordBatchReceiverStream,
 };
 
 /// Index into the data that has been returned so far
@@ -161,8 +165,6 @@ impl ExecutionPlan for MockExec {
     async fn execute(&self, partition: usize) -> Result<SendableRecordBatchStream> {
         assert_eq!(partition, 0);
 
-        let schema = self.schema();
-
         // Result doesn't implement clone, so do it ourself
         let data: Vec<_> = self
             .data
@@ -178,7 +180,7 @@ impl ExecutionPlan for MockExec {
         // task simply sends data in order but in a separate
         // thread (to ensure the batches are not available without the
         // DelayedStream yielding).
-        tokio::task::spawn(async move {
+        let join_handle = tokio::task::spawn(async move {
             for batch in data {
                 println!("Sending batch via delayed stream");
                 if let Err(e) = tx.send(batch).await {
@@ -188,11 +190,39 @@ impl ExecutionPlan for MockExec {
         });
 
         // returned stream simply reads off the rx stream
-        let stream = DelayedStream {
-            schema,
-            inner: ReceiverStream::new(rx),
-        };
-        Ok(Box::pin(stream))
+        Ok(RecordBatchReceiverStream::create(
+            &self.schema,
+            rx,
+            join_handle,
+        ))
+    }
+
+    fn fmt_as(
+        &self,
+        t: DisplayFormatType,
+        f: &mut std::fmt::Formatter,
+    ) -> std::fmt::Result {
+        match t {
+            DisplayFormatType::Default => {
+                write!(f, "MockExec")
+            }
+        }
+    }
+
+    // Panics if one of the batches is an error
+    fn statistics(&self) -> Statistics {
+        let data: ArrowResult<Vec<_>> = self
+            .data
+            .iter()
+            .map(|r| match r {
+                Ok(batch) => Ok(batch.clone()),
+                Err(e) => Err(clone_error(e)),
+            })
+            .collect();
+
+        let data = data.unwrap();
+
+        common::compute_record_batch_statistics(&[data], &self.schema, None)
     }
 }
 
@@ -201,29 +231,6 @@ fn clone_error(e: &ArrowError) -> ArrowError {
     match e {
         ComputeError(msg) => ComputeError(msg.to_string()),
         _ => unimplemented!(),
-    }
-}
-
-#[derive(Debug)]
-pub struct DelayedStream {
-    schema: SchemaRef,
-    inner: ReceiverStream<ArrowResult<RecordBatch>>,
-}
-
-impl Stream for DelayedStream {
-    type Item = ArrowResult<RecordBatch>;
-
-    fn poll_next(
-        mut self: std::pin::Pin<&mut Self>,
-        cx: &mut Context<'_>,
-    ) -> Poll<Option<Self::Item>> {
-        self.inner.poll_next_unpin(cx)
-    }
-}
-
-impl RecordBatchStream for DelayedStream {
-    fn schema(&self) -> SchemaRef {
-        Arc::clone(&self.schema)
     }
 }
 
@@ -289,14 +296,12 @@ impl ExecutionPlan for BarrierExec {
     async fn execute(&self, partition: usize) -> Result<SendableRecordBatchStream> {
         assert!(partition < self.data.len());
 
-        let schema = self.schema();
-
         let (tx, rx) = tokio::sync::mpsc::channel(2);
 
         // task simply sends data in order after barrier is reached
         let data = self.data[partition].clone();
         let b = self.barrier.clone();
-        tokio::task::spawn(async move {
+        let join_handle = tokio::task::spawn(async move {
             println!("Partition {} waiting on barrier", partition);
             b.wait().await;
             for batch in data {
@@ -308,11 +313,27 @@ impl ExecutionPlan for BarrierExec {
         });
 
         // returned stream simply reads off the rx stream
-        let stream = DelayedStream {
-            schema,
-            inner: ReceiverStream::new(rx),
-        };
-        Ok(Box::pin(stream))
+        Ok(RecordBatchReceiverStream::create(
+            &self.schema,
+            rx,
+            join_handle,
+        ))
+    }
+
+    fn fmt_as(
+        &self,
+        t: DisplayFormatType,
+        f: &mut std::fmt::Formatter,
+    ) -> std::fmt::Result {
+        match t {
+            DisplayFormatType::Default => {
+                write!(f, "BarrierExec")
+            }
+        }
+    }
+
+    fn statistics(&self) -> Statistics {
+        common::compute_record_batch_statistics(&self.data, &self.schema, None)
     }
 }
 
@@ -364,4 +385,230 @@ impl ExecutionPlan for ErrorExec {
             partition
         )))
     }
+
+    fn fmt_as(
+        &self,
+        t: DisplayFormatType,
+        f: &mut std::fmt::Formatter,
+    ) -> std::fmt::Result {
+        match t {
+            DisplayFormatType::Default => {
+                write!(f, "ErrorExec")
+            }
+        }
+    }
+
+    fn statistics(&self) -> Statistics {
+        Statistics::default()
+    }
+}
+
+/// A mock execution plan that simply returns the provided statistics
+#[derive(Debug, Clone)]
+pub struct StatisticsExec {
+    stats: Statistics,
+    schema: Arc<Schema>,
+}
+impl StatisticsExec {
+    pub fn new(stats: Statistics, schema: Schema) -> Self {
+        assert!(
+            stats
+                .column_statistics
+                .as_ref()
+                .map(|cols| cols.len() == schema.fields().len())
+                .unwrap_or(true),
+            "if defined, the column statistics vector length should be the number of fields"
+        );
+        Self {
+            stats,
+            schema: Arc::new(schema),
+        }
+    }
+}
+#[async_trait]
+impl ExecutionPlan for StatisticsExec {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+
+    fn schema(&self) -> SchemaRef {
+        Arc::clone(&self.schema)
+    }
+
+    fn output_partitioning(&self) -> Partitioning {
+        Partitioning::UnknownPartitioning(2)
+    }
+
+    fn children(&self) -> Vec<Arc<dyn ExecutionPlan>> {
+        vec![]
+    }
+
+    fn with_new_children(
+        &self,
+        children: Vec<Arc<dyn ExecutionPlan>>,
+    ) -> Result<Arc<dyn ExecutionPlan>> {
+        if children.is_empty() {
+            Ok(Arc::new(self.clone()))
+        } else {
+            Err(DataFusionError::Internal(
+                "Children cannot be replaced in CustomExecutionPlan".to_owned(),
+            ))
+        }
+    }
+
+    async fn execute(&self, _partition: usize) -> Result<SendableRecordBatchStream> {
+        unimplemented!("This plan only serves for testing statistics")
+    }
+
+    fn statistics(&self) -> Statistics {
+        self.stats.clone()
+    }
+
+    fn fmt_as(
+        &self,
+        t: DisplayFormatType,
+        f: &mut std::fmt::Formatter,
+    ) -> std::fmt::Result {
+        match t {
+            DisplayFormatType::Default => {
+                write!(
+                    f,
+                    "StatisticsExec: col_count={}, row_count={:?}",
+                    self.schema.fields().len(),
+                    self.stats.num_rows,
+                )
+            }
+        }
+    }
+}
+
+/// Execution plan that emits streams that block forever.
+///
+/// This is useful to test shutdown / cancelation behavior of certain execution plans.
+#[derive(Debug)]
+pub struct BlockingExec {
+    /// Schema that is mocked by this plan.
+    schema: SchemaRef,
+
+    /// Number of output partitions.
+    n_partitions: usize,
+
+    /// Ref-counting helper to check if the plan and the produced stream are still in memory.
+    refs: Arc<()>,
+}
+
+impl BlockingExec {
+    /// Create new [`BlockingExec`] with a give schema and number of partitions.
+    pub fn new(schema: SchemaRef, n_partitions: usize) -> Self {
+        Self {
+            schema,
+            n_partitions,
+            refs: Default::default(),
+        }
+    }
+
+    /// Weak pointer that can be used for ref-counting this execution plan and its streams.
+    ///
+    /// Use [`Weak::strong_count`] to determine if the plan itself and its streams are dropped (should be 0 in that
+    /// case). Note that tokio might take some time to cancel spawned tasks, so you need to wrap this check into a retry
+    /// loop. Use [`assert_strong_count_converges_to_zero`] to archive this.
+    pub fn refs(&self) -> Weak<()> {
+        Arc::downgrade(&self.refs)
+    }
+}
+
+#[async_trait]
+impl ExecutionPlan for BlockingExec {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+
+    fn schema(&self) -> SchemaRef {
+        Arc::clone(&self.schema)
+    }
+
+    fn children(&self) -> Vec<Arc<dyn ExecutionPlan>> {
+        // this is a leaf node and has no children
+        vec![]
+    }
+
+    fn output_partitioning(&self) -> Partitioning {
+        Partitioning::UnknownPartitioning(self.n_partitions)
+    }
+
+    fn with_new_children(
+        &self,
+        _: Vec<Arc<dyn ExecutionPlan>>,
+    ) -> Result<Arc<dyn ExecutionPlan>> {
+        Err(DataFusionError::Internal(format!(
+            "Children cannot be replaced in {:?}",
+            self
+        )))
+    }
+
+    async fn execute(&self, _partition: usize) -> Result<SendableRecordBatchStream> {
+        Ok(Box::pin(BlockingStream {
+            schema: Arc::clone(&self.schema),
+            _refs: Arc::clone(&self.refs),
+        }))
+    }
+
+    fn fmt_as(
+        &self,
+        t: DisplayFormatType,
+        f: &mut std::fmt::Formatter,
+    ) -> std::fmt::Result {
+        match t {
+            DisplayFormatType::Default => {
+                write!(f, "BlockingExec",)
+            }
+        }
+    }
+
+    fn statistics(&self) -> Statistics {
+        unimplemented!()
+    }
+}
+
+/// A [`RecordBatchStream`] that is pending forever.
+#[derive(Debug)]
+pub struct BlockingStream {
+    /// Schema mocked by this stream.
+    schema: SchemaRef,
+
+    /// Ref-counting helper to check if the stream are still in memory.
+    _refs: Arc<()>,
+}
+
+impl Stream for BlockingStream {
+    type Item = ArrowResult<RecordBatch>;
+
+    fn poll_next(
+        self: Pin<&mut Self>,
+        _cx: &mut Context<'_>,
+    ) -> Poll<Option<Self::Item>> {
+        Poll::Pending
+    }
+}
+
+impl RecordBatchStream for BlockingStream {
+    fn schema(&self) -> SchemaRef {
+        Arc::clone(&self.schema)
+    }
+}
+
+/// Asserts that the strong count of the given [`Weak`] pointer converges to zero.
+///
+/// This might take a while but has a timeout.
+pub async fn assert_strong_count_converges_to_zero<T>(refs: Weak<T>) {
+    tokio::time::timeout(std::time::Duration::from_secs(10), async {
+        loop {
+            if dbg!(Weak::strong_count(&refs)) == 0 {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .unwrap();
 }

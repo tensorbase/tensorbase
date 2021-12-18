@@ -18,6 +18,7 @@
 //! SQL Query Planner (produces logical plan from SQL AST)
 
 use std::collections::HashSet;
+use std::iter;
 use std::str::FromStr;
 use std::sync::Arc;
 use std::{convert::TryInto, vec};
@@ -27,40 +28,46 @@ use crate::datasource::TableProvider;
 use crate::logical_plan::window_frames::{WindowFrame, WindowFrameUnits};
 use crate::logical_plan::Expr::Alias;
 use crate::logical_plan::{
-    and, builder::expand_wildcard, col, lit, normalize_col, union_with_alias, Column, DFSchema,
-    Expr, LogicalPlan, LogicalPlanBuilder, Operator, PlanType, StringifiedPlan, ToDFSchema,
+    and, builder::expand_wildcard, col, lit, normalize_col, union_with_alias, Column,
+    CreateExternalTable as PlanCreateExternalTable, CreateMemoryTable, DFSchema,
+    DFSchemaRef, DropTable, Expr, LogicalPlan, LogicalPlanBuilder, Operator, PlanType,
+    ToDFSchema, ToStringifiedPlan,
 };
+use crate::optimizer::utils::exprlist_to_columns;
 use crate::prelude::JoinType;
 use crate::scalar::ScalarValue;
+use crate::sql::utils::make_decimal_type;
 use crate::{
     error::{DataFusionError, Result},
     physical_plan::udaf::AggregateUDF,
 };
 use crate::{
     physical_plan::udf::ScalarUDF,
-    physical_plan::{aggregates, clickhouse, functions, window_functions},
+    physical_plan::{aggregates, functions, window_functions},
     sql::parser::{CreateExternalTable, FileType, Statement as DFStatement},
 };
 use arrow::datatypes::*;
 use hashbrown::HashMap;
 use sqlparser::ast::{
-    BinaryOperator, DataType as SQLDataType, DateTimeField, Expr as SQLExpr, FunctionArg, Ident,
-    Join, JoinConstraint, JoinOperator, ObjectName, Query, Select, SelectItem, SetExpr,
-    SetOperator, ShowStatementFilter, TableFactor, TableWithJoins, UnaryOperator, Value,
+    BinaryOperator, DataType as SQLDataType, DateTimeField, Expr as SQLExpr, FunctionArg,
+    HiveDistributionStyle, Ident, Join, JoinConstraint, JoinOperator, ObjectName, Query,
+    Select, SelectItem, SetExpr, SetOperator, ShowStatementFilter, TableFactor,
+    TableWithJoins, TrimWhereField, UnaryOperator, Value, Values as SQLValues,
 };
 use sqlparser::ast::{ColumnDef as SQLColumnDef, ColumnOption};
-use sqlparser::ast::{OrderByExpr, Statement};
+use sqlparser::ast::{ObjectType, OrderByExpr, Statement};
 use sqlparser::parser::ParserError::ParserError;
-use sqlparser::ast::Ident as AstIdent;
 
 use super::{
     parser::DFParser,
     utils::{
-        can_columns_satisfy_exprs, expr_as_column_expr, extract_aliases, find_aggregate_exprs,
-        find_column_exprs, find_window_exprs, group_window_expr_by_sort_keys, rebase_expr,
+        can_columns_satisfy_exprs, expr_as_column_expr, extract_aliases,
+        find_aggregate_exprs, find_column_exprs, find_window_exprs, rebase_expr,
         resolve_aliases_to_exprs, resolve_positions_to_exprs,
     },
 };
+use crate::logical_plan::builder::project_with_alias;
+use crate::logical_plan::plan::{Analyze, Explain};
 
 /// The ContextProvider trait allows the query planner to obtain meta-data about tables and
 /// functions referenced in SQL statements
@@ -76,6 +83,32 @@ pub trait ContextProvider {
 /// SQL query planner
 pub struct SqlToRel<'a, S: ContextProvider> {
     schema_provider: &'a S,
+}
+
+fn plan_key(key: Value) -> ScalarValue {
+    match key {
+        Value::Number(s, _) => ScalarValue::Int64(Some(s.parse().unwrap())),
+        Value::SingleQuotedString(s) => ScalarValue::Utf8(Some(s)),
+        _ => unreachable!(),
+    }
+}
+
+#[allow(clippy::branches_sharing_code)]
+fn plan_indexed(expr: Expr, mut keys: Vec<Value>) -> Expr {
+    if keys.len() == 1 {
+        let key = keys.pop().unwrap();
+        Expr::GetIndexedField {
+            expr: Box::new(expr),
+            key: plan_key(key),
+        }
+    } else {
+        let key = keys.pop().unwrap();
+        let expr = Box::new(plan_indexed(expr, keys));
+        Expr::GetIndexedField {
+            expr,
+            key: plan_key(key),
+        }
+    }
 }
 
 impl<'a, S: ContextProvider> SqlToRel<'a, S> {
@@ -98,19 +131,71 @@ impl<'a, S: ContextProvider> SqlToRel<'a, S> {
             Statement::Explain {
                 verbose,
                 statement,
-                analyze: _,
-            } => self.explain_statement_to_plan(*verbose, statement),
+                analyze,
+                describe_alias: _,
+            } => self.explain_statement_to_plan(*verbose, *analyze, statement),
             Statement::Query(query) => self.query_to_plan(query),
             Statement::ShowVariable { variable } => self.show_variable_to_plan(variable),
+            Statement::CreateTable {
+                query: Some(query),
+                name,
+                or_replace: false,
+                columns,
+                constraints,
+                hive_distribution: HiveDistributionStyle::NONE,
+                hive_formats: _hive_formats,
+                table_properties,
+                with_options,
+                file_format: None,
+                location: None,
+                like: None,
+                temporary: _temporary,
+                external: false,
+                if_not_exists: false,
+                without_rowid: _without_row_id,
+            } if columns.is_empty()
+                && constraints.is_empty()
+                && table_properties.is_empty()
+                && with_options.is_empty() =>
+            {
+                let plan = self.query_to_plan(query)?;
+
+                Ok(LogicalPlan::CreateMemoryTable(CreateMemoryTable {
+                    name: name.to_string(),
+                    input: Arc::new(plan),
+                }))
+            }
+            Statement::CreateTable { .. } => Err(DataFusionError::NotImplemented(
+                "Only `CREATE TABLE table_name AS SELECT ...` statement is supported"
+                    .to_string(),
+            )),
+
+            Statement::Drop {
+                object_type: ObjectType::Table,
+                if_exists,
+                names,
+                cascade: _,
+                purge: _,
+            } =>
+            // We don't support cascade and purge for now.
+            {
+                Ok(LogicalPlan::DropTable(DropTable {
+                    name: names.get(0).unwrap().to_string(),
+                    if_exist: *if_exists,
+                    schema: DFSchemaRef::new(DFSchema::empty()),
+                }))
+            }
+
             Statement::ShowColumns {
                 extended,
                 full,
                 table_name,
                 filter,
             } => self.show_columns_to_plan(*extended, *full, table_name, filter.as_ref()),
-            _ => Err(DataFusionError::NotImplemented(
-                "Only SELECT statements are implemented".to_string(),
-            )),
+            _ => Err(DataFusionError::NotImplemented(format!(
+                "Unsupported SQL statement: {:?}",
+                sql
+            ))),
         }
     }
 
@@ -154,23 +239,38 @@ impl<'a, S: ContextProvider> SqlToRel<'a, S> {
         ctes: &mut HashMap<String, LogicalPlan>,
     ) -> Result<LogicalPlan> {
         match set_expr {
-            SetExpr::Select(s) => self.select_to_plan(s.as_ref(), ctes),
+            SetExpr::Select(s) => self.select_to_plan(s.as_ref(), ctes, alias),
+            SetExpr::Values(v) => self.sql_values_to_plan(v),
             SetExpr::SetOperation {
                 op,
                 left,
                 right,
                 all,
-            } => match (op, all) {
-                (SetOperator::Union, true) => {
-                    let left_plan = self.set_expr_to_plan(left.as_ref(), None, ctes)?;
-                    let right_plan = self.set_expr_to_plan(right.as_ref(), None, ctes)?;
-                    union_with_alias(left_plan, right_plan, alias)
+            } => {
+                let left_plan = self.set_expr_to_plan(left.as_ref(), None, ctes)?;
+                let right_plan = self.set_expr_to_plan(right.as_ref(), None, ctes)?;
+                match (op, all) {
+                    (SetOperator::Union, true) => {
+                        union_with_alias(left_plan, right_plan, alias)
+                    }
+                    (SetOperator::Union, false) => {
+                        let union_plan = union_with_alias(left_plan, right_plan, alias)?;
+                        LogicalPlanBuilder::from(union_plan).distinct()?.build()
+                    }
+                    (SetOperator::Intersect, true) => {
+                        LogicalPlanBuilder::intersect(left_plan, right_plan, true)
+                    }
+                    (SetOperator::Intersect, false) => {
+                        LogicalPlanBuilder::intersect(left_plan, right_plan, false)
+                    }
+                    (SetOperator::Except, true) => {
+                        LogicalPlanBuilder::except(left_plan, right_plan, true)
+                    }
+                    (SetOperator::Except, false) => {
+                        LogicalPlanBuilder::except(left_plan, right_plan, false)
+                    }
                 }
-                _ => Err(DataFusionError::NotImplemented(format!(
-                    "Only UNION ALL is supported, found {}",
-                    op
-                ))),
-            },
+            }
             _ => Err(DataFusionError::NotImplemented(format!(
                 "Query {} not implemented yet",
                 set_expr
@@ -179,7 +279,10 @@ impl<'a, S: ContextProvider> SqlToRel<'a, S> {
     }
 
     /// Generate a logical plan from a CREATE EXTERNAL TABLE statement
-    pub fn external_table_to_plan(&self, statement: &CreateExternalTable) -> Result<LogicalPlan> {
+    pub fn external_table_to_plan(
+        &self,
+        statement: &CreateExternalTable,
+    ) -> Result<LogicalPlan> {
         let CreateExternalTable {
             name,
             columns,
@@ -190,32 +293,28 @@ impl<'a, S: ContextProvider> SqlToRel<'a, S> {
 
         // semantic checks
         match *file_type {
-            FileType::CSV => {
-                if columns.is_empty() {
-                    return Err(DataFusionError::Plan(
-                        "Column definitions required for CSV files. None found".into(),
-                    ));
-                }
-            }
+            FileType::CSV => {}
             FileType::Parquet => {
                 if !columns.is_empty() {
                     return Err(DataFusionError::Plan(
-                        "Column definitions can not be specified for PARQUET files.".into(),
+                        "Column definitions can not be specified for PARQUET files."
+                            .into(),
                     ));
                 }
             }
             FileType::NdJson => {}
+            FileType::Avro => {}
         };
 
         let schema = self.build_schema(columns)?;
 
-        Ok(LogicalPlan::CreateExternalTable {
+        Ok(LogicalPlan::CreateExternalTable(PlanCreateExternalTable {
             schema: schema.to_dfschema_ref()?,
             name: name.clone(),
             location: location.clone(),
             file_type: *file_type,
             has_header: *has_header,
-        })
+        }))
     }
 
     /// Generate a plan for EXPLAIN ... that will print out a plan
@@ -223,24 +322,30 @@ impl<'a, S: ContextProvider> SqlToRel<'a, S> {
     pub fn explain_statement_to_plan(
         &self,
         verbose: bool,
+        analyze: bool,
         statement: &Statement,
     ) -> Result<LogicalPlan> {
         let plan = self.sql_statement_to_plan(statement)?;
-
-        let stringified_plans = vec![StringifiedPlan::new(
-            PlanType::LogicalPlan,
-            format!("{:#?}", plan),
-        )];
-
-        let schema = LogicalPlan::explain_schema();
         let plan = Arc::new(plan);
+        let schema = LogicalPlan::explain_schema();
+        let schema = schema.to_dfschema_ref()?;
 
-        Ok(LogicalPlan::Explain {
-            verbose,
-            plan,
-            stringified_plans,
-            schema: schema.to_dfschema_ref()?,
-        })
+        if analyze {
+            Ok(LogicalPlan::Analyze(Analyze {
+                verbose,
+                input: plan,
+                schema,
+            }))
+        } else {
+            let stringified_plans =
+                vec![plan.to_stringified(PlanType::InitialLogicalPlan)];
+            Ok(LogicalPlan::Explain(Explain {
+                verbose,
+                plan,
+                stringified_plans,
+                schema,
+            }))
+        }
     }
 
     fn build_schema(&self, columns: &[SQLColumnDef]) -> Result<Schema> {
@@ -261,17 +366,20 @@ impl<'a, S: ContextProvider> SqlToRel<'a, S> {
     /// Maps the SQL type to the corresponding Arrow `DataType`
     fn make_data_type(&self, sql_type: &SQLDataType) -> Result<DataType> {
         match sql_type {
-            SQLDataType::BigInt => Ok(DataType::Int64),
-            SQLDataType::Int => Ok(DataType::Int32),
-            SQLDataType::SmallInt => Ok(DataType::Int16),
+            SQLDataType::BigInt(_) => Ok(DataType::Int64),
+            SQLDataType::Int(_) => Ok(DataType::Int32),
+            SQLDataType::SmallInt(_) => Ok(DataType::Int16),
             SQLDataType::Char(_) | SQLDataType::Varchar(_) | SQLDataType::Text => {
                 Ok(DataType::Utf8)
             }
-            SQLDataType::Decimal(_, _) => Ok(DataType::Float64),
+            SQLDataType::Decimal(precision, scale) => {
+                make_decimal_type(*precision, *scale)
+            }
             SQLDataType::Float(_) => Ok(DataType::Float32),
-            SQLDataType::Real | SQLDataType::Double => Ok(DataType::Float64),
+            SQLDataType::Real => Ok(DataType::Float32),
+            SQLDataType::Double => Ok(DataType::Float64),
             SQLDataType::Boolean => Ok(DataType::Boolean),
-            //SQLDataType::Date => Ok(DataType::Date32),
+            // SQLDataType::Date => Ok(DataType::Date32),
             SQLDataType::Date => Ok(DataType::Date16),
             SQLDataType::Time => Ok(DataType::Time64(TimeUnit::Millisecond)),
             SQLDataType::Timestamp => Ok(DataType::Timestamp(TimeUnit::Nanosecond, None)),
@@ -323,16 +431,16 @@ impl<'a, S: ContextProvider> SqlToRel<'a, S> {
         let right = self.create_relation(&join.relation, ctes)?;
         match &join.join_operator {
             JoinOperator::LeftOuter(constraint) => {
-                self.parse_join(left, &right, constraint, JoinType::Left)
+                self.parse_join(left, right, constraint, JoinType::Left)
             }
             JoinOperator::RightOuter(constraint) => {
-                self.parse_join(left, &right, constraint, JoinType::Right)
+                self.parse_join(left, right, constraint, JoinType::Right)
             }
             JoinOperator::Inner(constraint) => {
-                self.parse_join(left, &right, constraint, JoinType::Inner)
+                self.parse_join(left, right, constraint, JoinType::Inner)
             }
             JoinOperator::FullOuter(constraint) => {
-                self.parse_join(left, &right, constraint, JoinType::Full)
+                self.parse_join(left, right, constraint, JoinType::Full)
             }
             JoinOperator::CrossJoin => self.parse_cross_join(left, &right),
             other => Err(DataFusionError::NotImplemented(format!(
@@ -341,14 +449,18 @@ impl<'a, S: ContextProvider> SqlToRel<'a, S> {
             ))),
         }
     }
-    fn parse_cross_join(&self, left: LogicalPlan, right: &LogicalPlan) -> Result<LogicalPlan> {
+    fn parse_cross_join(
+        &self,
+        left: LogicalPlan,
+        right: &LogicalPlan,
+    ) -> Result<LogicalPlan> {
         LogicalPlanBuilder::from(left).cross_join(right)?.build()
     }
 
     fn parse_join(
         &self,
         left: LogicalPlan,
-        right: &LogicalPlan,
+        right: LogicalPlan,
         constraint: &JoinConstraint,
         join_type: JoinType,
     ) -> Result<LogicalPlan> {
@@ -366,14 +478,26 @@ impl<'a, S: ContextProvider> SqlToRel<'a, S> {
                 // extract join keys
                 extract_join_keys(&expr, &mut keys, &mut filter);
 
-                let (left_keys, right_keys): (Vec<Column>, Vec<Column>) = keys.into_iter().unzip();
-                // return the logical plan representing the join
-                let join =
-                    LogicalPlanBuilder::from(left).join(right, join_type, left_keys, right_keys)?;
+                let mut cols = HashSet::new();
+                exprlist_to_columns(&filter, &mut cols)?;
 
+                let (left_keys, right_keys): (Vec<Column>, Vec<Column>) =
+                    keys.into_iter().unzip();
+
+                // return the logical plan representing the join
                 if filter.is_empty() {
+                    let join = LogicalPlanBuilder::from(left).join(
+                        &right,
+                        join_type,
+                        (left_keys, right_keys),
+                    )?;
                     join.build()
                 } else if join_type == JoinType::Inner {
+                    let join = LogicalPlanBuilder::from(left).join(
+                        &right,
+                        join_type,
+                        (left_keys, right_keys),
+                    )?;
                     join.filter(
                         filter
                             .iter()
@@ -381,6 +505,64 @@ impl<'a, S: ContextProvider> SqlToRel<'a, S> {
                             .fold(filter[0].clone(), |acc, e| acc.and(e.clone())),
                     )?
                     .build()
+                }
+                // Left join with all non-equijoin expressions from the right
+                // l left join r
+                // on l1=r1 and r2 > [..]
+                else if join_type == JoinType::Left
+                    && cols.iter().all(
+                        |Column {
+                             relation: qualifier,
+                             name,
+                         }| {
+                            right
+                                .schema()
+                                .field_with_name(qualifier.as_deref(), name)
+                                .is_ok()
+                        },
+                    )
+                {
+                    LogicalPlanBuilder::from(left)
+                        .join(
+                            &LogicalPlanBuilder::from(right)
+                                .filter(
+                                    filter
+                                        .iter()
+                                        .skip(1)
+                                        .fold(filter[0].clone(), |acc, e| {
+                                            acc.and(e.clone())
+                                        }),
+                                )?
+                                .build()?,
+                            join_type,
+                            (left_keys, right_keys),
+                        )?
+                        .build()
+                }
+                // Right join with all non-equijoin expressions from the left
+                // l right join r
+                // on l1=r1 and l2 > [..]
+                else if join_type == JoinType::Right
+                    && cols.iter().all(
+                        |Column {
+                             relation: qualifier,
+                             name,
+                         }| {
+                            left.schema()
+                                .field_with_name(qualifier.as_deref(), name)
+                                .is_ok()
+                        },
+                    )
+                {
+                    LogicalPlanBuilder::from(left)
+                        .filter(
+                            filter
+                                .iter()
+                                .skip(1)
+                                .fold(filter[0].clone(), |acc, e| acc.and(e.clone())),
+                        )?
+                        .join(&right, join_type, (left_keys, right_keys))?
+                        .build()
                 } else {
                     Err(DataFusionError::NotImplemented(format!(
                         "Unsupported expressions in {:?} JOIN: {:?}",
@@ -394,7 +576,7 @@ impl<'a, S: ContextProvider> SqlToRel<'a, S> {
                     .map(|x| Column::from_name(x.value.clone()))
                     .collect();
                 LogicalPlanBuilder::from(left)
-                    .join_using(right, join_type, keys)?
+                    .join_using(&right, join_type, keys)?
                     .build()
             }
             JoinConstraint::Natural => {
@@ -414,46 +596,97 @@ impl<'a, S: ContextProvider> SqlToRel<'a, S> {
         relation: &TableFactor,
         ctes: &mut HashMap<String, LogicalPlan>,
     ) -> Result<LogicalPlan> {
-        match relation {
+        let (plan, alias) = match relation {
             TableFactor::Table { name, alias, .. } => {
                 let table_name = name.to_string();
                 let cte = ctes.get(&table_name);
-                match (
-                    cte,
-                    self.schema_provider.get_table_provider(name.try_into()?),
-                ) {
-                    (Some(cte_plan), _) => Ok(cte_plan.clone()),
-                    (_, Some(provider)) => LogicalPlanBuilder::scan(
-                        // take alias into account to support `JOIN table1 as table2`
-                        alias
-                            .as_ref()
-                            .map(|a| a.name.value.as_str())
-                            .unwrap_or(&table_name),
-                        provider,
-                        None,
-                    )?
-                    .build(),
-                    (None, None) => Err(DataFusionError::Plan(format!(
-                        "Table or CTE with name '{}' not found",
-                        name
-                    ))),
-                }
+                (
+                    match (
+                        cte,
+                        self.schema_provider.get_table_provider(name.try_into()?),
+                    ) {
+                        (Some(cte_plan), _) => Ok(cte_plan.clone()),
+                        (_, Some(provider)) => LogicalPlanBuilder::scan(
+                            // take alias into account to support `JOIN table1 as table2`
+                            alias
+                                .as_ref()
+                                .map(|a| a.name.value.as_str())
+                                .unwrap_or(&table_name),
+                            provider,
+                            None,
+                        )?
+                        .build(),
+                        (None, None) => Err(DataFusionError::Plan(format!(
+                            "Table or CTE with name '{}' not found",
+                            name
+                        ))),
+                    }?,
+                    alias,
+                )
             }
             TableFactor::Derived {
                 subquery, alias, ..
-            } => self.query_to_plan_with_alias(
-                subquery,
-                alias.as_ref().map(|a| a.name.value.to_string()),
-                ctes,
-            ),
+            } => {
+                // if alias is None, return Err
+                if alias.is_none() {
+                    return Err(DataFusionError::Plan(
+                        "subquery in FROM must have an alias".to_string(),
+                    ));
+                }
+                let logical_plan = self.query_to_plan_with_alias(
+                    subquery,
+                    alias.as_ref().map(|a| a.name.value.to_string()),
+                    ctes,
+                )?;
+                (
+                    project_with_alias(
+                        logical_plan.clone(),
+                        logical_plan
+                            .schema()
+                            .fields()
+                            .iter()
+                            .map(|field| col(field.name())),
+                        alias.as_ref().map(|a| a.name.value.to_string()),
+                    )?,
+                    alias,
+                )
+            }
             TableFactor::NestedJoin(table_with_joins) => {
-                self.plan_table_with_joins(table_with_joins, ctes)
+                (self.plan_table_with_joins(table_with_joins, ctes)?, &None)
             }
             // @todo Support TableFactory::TableFunction?
-            _ => Err(DataFusionError::NotImplemented(format!(
-                "Unsupported ast node {:?} in create_relation",
-                relation
-            ))),
+            _ => {
+                return Err(DataFusionError::NotImplemented(format!(
+                    "Unsupported ast node {:?} in create_relation",
+                    relation
+                )));
+            }
+        };
+        if let Some(alias) = alias {
+            let columns_alias = alias.clone().columns;
+            if columns_alias.is_empty() {
+                // sqlparser-rs encodes AS t as an empty list of column alias
+                Ok(plan)
+            } else if columns_alias.len() != plan.schema().fields().len() {
+                return Err(DataFusionError::Plan(format!(
+                    "Source table contains {} columns but only {} names given as column alias",
+                    plan.schema().fields().len(),
+                    columns_alias.len(),
+                )));
+            } else {
+                Ok(LogicalPlanBuilder::from(plan.clone())
+                    .project_with_alias(
+                        plan.schema()
+                            .fields()
+                            .iter()
+                            .zip(columns_alias.iter())
+                            .map(|(field, ident)| col(field.name()).alias(&ident.value)),
+                        Some(alias.clone().name.value),
+                    )?
+                    .build()?)
+            }
+        } else {
+            Ok(plan)
         }
     }
 
@@ -462,6 +695,7 @@ impl<'a, S: ContextProvider> SqlToRel<'a, S> {
         &self,
         select: &Select,
         ctes: &mut HashMap<String, LogicalPlan>,
+        alias: Option<String>,
     ) -> Result<LogicalPlan> {
         let plans = self.plan_from_tables(&select.from, ctes)?;
 
@@ -498,7 +732,8 @@ impl<'a, S: ContextProvider> SqlToRel<'a, S> {
                         }
                     }
                     if join_keys.is_empty() {
-                        left = LogicalPlanBuilder::from(left).cross_join(right)?.build()?;
+                        left =
+                            LogicalPlanBuilder::from(left).cross_join(right)?.build()?;
                     } else {
                         let left_keys: Vec<Column> =
                             join_keys.iter().map(|(l, _)| l.clone()).collect();
@@ -506,7 +741,7 @@ impl<'a, S: ContextProvider> SqlToRel<'a, S> {
                             join_keys.iter().map(|(_, r)| r.clone()).collect();
                         let builder = LogicalPlanBuilder::from(left);
                         left = builder
-                            .join(right, JoinType::Inner, left_keys, right_keys)?
+                            .join(right, JoinType::Inner, (left_keys, right_keys))?
                             .build()?;
                     }
 
@@ -527,7 +762,8 @@ impl<'a, S: ContextProvider> SqlToRel<'a, S> {
                 } else {
                     let mut left = plans[0].clone();
                     for right in plans.iter().skip(1) {
-                        left = LogicalPlanBuilder::from(left).cross_join(right)?.build()?;
+                        left =
+                            LogicalPlanBuilder::from(left).cross_join(right)?.build()?;
                     }
                     Ok(left)
                 }
@@ -536,7 +772,7 @@ impl<'a, S: ContextProvider> SqlToRel<'a, S> {
         let plan = plan?;
 
         // The SELECT expressions, with wildcards expanded.
-        let select_exprs = self.prepare_select_exprs(&plan, &select.projection)?;
+        let select_exprs = self.prepare_select_exprs(&plan, select)?;
 
         // having and group by clause may reference aliases defined in select projection
         let projected_plan = self.project(plan.clone(), select_exprs.clone())?;
@@ -551,7 +787,8 @@ impl<'a, S: ContextProvider> SqlToRel<'a, S> {
             .having
             .as_ref()
             .map::<Result<Expr>, _>(|having_expr| {
-                let having_expr = self.sql_expr_to_logical_expr(having_expr, &combined_schema)?;
+                let having_expr =
+                    self.sql_expr_to_logical_expr(having_expr, &combined_schema)?;
                 // This step "dereferences" any aliases in the HAVING clause.
                 //
                 // This is how we support queries with HAVING expressions that
@@ -589,41 +826,49 @@ impl<'a, S: ContextProvider> SqlToRel<'a, S> {
             .map(|e| {
                 let group_by_expr = self.sql_expr_to_logical_expr(e, &combined_schema)?;
                 let group_by_expr = resolve_aliases_to_exprs(&group_by_expr, &alias_map)?;
-                let group_by_expr = resolve_positions_to_exprs(&group_by_expr, &select_exprs)
-                    .unwrap_or(group_by_expr);
+                let group_by_expr =
+                    resolve_positions_to_exprs(&group_by_expr, &select_exprs)
+                        .unwrap_or(group_by_expr);
                 let group_by_expr = normalize_col(group_by_expr, &projected_plan)?;
-                self.validate_schema_satisfies_exprs(plan.schema(), &[group_by_expr.clone()])?;
+                self.validate_schema_satisfies_exprs(
+                    plan.schema(),
+                    &[group_by_expr.clone()],
+                )?;
                 Ok(group_by_expr)
             })
             .collect::<Result<Vec<Expr>>>()?;
 
-        let (plan, select_exprs_post_aggr, having_expr_post_aggr_opt) =
-            if !group_by_exprs.is_empty() || !aggr_exprs.is_empty() {
-                self.aggregate(
-                    plan,
-                    &select_exprs,
-                    &having_expr_opt,
-                    group_by_exprs,
-                    aggr_exprs,
-                )?
-            } else {
-                if let Some(having_expr) = &having_expr_opt {
-                    let available_columns = select_exprs
-                        .iter()
-                        .map(|expr| expr_as_column_expr(expr, &plan))
-                        .collect::<Result<Vec<Expr>>>()?;
+        let (plan, select_exprs_post_aggr, having_expr_post_aggr_opt) = if !group_by_exprs
+            .is_empty()
+            || !aggr_exprs.is_empty()
+        {
+            self.aggregate(
+                plan,
+                &select_exprs,
+                &having_expr_opt,
+                group_by_exprs,
+                aggr_exprs,
+            )?
+        } else {
+            if let Some(having_expr) = &having_expr_opt {
+                let available_columns = select_exprs
+                    .iter()
+                    .map(|expr| expr_as_column_expr(expr, &plan))
+                    .collect::<Result<Vec<Expr>>>()?;
 
-                    // Ensure the HAVING expression is using only columns
-                    // provided by the SELECT.
-                    if !can_columns_satisfy_exprs(&available_columns, &[having_expr.clone()])? {
-                        return Err(DataFusionError::Plan(
-                            "Having references column(s) not provided by the select".to_owned(),
-                        ));
-                    }
+                // Ensure the HAVING expression is using only columns
+                // provided by the SELECT.
+                if !can_columns_satisfy_exprs(&available_columns, &[having_expr.clone()])?
+                {
+                    return Err(DataFusionError::Plan(
+                        "Having references column(s) not provided by the select"
+                            .to_owned(),
+                    ));
                 }
+            }
 
-                (plan, select_exprs, having_expr_opt)
-            };
+            (plan, select_exprs, having_expr_opt)
+        };
 
         let plan = if let Some(having_expr_post_aggr) = having_expr_post_aggr_opt {
             LogicalPlanBuilder::from(plan)
@@ -639,18 +884,17 @@ impl<'a, S: ContextProvider> SqlToRel<'a, S> {
         let plan = if window_func_exprs.is_empty() {
             plan
         } else {
-            self.window(plan, window_func_exprs)?
+            LogicalPlanBuilder::window_plan(plan, window_func_exprs)?
         };
 
         let plan = if select.distinct {
             return LogicalPlanBuilder::from(plan)
-                .aggregate(select_exprs_post_aggr, vec![])?
+                .aggregate(select_exprs_post_aggr, iter::empty::<Expr>())?
                 .build();
         } else {
             plan
         };
-
-        self.project(plan, select_exprs_post_aggr)
+        project_with_alias(plan, select_exprs_post_aggr, alias)
     }
 
     /// Returns the `Expr`'s corresponding to a SQL query's SELECT expressions.
@@ -659,10 +903,10 @@ impl<'a, S: ContextProvider> SqlToRel<'a, S> {
     fn prepare_select_exprs(
         &self,
         plan: &LogicalPlan,
-        projection: &[SelectItem],
+        select: &Select,
     ) -> Result<Vec<Expr>> {
         let input_schema = plan.schema();
-
+        let projection = &select.projection;
         projection
             .iter()
             .map(|expr| self.sql_select_to_rex(expr, input_schema))
@@ -670,7 +914,15 @@ impl<'a, S: ContextProvider> SqlToRel<'a, S> {
             .into_iter()
             .map(|expr| {
                 Ok(match expr {
-                    Expr::Wildcard => expand_wildcard(input_schema, plan)?,
+                    Expr::Wildcard => {
+                        if select.from.is_empty() {
+                            return Err(DataFusionError::Plan(
+                                "SELECT * with no tables specified is not valid"
+                                    .to_string(),
+                            ));
+                        }
+                        expand_wildcard(input_schema, plan)?
+                    }
                     _ => vec![normalize_col(expr, plan)?],
                 })
             })
@@ -685,28 +937,6 @@ impl<'a, S: ContextProvider> SqlToRel<'a, S> {
     fn project(&self, input: LogicalPlan, expr: Vec<Expr>) -> Result<LogicalPlan> {
         self.validate_schema_satisfies_exprs(input.schema(), &expr)?;
         LogicalPlanBuilder::from(input).project(expr)?.build()
-    }
-
-    /// Wrap a plan in a window
-    fn window(&self, input: LogicalPlan, window_exprs: Vec<Expr>) -> Result<LogicalPlan> {
-        let mut plan = input;
-        let mut groups = group_window_expr_by_sort_keys(&window_exprs)?;
-        // sort by sort_key len descending, so that more deeply sorted plans gets nested further
-        // down as children; to further mimic the behavior of PostgreSQL, we want stable sort
-        // and a reverse so that tieing sort keys are reversed in order; note that by this rule
-        // if there's an empty over, it'll be at the top level
-        groups.sort_by(|(key_a, _), (key_b, _)| key_a.len().cmp(&key_b.len()));
-        groups.reverse();
-        for (_, exprs) in groups {
-            let window_exprs = exprs.into_iter().cloned().collect::<Vec<_>>();
-            // the partition and sort itself is done at physical level, see physical_planner's
-            // fn create_initial_plan
-            plan = LogicalPlanBuilder::from(plan)
-                .window(window_exprs)?
-                .build()?;
-        }
-
-        Ok(plan)
     }
 
     /// Wrap a plan in an aggregate
@@ -751,7 +981,8 @@ impl<'a, S: ContextProvider> SqlToRel<'a, S> {
         // Rewrite the HAVING expression to use the columns produced by the
         // aggregation.
         let having_expr_post_aggr_opt = if let Some(having_expr) = having_expr_opt {
-            let having_expr_post_aggr = rebase_expr(having_expr, &aggr_projection_exprs, &input)?;
+            let having_expr_post_aggr =
+                rebase_expr(having_expr, &aggr_projection_exprs, &input)?;
 
             if !can_columns_satisfy_exprs(
                 &column_exprs_post_aggr,
@@ -788,7 +1019,11 @@ impl<'a, S: ContextProvider> SqlToRel<'a, S> {
     }
 
     /// Wrap the logical in a sort
-    fn order_by(&self, plan: LogicalPlan, order_by: &[OrderByExpr]) -> Result<LogicalPlan> {
+    fn order_by(
+        &self,
+        plan: LogicalPlan,
+        order_by: &[OrderByExpr],
+    ) -> Result<LogicalPlan> {
         if order_by.is_empty() {
             return Ok(plan);
         }
@@ -803,17 +1038,53 @@ impl<'a, S: ContextProvider> SqlToRel<'a, S> {
 
     /// convert sql OrderByExpr to Expr::Sort
     fn order_by_to_sort_expr(&self, e: &OrderByExpr, schema: &DFSchema) -> Result<Expr> {
-        Ok(Expr::Sort {
-            expr: Box::new(self.sql_expr_to_logical_expr(&e.expr, schema)?),
-            // by default asc
-            asc: e.asc.unwrap_or(true),
-            // by default nulls first to be consistent with spark
-            nulls_first: e.nulls_first.unwrap_or(true),
+        let OrderByExpr {
+            asc,
+            expr,
+            nulls_first,
+        } = e;
+
+        let expr = match &expr {
+            SQLExpr::Value(Value::Number(v, _)) => {
+                let field_index = v
+                    .parse::<usize>()
+                    .map_err(|err| DataFusionError::Plan(err.to_string()))?;
+
+                if field_index == 0 {
+                    return Err(DataFusionError::Plan(
+                        "Order by index starts at 1 for column indexes".to_string(),
+                    ));
+                } else if schema.fields().len() < field_index {
+                    return Err(DataFusionError::Plan(format!(
+                        "Order by column out of bounds, specified: {}, max: {}",
+                        field_index,
+                        schema.fields().len()
+                    )));
+                }
+
+                let field = schema.field(field_index - 1);
+                Expr::Column(field.qualified_column())
+            }
+            e => self.sql_expr_to_logical_expr(e, schema)?,
+        };
+        Ok({
+            let asc = asc.unwrap_or(true);
+            Expr::Sort {
+                expr: Box::new(expr),
+                asc,
+                // when asc is true, by default nulls last to be consistent with postgres
+                // postgres rule: https://www.postgresql.org/docs/current/queries-order.html
+                nulls_first: nulls_first.unwrap_or(!asc),
+            }
         })
     }
 
     /// Validate the schema provides all of the columns referenced in the expressions.
-    fn validate_schema_satisfies_exprs(&self, schema: &DFSchema, exprs: &[Expr]) -> Result<()> {
+    fn validate_schema_satisfies_exprs(
+        &self,
+        schema: &DFSchema,
+        exprs: &[Expr],
+    ) -> Result<()> {
         find_column_exprs(exprs)
             .iter()
             .try_for_each(|col| match col {
@@ -836,8 +1107,7 @@ impl<'a, S: ContextProvider> SqlToRel<'a, S> {
                 .map_err(|_: DataFusionError| {
                     DataFusionError::Plan(format!(
                         "Invalid identifier '{}' for schema {}",
-                        col,
-                        schema.to_string()
+                        col, schema
                     ))
                 }),
                 _ => Err(DataFusionError::Internal("Not a column".to_string())),
@@ -861,28 +1131,170 @@ impl<'a, S: ContextProvider> SqlToRel<'a, S> {
 
     /// Generate a relational expression from a SQL expression
     pub fn sql_to_rex(&self, sql: &SQLExpr, schema: &DFSchema) -> Result<Expr> {
-        let expr = self.sql_expr_to_logical_expr(sql, schema)?;
+        let mut expr = self.sql_expr_to_logical_expr(sql, schema)?;
+        expr = self.rewrite_partial_qualifier(expr, schema);
         self.validate_schema_satisfies_exprs(schema, &[expr.clone()])?;
         Ok(expr)
     }
 
-    fn sql_fn_arg_to_logical_expr(&self, sql: &FunctionArg, schema: &DFSchema) -> Result<Expr> {
+    /// Rewrite aliases which are not-complete (e.g. ones that only include only table qualifier in a schema.table qualified relation)
+    fn rewrite_partial_qualifier(&self, expr: Expr, schema: &DFSchema) -> Expr {
+        match expr {
+            Expr::Column(col) => match &col.relation {
+                Some(q) => {
+                    match schema
+                        .fields()
+                        .iter()
+                        .find(|field| match field.qualifier() {
+                            Some(field_q) => {
+                                field.name() == &col.name
+                                    && field_q.ends_with(&format!(".{}", q))
+                            }
+                            _ => false,
+                        }) {
+                        Some(df_field) => Expr::Column(Column {
+                            relation: df_field.qualifier().cloned(),
+                            name: df_field.name().clone(),
+                        }),
+                        None => Expr::Column(col),
+                    }
+                }
+                None => Expr::Column(col),
+            },
+            _ => expr,
+        }
+    }
+
+    fn sql_fn_arg_to_logical_expr(
+        &self,
+        sql: &FunctionArg,
+        schema: &DFSchema,
+    ) -> Result<Expr> {
         match sql {
-            FunctionArg::Named { name: _, arg } => self.sql_expr_to_logical_expr(arg, schema),
+            FunctionArg::Named { name: _, arg } => {
+                self.sql_expr_to_logical_expr(arg, schema)
+            }
             FunctionArg::Unnamed(value) => self.sql_expr_to_logical_expr(value, schema),
         }
     }
 
+    fn parse_sql_binary_op(
+        &self,
+        left: &SQLExpr,
+        op: &BinaryOperator,
+        right: &SQLExpr,
+        schema: &DFSchema,
+    ) -> Result<Expr> {
+        let operator = match *op {
+            BinaryOperator::Gt => Ok(Operator::Gt),
+            BinaryOperator::GtEq => Ok(Operator::GtEq),
+            BinaryOperator::Lt => Ok(Operator::Lt),
+            BinaryOperator::LtEq => Ok(Operator::LtEq),
+            BinaryOperator::Eq => Ok(Operator::Eq),
+            BinaryOperator::NotEq => Ok(Operator::NotEq),
+            BinaryOperator::Plus => Ok(Operator::Plus),
+            BinaryOperator::Minus => Ok(Operator::Minus),
+            BinaryOperator::Multiply => Ok(Operator::Multiply),
+            BinaryOperator::Divide => Ok(Operator::Divide),
+            BinaryOperator::Modulo => Ok(Operator::Modulo),
+            BinaryOperator::And => Ok(Operator::And),
+            BinaryOperator::Or => Ok(Operator::Or),
+            BinaryOperator::Like => Ok(Operator::Like),
+            BinaryOperator::NotLike => Ok(Operator::NotLike),
+            BinaryOperator::PGRegexMatch => Ok(Operator::RegexMatch),
+            BinaryOperator::PGRegexIMatch => Ok(Operator::RegexIMatch),
+            BinaryOperator::PGRegexNotMatch => Ok(Operator::RegexNotMatch),
+            BinaryOperator::PGRegexNotIMatch => Ok(Operator::RegexNotIMatch),
+            _ => Err(DataFusionError::NotImplemented(format!(
+                "Unsupported SQL binary operator {:?}",
+                op
+            ))),
+        }?;
+
+        Ok(Expr::BinaryExpr {
+            left: Box::new(self.sql_expr_to_logical_expr(left, schema)?),
+            op: operator,
+            right: Box::new(self.sql_expr_to_logical_expr(right, schema)?),
+        })
+    }
+
+    fn parse_sql_unary_op(
+        &self,
+        op: &UnaryOperator,
+        expr: &SQLExpr,
+        schema: &DFSchema,
+    ) -> Result<Expr> {
+        match op {
+            UnaryOperator::Not => Ok(Expr::Not(Box::new(
+                self.sql_expr_to_logical_expr(expr, schema)?,
+            ))),
+            UnaryOperator::Plus => Ok(self.sql_expr_to_logical_expr(expr, schema)?),
+            UnaryOperator::Minus => {
+                match expr {
+                    // optimization: if it's a number literal, we apply the negative operator
+                    // here directly to calculate the new literal.
+                    SQLExpr::Value(Value::Number(n, _)) => match n.parse::<i64>() {
+                        Ok(n) => Ok(lit(-n)),
+                        Err(_) => Ok(lit(-n
+                            .parse::<f64>()
+                            .map_err(|_e| {
+                                DataFusionError::Internal(format!(
+                                    "negative operator can be only applied to integer and float operands, got: {}",
+                                    n))
+                            })?)),
+                    },
+                    // not a literal, apply negative operator on expression
+                    _ => Ok(Expr::Negative(Box::new(self.sql_expr_to_logical_expr(expr, schema)?))),
+                }
+            }
+            _ => Err(DataFusionError::NotImplemented(format!(
+                "Unsupported SQL unary operator {:?}",
+                op
+            ))),
+        }
+    }
+
+    fn sql_values_to_plan(&self, values: &SQLValues) -> Result<LogicalPlan> {
+        // values should not be based on any other schema
+        let schema = DFSchema::empty();
+        let values = values
+            .0
+            .iter()
+            .map(|row| {
+                row.iter()
+                    .map(|v| match v {
+                        SQLExpr::Value(Value::Number(n, _)) => parse_sql_number(n),
+                        SQLExpr::Value(Value::SingleQuotedString(ref s)) => {
+                            Ok(lit(s.clone()))
+                        }
+                        SQLExpr::Value(Value::Null) => {
+                            Ok(Expr::Literal(ScalarValue::Utf8(None)))
+                        }
+                        SQLExpr::Value(Value::Boolean(n)) => Ok(lit(*n)),
+                        SQLExpr::UnaryOp { ref op, ref expr } => {
+                            self.parse_sql_unary_op(op, expr, &schema)
+                        }
+                        SQLExpr::BinaryOp {
+                            ref left,
+                            ref op,
+                            ref right,
+                        } => self.parse_sql_binary_op(left, op, right, &schema),
+                        other => Err(DataFusionError::NotImplemented(format!(
+                            "Unsupported value {:?} in a values list expression",
+                            other
+                        ))),
+                    })
+                    .collect::<Result<Vec<_>>>()
+            })
+            .collect::<Result<Vec<_>>>()?;
+        LogicalPlanBuilder::values(values)?.build()
+    }
+
     fn sql_expr_to_logical_expr(&self, sql: &SQLExpr, schema: &DFSchema) -> Result<Expr> {
         match sql {
-            SQLExpr::Value(Value::Number(n, _)) => match n.parse::<i64>() {
-                Ok(n) => Ok(lit(n)),
-                Err(_) => Ok(lit(n.parse::<f64>().unwrap())),
-            },
+            SQLExpr::Value(Value::Number(n, _)) => parse_sql_number(n),
             SQLExpr::Value(Value::SingleQuotedString(ref s)) => Ok(lit(s.clone())),
-
             SQLExpr::Value(Value::Boolean(n)) => Ok(lit(*n)),
-
             SQLExpr::Value(Value::Null) => Ok(Expr::Literal(ScalarValue::Utf8(None))),
             SQLExpr::Extract { field, expr } => Ok(Expr::ScalarFunction {
                 fun: functions::BuiltinScalarFunction::DatePart,
@@ -911,29 +1323,48 @@ impl<'a, S: ContextProvider> SqlToRel<'a, S> {
                     let var_names = vec![id.value.clone()];
                     Ok(Expr::ScalarVariable(var_names))
                 } else {
-                    // create a column expression based on raw user input, this column will be
-                    // normalized with qualifer later by the SQL planner.
-                    Ok(col(&id.value))
+                    // Don't use `col()` here because it will try to
+                    // interpret names with '.' as if they were
+                    // compound indenfiers, but this is not a compound
+                    // identifier. (e.g. it is "foo.bar" not foo.bar)
+                    Ok(Expr::Column(Column {
+                        relation: None,
+                        name: id.value.clone(),
+                    }))
+                }
+            }
+
+            SQLExpr::MapAccess { ref column, keys } => {
+                if let SQLExpr::Identifier(ref id) = column.as_ref() {
+                    Ok(plan_indexed(col(&id.value), keys.clone()))
+                } else {
+                    Err(DataFusionError::NotImplemented(format!(
+                        "map access requires an identifier, found column {} instead",
+                        column
+                    )))
                 }
             }
 
             SQLExpr::CompoundIdentifier(ids) => {
-                let mut var_names = vec![];
-                for id in ids {
-                    var_names.push(id.value.clone());
-                }
+                let mut var_names: Vec<_> =
+                    ids.iter().map(|id| id.value.clone()).collect();
+
                 if &var_names[0][0..1] == "@" {
                     Ok(Expr::ScalarVariable(var_names))
-                } else if var_names.len() == 2 {
-                    // table.column identifier
-                    let name = var_names.pop().unwrap();
-                    let relation = Some(var_names.pop().unwrap());
-                    Ok(Expr::Column(Column { relation, name }))
                 } else {
-                    Err(DataFusionError::NotImplemented(format!(
-                        "Unsupported compound identifier '{:?}'",
-                        var_names,
-                    )))
+                    match (var_names.pop(), var_names.pop()) {
+                        (Some(name), Some(relation)) if var_names.is_empty() => {
+                            // table.column identifier
+                            Ok(Expr::Column(Column {
+                                relation: Some(relation),
+                                name,
+                            }))
+                        }
+                        _ => Err(DataFusionError::NotImplemented(format!(
+                            "Unsupported compound identifier '{:?}'",
+                            var_names,
+                        ))),
+                    }
                 }
             }
 
@@ -1007,34 +1438,21 @@ impl<'a, S: ContextProvider> SqlToRel<'a, S> {
                 self.sql_expr_to_logical_expr(expr, schema)?,
             ))),
 
-            SQLExpr::UnaryOp { ref op, ref expr } => match op {
-                UnaryOperator::Not => Ok(Expr::Not(Box::new(
-                    self.sql_expr_to_logical_expr(expr, schema)?,
-                ))),
-                UnaryOperator::Plus => Ok(self.sql_expr_to_logical_expr(expr, schema)?),
-                UnaryOperator::Minus => {
-                    match expr.as_ref() {
-                        // optimization: if it's a number literal, we apply the negative operator
-                        // here directly to calculate the new literal.
-                        SQLExpr::Value(Value::Number(n,_)) => match n.parse::<i64>() {
-                            Ok(n) => Ok(lit(-n)),
-                            Err(_) => Ok(lit(-n
-                                .parse::<f64>()
-                                .map_err(|_e| {
-                                    DataFusionError::Internal(format!(
-                                        "negative operator can be only applied to integer and float operands, got: {}",
-                                    n))
-                                })?)),
-                        },
-                        // not a literal, apply negative operator on expression
-                        _ => Ok(Expr::Negative(Box::new(self.sql_expr_to_logical_expr(expr, schema)?))),
-                    }
-                }
-                _ => Err(DataFusionError::NotImplemented(format!(
-                    "Unsupported SQL unary operator {:?}",
-                    op
-                ))),
-            },
+            SQLExpr::IsDistinctFrom(left, right) => Ok(Expr::BinaryExpr {
+                left: Box::new(self.sql_expr_to_logical_expr(left, schema)?),
+                op: Operator::IsDistinctFrom,
+                right: Box::new(self.sql_expr_to_logical_expr(right, schema)?),
+            }),
+
+            SQLExpr::IsNotDistinctFrom(left, right) => Ok(Expr::BinaryExpr {
+                left: Box::new(self.sql_expr_to_logical_expr(left, schema)?),
+                op: Operator::IsNotDistinctFrom,
+                right: Box::new(self.sql_expr_to_logical_expr(right, schema)?),
+            }),
+
+            SQLExpr::UnaryOp { ref op, ref expr } => {
+                self.parse_sql_unary_op(op, expr, schema)
+            }
 
             SQLExpr::Between {
                 ref expr,
@@ -1069,34 +1487,30 @@ impl<'a, S: ContextProvider> SqlToRel<'a, S> {
                 ref left,
                 ref op,
                 ref right,
-            } => {
-                let operator = match *op {
-                    BinaryOperator::Gt => Ok(Operator::Gt),
-                    BinaryOperator::GtEq => Ok(Operator::GtEq),
-                    BinaryOperator::Lt => Ok(Operator::Lt),
-                    BinaryOperator::LtEq => Ok(Operator::LtEq),
-                    BinaryOperator::Eq => Ok(Operator::Eq),
-                    BinaryOperator::NotEq => Ok(Operator::NotEq),
-                    BinaryOperator::Plus => Ok(Operator::Plus),
-                    BinaryOperator::Minus => Ok(Operator::Minus),
-                    BinaryOperator::Multiply => Ok(Operator::Multiply),
-                    BinaryOperator::Divide => Ok(Operator::Divide),
-                    BinaryOperator::Modulus => Ok(Operator::Modulus),
-                    BinaryOperator::And => Ok(Operator::And),
-                    BinaryOperator::Or => Ok(Operator::Or),
-                    BinaryOperator::Like => Ok(Operator::Like),
-                    BinaryOperator::NotLike => Ok(Operator::NotLike),
-                    _ => Err(DataFusionError::NotImplemented(format!(
-                        "Unsupported SQL binary operator {:?}",
-                        op
-                    ))),
-                }?;
+            } => self.parse_sql_binary_op(left, op, right, schema),
 
-                Ok(Expr::BinaryExpr {
-                    left: Box::new(self.sql_expr_to_logical_expr(left, schema)?),
-                    op: operator,
-                    right: Box::new(self.sql_expr_to_logical_expr(right, schema)?),
-                })
+            SQLExpr::Trim { expr, trim_where } => {
+                let (fun, where_expr) = match trim_where {
+                    Some((TrimWhereField::Leading, expr)) => {
+                        (functions::BuiltinScalarFunction::Ltrim, Some(expr))
+                    }
+                    Some((TrimWhereField::Trailing, expr)) => {
+                        (functions::BuiltinScalarFunction::Rtrim, Some(expr))
+                    }
+                    Some((TrimWhereField::Both, expr)) => {
+                        (functions::BuiltinScalarFunction::Btrim, Some(expr))
+                    }
+                    None => (functions::BuiltinScalarFunction::Trim, None),
+                };
+                let arg = self.sql_expr_to_logical_expr(expr, schema)?;
+                let args = match where_expr {
+                    Some(to_trim) => {
+                        let to_trim = self.sql_expr_to_logical_expr(to_trim, schema)?;
+                        vec![arg, to_trim]
+                    }
+                    None => vec![arg],
+                };
+                Ok(Expr::ScalarFunction { fun, args })
             }
 
             SQLExpr::Function(function) => {
@@ -1112,13 +1526,6 @@ impl<'a, S: ContextProvider> SqlToRel<'a, S> {
                         Some(_) => ident.value.clone(),
                         None => ident.value.to_ascii_lowercase(),
                     }
-                };
-
-                let name_case_sensitive = function.name.to_string();
-                if let Ok(fun) = clickhouse::BuiltinScalarFunction::from_str(&name_case_sensitive) {
-                    let fun = fun.into();
-                    let args = self.function_args_to_expr(function, schema)?;
-                    return Ok(Expr::ScalarFunction { fun, args });
                 };
 
                 // first, scalar built-in
@@ -1153,12 +1560,13 @@ impl<'a, S: ContextProvider> SqlToRel<'a, S> {
                             } else {
                                 Ok(window_frame)
                             }
-
                         })
                         .transpose()?;
                     let fun = window_functions::WindowFunction::from_str(&name)?;
                     match fun {
-                        window_functions::WindowFunction::AggregateFunction(aggregate_fun) => {
+                        window_functions::WindowFunction::AggregateFunction(
+                            aggregate_fun,
+                        ) => {
                             return Ok(Expr::WindowFunction {
                                 fun: window_functions::WindowFunction::AggregateFunction(
                                     aggregate_fun.clone(),
@@ -1173,7 +1581,9 @@ impl<'a, S: ContextProvider> SqlToRel<'a, S> {
                                 window_frame,
                             });
                         }
-                        window_functions::WindowFunction::BuiltInWindowFunction(window_fun) => {
+                        window_functions::WindowFunction::BuiltInWindowFunction(
+                            window_fun,
+                        ) => {
                             return Ok(Expr::WindowFunction {
                                 fun: window_functions::WindowFunction::BuiltInWindowFunction(
                                     window_fun,
@@ -1249,7 +1659,9 @@ impl<'a, S: ContextProvider> SqlToRel<'a, S> {
                 .args
                 .iter()
                 .map(|a| match a {
-                    FunctionArg::Unnamed(SQLExpr::Value(Value::Number(_, _))) => Ok(lit(1_u8)),
+                    FunctionArg::Unnamed(SQLExpr::Value(Value::Number(_, _))) => {
+                        Ok(lit(1_u8))
+                    }
                     FunctionArg::Unnamed(SQLExpr::Wildcard) => Ok(lit(1_u8)),
                     _ => self.sql_fn_arg_to_logical_expr(a, schema),
                 })
@@ -1294,19 +1706,21 @@ impl<'a, S: ContextProvider> SqlToRel<'a, S> {
         // We are storing parts as integers, it's why we need to align parts fractional
         // INTERVAL '0.5 MONTH' = 15 days, INTERVAL '1.5 MONTH' = 1 month 15 days
         // INTERVAL '0.5 DAY' = 12 hours, INTERVAL '1.5 DAY' = 1 day 12 hours
-        let align_interval_parts =
-            |month_part: f32, mut day_part: f32, mut milles_part: f32| -> (i32, i32, f32) {
-                // Convert fractional month to days, It's not supported by Arrow types, but anyway
-                day_part += (month_part - (month_part as i32) as f32) * 30_f32;
+        let align_interval_parts = |month_part: f32,
+                                    mut day_part: f32,
+                                    mut milles_part: f32|
+         -> (i32, i32, f32) {
+            // Convert fractional month to days, It's not supported by Arrow types, but anyway
+            day_part += (month_part - (month_part as i32) as f32) * 30_f32;
 
-                // Convert fractional days to hours
-                milles_part += (day_part - ((day_part as i32) as f32))
-                    * 24_f32
-                    * SECONDS_PER_HOUR
-                    * MILLIS_PER_SECOND;
+            // Convert fractional days to hours
+            milles_part += (day_part - ((day_part as i32) as f32))
+                * 24_f32
+                * SECONDS_PER_HOUR
+                * MILLIS_PER_SECOND;
 
-                (month_part as i32, day_part as i32, milles_part)
-            };
+            (month_part as i32, day_part as i32, milles_part)
+        };
 
         let calculate_from_part = |interval_period_str: &str,
                                    interval_type: &str|
@@ -1319,7 +1733,7 @@ impl<'a, S: ContextProvider> SqlToRel<'a, S> {
                     return Err(DataFusionError::SQL(ParserError(format!(
                         "Unsupported Interval Expression with value {:?}",
                         value
-                    ))))
+                    ))));
                 }
             };
 
@@ -1337,7 +1751,9 @@ impl<'a, S: ContextProvider> SqlToRel<'a, S> {
                 "hour" | "hours" => {
                     Ok((0, 0, interval_period * SECONDS_PER_HOUR * MILLIS_PER_SECOND))
                 }
-                "minutes" | "minute" => Ok((0, 0, interval_period * 60_f32 * MILLIS_PER_SECOND)),
+                "minutes" | "minute" => {
+                    Ok((0, 0, interval_period * 60_f32 * MILLIS_PER_SECOND))
+                }
                 "seconds" | "second" => Ok((0, 0, interval_period * MILLIS_PER_SECOND)),
                 "milliseconds" | "millisecond" => Ok((0, 0, interval_period)),
                 _ => Err(DataFusionError::NotImplemented(format!(
@@ -1428,11 +1844,13 @@ impl<'a, S: ContextProvider> SqlToRel<'a, S> {
         let variable = ObjectName(variable.to_vec()).to_string();
         if variable.as_str().eq_ignore_ascii_case("tables") {
             if self.has_table("information_schema", "tables") {
-                let rewrite = DFParser::parse_sql("SELECT * FROM information_schema.tables;")?;
+                let rewrite =
+                    DFParser::parse_sql("SELECT * FROM information_schema.tables;")?;
                 self.statement_to_plan(&rewrite[0])
             } else {
                 Err(DataFusionError::Plan(
-                    "SHOW TABLES is not supported unless information_schema is enabled".to_string(),
+                    "SHOW TABLES is not supported unless information_schema is enabled"
+                        .to_string(),
                 ))
             }
         } else {
@@ -1458,7 +1876,8 @@ impl<'a, S: ContextProvider> SqlToRel<'a, S> {
 
         if !self.has_table("information_schema", "columns") {
             return Err(DataFusionError::Plan(
-                "SHOW COLUMNS is not supported unless information_schema is enabled".to_string(),
+                "SHOW COLUMNS is not supported unless information_schema is enabled"
+                    .to_string(),
             ));
         }
 
@@ -1480,7 +1899,7 @@ impl<'a, S: ContextProvider> SqlToRel<'a, S> {
             .iter()
             .rev()
             .zip(columns)
-            .map(|(ident, column_name)| format!(r#"{} = '{}'"#, column_name, ident.to_string()))
+            .map(|(ident, column_name)| format!(r#"{} = '{}'"#, column_name, ident))
             .collect::<Vec<_>>()
             .join(" AND ");
 
@@ -1553,7 +1972,11 @@ fn remove_join_expressions(
 /// foo = bar AND bar = baz => accum=[(foo, bar), (bar, baz)] accum_filter=[]
 /// foo = bar AND baz > 1 => accum=[(foo, bar)] accum_filter=[baz > 1]
 ///
-fn extract_join_keys(expr: &Expr, accum: &mut Vec<(Column, Column)>, accum_filter: &mut Vec<Expr>) {
+fn extract_join_keys(
+    expr: &Expr,
+    accum: &mut Vec<(Column, Column)>,
+    accum_filter: &mut Vec<Expr>,
+) {
     match expr {
         Expr::BinaryExpr { left, op, right } => match op {
             Operator::Eq => match (left.as_ref(), right.as_ref()) {
@@ -1568,8 +1991,15 @@ fn extract_join_keys(expr: &Expr, accum: &mut Vec<(Column, Column)>, accum_filte
                 extract_join_keys(left, accum, accum_filter);
                 extract_join_keys(right, accum, accum_filter);
             }
-            _other => {
+            _other
+                if matches!(**left, Expr::Column(_))
+                    || matches!(**right, Expr::Column(_)) =>
+            {
                 accum_filter.push(expr.clone());
+            }
+            _other => {
+                extract_join_keys(left, accum, accum_filter);
+                extract_join_keys(right, accum, accum_filter);
             }
         },
         _other => {
@@ -1579,7 +2009,10 @@ fn extract_join_keys(expr: &Expr, accum: &mut Vec<(Column, Column)>, accum_filte
 }
 
 /// Extract join keys from a WHERE clause
-fn extract_possible_join_keys(expr: &Expr, accum: &mut Vec<(Column, Column)>) -> Result<()> {
+fn extract_possible_join_keys(
+    expr: &Expr,
+    accum: &mut Vec<(Column, Column)>,
+) -> Result<()> {
     match expr {
         Expr::BinaryExpr { left, op, right } => match op {
             Operator::Eq => match (left.as_ref(), right.as_ref()) {
@@ -1600,19 +2033,21 @@ fn extract_possible_join_keys(expr: &Expr, accum: &mut Vec<(Column, Column)>) ->
 }
 
 /// Convert SQL data type to relational representation of data type
-pub fn convert_data_type(sql: &SQLDataType) -> Result<DataType> {
-    match sql {
+pub fn convert_data_type(sql_type: &SQLDataType) -> Result<DataType> {
+    match sql_type {
         SQLDataType::Boolean => Ok(DataType::Boolean),
-        SQLDataType::SmallInt => Ok(DataType::Int16),
-        SQLDataType::Int => Ok(DataType::Int32),
-        SQLDataType::BigInt => Ok(DataType::Int64),
-        SQLDataType::Float(_) | SQLDataType::Real => Ok(DataType::Float64),
+        SQLDataType::SmallInt(_) => Ok(DataType::Int16),
+        SQLDataType::Int(_) => Ok(DataType::Int32),
+        SQLDataType::BigInt(_) => Ok(DataType::Int64),
+        SQLDataType::Float(_) => Ok(DataType::Float32),
+        SQLDataType::Real => Ok(DataType::Float32),
         SQLDataType::Double => Ok(DataType::Float64),
         SQLDataType::Char(_) | SQLDataType::Varchar(_) => Ok(DataType::Utf8),
         SQLDataType::Timestamp => Ok(DataType::Timestamp(TimeUnit::Nanosecond, None)),
-        //SQLDataType::Date => Ok(DataType::Date32),
+        // SQLDataType::Date => Ok(DataType::Date32),
         SQLDataType::Date => Ok(DataType::Date16),
-        SQLDataType::Custom(_) => convert_custom_data_type(sql),
+        SQLDataType::Custom(_) => convert_custom_data_type(sql_type),
+        SQLDataType::Decimal(precision, scale) => make_decimal_type(*precision, *scale),
         other => Err(DataFusionError::NotImplemented(format!(
             "Unsupported SQL type {:?}",
             other
@@ -1623,44 +2058,61 @@ pub fn convert_data_type(sql: &SQLDataType) -> Result<DataType> {
 /// Convert custom SQL data type to relational representation of data type
 pub fn convert_custom_data_type(sql: &SQLDataType) -> Result<DataType> {
     match sql {
-	SQLDataType::Custom(ObjectName(idents)) => {
-	    if idents.len() != 1 {
-		return Err(DataFusionError::NotImplemented(format!(
-		    "Unsupported custom SQL type {:?}", idents
-		)))
-	    }
-	    let AstIdent{value, quote_style: _} = &idents[0];
-	    match value.as_str() {
-		"Int16" => Ok(DataType::Int16),
-		"Int32" => Ok(DataType::Int32),
-		"Int64" => Ok(DataType::Int64),
-		"Float64" => Ok(DataType::Float64),
-		data_type => {
-		    return Err(DataFusionError::NotImplemented(format!(
-			"Unsupported custom SQL type {:?}", data_type
-		    )));
-		}
-	    }
-	},
+        SQLDataType::Custom(ObjectName(idents)) => {
+            if idents.len() != 1 {
+                return Err(DataFusionError::NotImplemented(format!(
+                    "Unsupported custom SQL type {:?}",
+                    idents
+                )));
+            }
+            let Ident {
+                value,
+                quote_style: _,
+            } = &idents[0];
+            match value.as_str() {
+                "Int16" => Ok(DataType::Int16),
+                "Int32" => Ok(DataType::Int32),
+                "Int64" => Ok(DataType::Int64),
+                "Float64" => Ok(DataType::Float64),
+                data_type => {
+                    return Err(DataFusionError::NotImplemented(format!(
+                        "Unsupported custom SQL type {:?}",
+                        data_type
+                    )));
+                }
+            }
+        }
         other => Err(DataFusionError::NotImplemented(format!(
             "Unsupported SQL type {:?}",
             other
-        )))
+        ))),
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::datasource::empty::EmptyTable;
-    use crate::{logical_plan::create_udf, sql::parser::DFParser};
     use functions::ScalarFunctionImplementation;
+
+    use crate::datasource::empty::EmptyTable;
+    use crate::physical_plan::functions::Volatility;
+    use crate::{logical_plan::create_udf, sql::parser::DFParser};
+
+    use super::*;
 
     #[test]
     fn select_no_relation() {
         quick_test(
             "SELECT 1",
             "Projection: Int64(1)\
+             \n  EmptyRelation",
+        );
+    }
+
+    #[test]
+    fn test_real_f32() {
+        quick_test(
+            "SELECT CAST(1.1 AS REAL)",
+            "Projection: CAST(Float64(1.1) AS Float32)\
              \n  EmptyRelation",
         );
     }
@@ -1718,7 +2170,7 @@ mod tests {
         let sql = "SELECT id, first_name, last_name \
                    FROM person WHERE state = 'CO'";
         let expected = "Projection: #person.id, #person.first_name, #person.last_name\
-                        \n  Filter: #person.state Eq Utf8(\"CO\")\
+                        \n  Filter: #person.state = Utf8(\"CO\")\
                         \n    TableScan: person projection=None";
         quick_test(sql, expected);
     }
@@ -1758,7 +2210,7 @@ mod tests {
         let sql = "SELECT id, first_name, last_name \
                    FROM person WHERE state = 'CO' AND age >= 21 AND age <= 65";
         let expected = "Projection: #person.id, #person.first_name, #person.last_name\
-            \n  Filter: #person.state Eq Utf8(\"CO\") And #person.age GtEq Int64(21) And #person.age LtEq Int64(65)\
+            \n  Filter: #person.state = Utf8(\"CO\") AND #person.age >= Int64(21) AND #person.age <= Int64(65)\
             \n    TableScan: person projection=None";
         quick_test(sql, expected);
     }
@@ -1769,7 +2221,7 @@ mod tests {
             "SELECT state FROM person WHERE birth_date < CAST (158412331400600000 as timestamp)";
 
         let expected = "Projection: #person.state\
-            \n  Filter: #person.birth_date Lt CAST(Int64(158412331400600000) AS Timestamp(Nanosecond, None))\
+            \n  Filter: #person.birth_date < CAST(Int64(158412331400600000) AS Timestamp(Nanosecond, None))\
             \n    TableScan: person projection=None";
 
         quick_test(sql, expected);
@@ -1777,10 +2229,11 @@ mod tests {
 
     #[test]
     fn test_date_filter() {
-        let sql = "SELECT state FROM person WHERE birth_date < CAST ('2020-01-01' as date)";
+        let sql =
+            "SELECT state FROM person WHERE birth_date < CAST ('2020-01-01' as date)";
 
         let expected = "Projection: #person.state\
-            \n  Filter: #person.birth_date Lt CAST(Utf8(\"2020-01-01\") AS Date32)\
+            \n  Filter: #person.birth_date < CAST(Utf8(\"2020-01-01\") AS Date32)\
             \n    TableScan: person projection=None";
 
         quick_test(sql, expected);
@@ -1797,12 +2250,12 @@ mod tests {
                    AND age < 65 \
                    AND age <= 65";
         let expected = "Projection: #person.age, #person.first_name, #person.last_name\
-                        \n  Filter: #person.age Eq Int64(21) \
-                        And #person.age NotEq Int64(21) \
-                        And #person.age Gt Int64(21) \
-                        And #person.age GtEq Int64(21) \
-                        And #person.age Lt Int64(65) \
-                        And #person.age LtEq Int64(65)\
+                        \n  Filter: #person.age = Int64(21) \
+                        AND #person.age != Int64(21) \
+                        AND #person.age > Int64(21) \
+                        AND #person.age >= Int64(21) \
+                        AND #person.age < Int64(65) \
+                        AND #person.age <= Int64(65)\
                         \n    TableScan: person projection=None";
         quick_test(sql, expected);
     }
@@ -1835,12 +2288,14 @@ mod tests {
                      FROM (
                        SELECT first_name AS fn1, last_name, birth_date, age
                        FROM person
-                     )
-                   )";
-        let expected = "Projection: #fn2, #person.last_name\
-                        \n  Projection: #fn1 AS fn2, #person.last_name, #person.birth_date\
-                        \n    Projection: #person.first_name AS fn1, #person.last_name, #person.birth_date, #person.age\
-                        \n      TableScan: person projection=None";
+                     ) AS a
+                   ) AS b";
+        let expected = "Projection: #b.fn2, #b.last_name\
+                        \n  Projection: #b.fn2, #b.last_name, #b.birth_date, alias=b\
+                        \n    Projection: #a.fn1 AS fn2, #a.last_name, #a.birth_date, alias=b\
+                        \n      Projection: #a.fn1, #a.last_name, #a.birth_date, #a.age, alias=a\
+                        \n        Projection: #person.first_name AS fn1, #person.last_name, #person.birth_date, #person.age, alias=a\
+                        \n          TableScan: person projection=None";
         quick_test(sql, expected);
     }
 
@@ -1851,16 +2306,38 @@ mod tests {
                      SELECT first_name AS fn1, age
                      FROM person
                      WHERE age > 20
-                   )
+                   ) AS a
                    WHERE fn1 = 'X' AND age < 30";
 
-        let expected = "Projection: #fn1, #person.age\
-                        \n  Filter: #fn1 Eq Utf8(\"X\") And #person.age Lt Int64(30)\
-                        \n    Projection: #person.first_name AS fn1, #person.age\
-                        \n      Filter: #person.age Gt Int64(20)\
-                        \n        TableScan: person projection=None";
+        let expected = "Projection: #a.fn1, #a.age\
+                        \n  Filter: #a.fn1 = Utf8(\"X\") AND #a.age < Int64(30)\
+                        \n    Projection: #a.fn1, #a.age, alias=a\
+                        \n      Projection: #person.first_name AS fn1, #person.age, alias=a\
+                        \n        Filter: #person.age > Int64(20)\
+                        \n          TableScan: person projection=None";
 
         quick_test(sql, expected);
+    }
+
+    #[test]
+    fn table_with_column_alias() {
+        let sql = "SELECT a, b, c
+                   FROM lineitem l (a, b, c)";
+        let expected = "Projection: #l.a, #l.b, #l.c\
+                        \n  Projection: #l.l_item_id AS a, #l.l_description AS b, #l.price AS c, alias=l\
+                        \n    TableScan: l projection=None";
+        quick_test(sql, expected);
+    }
+
+    #[test]
+    fn table_with_column_alias_number_cols() {
+        let sql = "SELECT a, b, c
+                   FROM lineitem l (a, b)";
+        let err = logical_plan(sql).expect_err("query should have failed");
+        assert_eq!(
+            "Plan(\"Source table contains 3 columns but only 2 names given as column alias\")",
+            format!("{:?}", err)
+        );
     }
 
     #[test]
@@ -1869,7 +2346,7 @@ mod tests {
                    FROM person
                    HAVING age > 100 AND age < 200";
         let expected = "Projection: #person.id, #person.age\
-                        \n  Filter: #person.age Gt Int64(100) And #person.age Lt Int64(200)\
+                        \n  Filter: #person.age > Int64(100) AND #person.age < Int64(200)\
                         \n    TableScan: person projection=None";
         quick_test(sql, expected);
     }
@@ -1916,7 +2393,7 @@ mod tests {
                    FROM person
                    HAVING MAX(age) < 30";
         let expected = "Projection: #MAX(person.age)\
-                        \n  Filter: #MAX(person.age) Lt Int64(30)\
+                        \n  Filter: #MAX(person.age) < Int64(30)\
                         \n    Aggregate: groupBy=[[]], aggr=[[MAX(#person.age)]]\
                         \n      TableScan: person projection=None";
         quick_test(sql, expected);
@@ -1928,7 +2405,7 @@ mod tests {
                    FROM person
                    HAVING MAX(first_name) > 'M'";
         let expected = "Projection: #MAX(person.age)\
-                        \n  Filter: #MAX(person.first_name) Gt Utf8(\"M\")\
+                        \n  Filter: #MAX(person.first_name) > Utf8(\"M\")\
                         \n    Aggregate: groupBy=[[]], aggr=[[MAX(#person.age), MAX(#person.first_name)]]\
                         \n      TableScan: person projection=None";
         quick_test(sql, expected);
@@ -1953,7 +2430,7 @@ mod tests {
                    HAVING max_age < 30";
         // FIXME: add test for having in execution
         let expected = "Projection: #MAX(person.age) AS max_age\
-                        \n  Filter: #MAX(person.age) Lt Int64(30)\
+                        \n  Filter: #MAX(person.age) < Int64(30)\
                         \n    Aggregate: groupBy=[[]], aggr=[[MAX(#person.age)]]\
                         \n      TableScan: person projection=None";
         quick_test(sql, expected);
@@ -1965,7 +2442,7 @@ mod tests {
                    FROM person
                    HAVING MAX(age) < 30";
         let expected = "Projection: #MAX(person.age) AS max_age\
-                        \n  Filter: #MAX(person.age) Lt Int64(30)\
+                        \n  Filter: #MAX(person.age) < Int64(30)\
                         \n    Aggregate: groupBy=[[]], aggr=[[MAX(#person.age)]]\
                         \n      TableScan: person projection=None";
         quick_test(sql, expected);
@@ -1978,7 +2455,7 @@ mod tests {
                    GROUP BY first_name
                    HAVING first_name = 'M'";
         let expected = "Projection: #person.first_name, #MAX(person.age)\
-                        \n  Filter: #person.first_name Eq Utf8(\"M\")\
+                        \n  Filter: #person.first_name = Utf8(\"M\")\
                         \n    Aggregate: groupBy=[[#person.first_name]], aggr=[[MAX(#person.age)]]\
                         \n      TableScan: person projection=None";
         quick_test(sql, expected);
@@ -1992,24 +2469,25 @@ mod tests {
                    GROUP BY first_name
                    HAVING MAX(age) < 100";
         let expected = "Projection: #person.first_name, #MAX(person.age)\
-                        \n  Filter: #MAX(person.age) Lt Int64(100)\
+                        \n  Filter: #MAX(person.age) < Int64(100)\
                         \n    Aggregate: groupBy=[[#person.first_name]], aggr=[[MAX(#person.age)]]\
-                        \n      Filter: #person.id Gt Int64(5)\
+                        \n      Filter: #person.id > Int64(5)\
                         \n        TableScan: person projection=None";
         quick_test(sql, expected);
     }
 
     #[test]
-    fn select_aggregate_with_group_by_with_having_and_where_filtering_on_aggregate_column() {
+    fn select_aggregate_with_group_by_with_having_and_where_filtering_on_aggregate_column(
+    ) {
         let sql = "SELECT first_name, MAX(age)
                    FROM person
                    WHERE id > 5 AND age > 18
                    GROUP BY first_name
                    HAVING MAX(age) < 100";
         let expected = "Projection: #person.first_name, #MAX(person.age)\
-                        \n  Filter: #MAX(person.age) Lt Int64(100)\
+                        \n  Filter: #MAX(person.age) < Int64(100)\
                         \n    Aggregate: groupBy=[[#person.first_name]], aggr=[[MAX(#person.age)]]\
-                        \n      Filter: #person.id Gt Int64(5) And #person.age Gt Int64(18)\
+                        \n      Filter: #person.id > Int64(5) AND #person.age > Int64(18)\
                         \n        TableScan: person projection=None";
         quick_test(sql, expected);
     }
@@ -2021,20 +2499,21 @@ mod tests {
                    GROUP BY first_name
                    HAVING MAX(age) > 2 AND fn = 'M'";
         let expected = "Projection: #person.first_name AS fn, #MAX(person.age)\
-                        \n  Filter: #MAX(person.age) Gt Int64(2) And #person.first_name Eq Utf8(\"M\")\
+                        \n  Filter: #MAX(person.age) > Int64(2) AND #person.first_name = Utf8(\"M\")\
                         \n    Aggregate: groupBy=[[#person.first_name]], aggr=[[MAX(#person.age)]]\
                         \n      TableScan: person projection=None";
         quick_test(sql, expected);
     }
 
     #[test]
-    fn select_aggregate_with_group_by_with_having_using_columns_with_and_without_their_aliases() {
+    fn select_aggregate_with_group_by_with_having_using_columns_with_and_without_their_aliases(
+    ) {
         let sql = "SELECT first_name AS fn, MAX(age) AS max_age
                    FROM person
                    GROUP BY first_name
                    HAVING MAX(age) > 2 AND max_age < 5 AND first_name = 'M' AND fn = 'N'";
         let expected = "Projection: #person.first_name AS fn, #MAX(person.age) AS max_age\
-                        \n  Filter: #MAX(person.age) Gt Int64(2) And #MAX(person.age) Lt Int64(5) And #person.first_name Eq Utf8(\"M\") And #person.first_name Eq Utf8(\"N\")\
+                        \n  Filter: #MAX(person.age) > Int64(2) AND #MAX(person.age) < Int64(5) AND #person.first_name = Utf8(\"M\") AND #person.first_name = Utf8(\"N\")\
                         \n    Aggregate: groupBy=[[#person.first_name]], aggr=[[MAX(#person.age)]]\
                         \n      TableScan: person projection=None";
         quick_test(sql, expected);
@@ -2047,7 +2526,7 @@ mod tests {
                    GROUP BY first_name
                    HAVING MAX(age) > 100";
         let expected = "Projection: #person.first_name, #MAX(person.age)\
-                        \n  Filter: #MAX(person.age) Gt Int64(100)\
+                        \n  Filter: #MAX(person.age) > Int64(100)\
                         \n    Aggregate: groupBy=[[#person.first_name]], aggr=[[MAX(#person.age)]]\
                         \n      TableScan: person projection=None";
         quick_test(sql, expected);
@@ -2073,7 +2552,7 @@ mod tests {
                    GROUP BY first_name
                    HAVING MAX(age) > 100 AND MAX(age) < 200";
         let expected = "Projection: #person.first_name, #MAX(person.age)\
-                        \n  Filter: #MAX(person.age) Gt Int64(100) And #MAX(person.age) Lt Int64(200)\
+                        \n  Filter: #MAX(person.age) > Int64(100) AND #MAX(person.age) < Int64(200)\
                         \n    Aggregate: groupBy=[[#person.first_name]], aggr=[[MAX(#person.age)]]\
                         \n      TableScan: person projection=None";
         quick_test(sql, expected);
@@ -2086,20 +2565,21 @@ mod tests {
                    GROUP BY first_name
                    HAVING MAX(age) > 100 AND MIN(id) < 50";
         let expected = "Projection: #person.first_name, #MAX(person.age)\
-                        \n  Filter: #MAX(person.age) Gt Int64(100) And #MIN(person.id) Lt Int64(50)\
+                        \n  Filter: #MAX(person.age) > Int64(100) AND #MIN(person.id) < Int64(50)\
                         \n    Aggregate: groupBy=[[#person.first_name]], aggr=[[MAX(#person.age), MIN(#person.id)]]\
                         \n      TableScan: person projection=None";
         quick_test(sql, expected);
     }
 
     #[test]
-    fn select_aggregate_aliased_with_group_by_with_having_referencing_aggregate_by_its_alias() {
+    fn select_aggregate_aliased_with_group_by_with_having_referencing_aggregate_by_its_alias(
+    ) {
         let sql = "SELECT first_name, MAX(age) AS max_age
                    FROM person
                    GROUP BY first_name
                    HAVING max_age > 100";
         let expected = "Projection: #person.first_name, #MAX(person.age) AS max_age\
-                        \n  Filter: #MAX(person.age) Gt Int64(100)\
+                        \n  Filter: #MAX(person.age) > Int64(100)\
                         \n    Aggregate: groupBy=[[#person.first_name]], aggr=[[MAX(#person.age)]]\
                         \n      TableScan: person projection=None";
         quick_test(sql, expected);
@@ -2113,22 +2593,23 @@ mod tests {
                    GROUP BY first_name
                    HAVING max_age_plus_one > 100";
         let expected =
-            "Projection: #person.first_name, #MAX(person.age) Plus Int64(1) AS max_age_plus_one\
-                        \n  Filter: #MAX(person.age) Plus Int64(1) Gt Int64(100)\
+            "Projection: #person.first_name, #MAX(person.age) + Int64(1) AS max_age_plus_one\
+                        \n  Filter: #MAX(person.age) + Int64(1) > Int64(100)\
                         \n    Aggregate: groupBy=[[#person.first_name]], aggr=[[MAX(#person.age)]]\
                         \n      TableScan: person projection=None";
         quick_test(sql, expected);
     }
 
     #[test]
-    fn select_aggregate_with_group_by_with_having_using_derived_column_aggreagate_not_in_select() {
+    fn select_aggregate_with_group_by_with_having_using_derived_column_aggreagate_not_in_select(
+    ) {
         let sql = "SELECT first_name, MAX(age)
                    FROM person
                    GROUP BY first_name
                    HAVING MAX(age) > 100 AND MIN(id - 2) < 50";
         let expected = "Projection: #person.first_name, #MAX(person.age)\
-                        \n  Filter: #MAX(person.age) Gt Int64(100) And #MIN(person.id Minus Int64(2)) Lt Int64(50)\
-                        \n    Aggregate: groupBy=[[#person.first_name]], aggr=[[MAX(#person.age), MIN(#person.id Minus Int64(2))]]\
+                        \n  Filter: #MAX(person.age) > Int64(100) AND #MIN(person.id - Int64(2)) < Int64(50)\
+                        \n    Aggregate: groupBy=[[#person.first_name]], aggr=[[MAX(#person.age), MIN(#person.id - Int64(2))]]\
                         \n      TableScan: person projection=None";
         quick_test(sql, expected);
     }
@@ -2140,7 +2621,7 @@ mod tests {
                    GROUP BY first_name
                    HAVING MAX(age) > 100 AND COUNT(*) < 50";
         let expected = "Projection: #person.first_name, #MAX(person.age)\
-                        \n  Filter: #MAX(person.age) Gt Int64(100) And #COUNT(UInt8(1)) Lt Int64(50)\
+                        \n  Filter: #MAX(person.age) > Int64(100) AND #COUNT(UInt8(1)) < Int64(50)\
                         \n    Aggregate: groupBy=[[#person.first_name]], aggr=[[MAX(#person.age), COUNT(UInt8(1))]]\
                         \n      TableScan: person projection=None";
         quick_test(sql, expected);
@@ -2149,7 +2630,7 @@ mod tests {
     #[test]
     fn select_binary_expr() {
         let sql = "SELECT age + salary from person";
-        let expected = "Projection: #person.age Plus #person.salary\
+        let expected = "Projection: #person.age + #person.salary\
                         \n  TableScan: person projection=None";
         quick_test(sql, expected);
     }
@@ -2157,7 +2638,7 @@ mod tests {
     #[test]
     fn select_binary_expr_nested() {
         let sql = "SELECT (age + salary)/2 from person";
-        let expected = "Projection: #person.age Plus #person.salary Divide Int64(2)\
+        let expected = "Projection: #person.age + #person.salary / Int64(2)\
                         \n  TableScan: person projection=None";
         quick_test(sql, expected);
     }
@@ -2171,11 +2652,12 @@ mod tests {
              \n    TableScan: person projection=None",
         );
         quick_test(
-            "SELECT * FROM (SELECT first_name, last_name FROM person) GROUP BY first_name, last_name",
-            "Projection: #person.first_name, #person.last_name\
-             \n  Aggregate: groupBy=[[#person.first_name, #person.last_name]], aggr=[[]]\
-             \n    Projection: #person.first_name, #person.last_name\
-             \n      TableScan: person projection=None",
+            "SELECT * FROM (SELECT first_name, last_name FROM person) AS a GROUP BY first_name, last_name",
+            "Projection: #a.first_name, #a.last_name\
+             \n  Aggregate: groupBy=[[#a.first_name, #a.last_name]], aggr=[[]]\
+             \n    Projection: #a.first_name, #a.last_name, alias=a\
+             \n      Projection: #person.first_name, #person.last_name, alias=a\
+             \n        TableScan: person projection=None",
         );
     }
 
@@ -2401,44 +2883,48 @@ mod tests {
              \n    TableScan: person projection=None",
         )
     }
+
     #[test]
     fn select_simple_aggregate_with_groupby_non_column_expression_unselected() {
         quick_test(
             "SELECT MIN(first_name) FROM person GROUP BY age + 1",
             "Projection: #MIN(person.first_name)\
-             \n  Aggregate: groupBy=[[#person.age Plus Int64(1)]], aggr=[[MIN(#person.first_name)]]\
+             \n  Aggregate: groupBy=[[#person.age + Int64(1)]], aggr=[[MIN(#person.first_name)]]\
              \n    TableScan: person projection=None",
         );
     }
 
     #[test]
-    fn select_simple_aggregate_with_groupby_non_column_expression_selected_and_resolvable() {
+    fn select_simple_aggregate_with_groupby_non_column_expression_selected_and_resolvable(
+    ) {
         quick_test(
             "SELECT age + 1, MIN(first_name) FROM person GROUP BY age + 1",
-            "Projection: #person.age Plus Int64(1), #MIN(person.first_name)\
-             \n  Aggregate: groupBy=[[#person.age Plus Int64(1)]], aggr=[[MIN(#person.first_name)]]\
+            "Projection: #person.age + Int64(1), #MIN(person.first_name)\
+             \n  Aggregate: groupBy=[[#person.age + Int64(1)]], aggr=[[MIN(#person.first_name)]]\
              \n    TableScan: person projection=None",
         );
         quick_test(
             "SELECT MIN(first_name), age + 1 FROM person GROUP BY age + 1",
-            "Projection: #MIN(person.first_name), #person.age Plus Int64(1)\
-             \n  Aggregate: groupBy=[[#person.age Plus Int64(1)]], aggr=[[MIN(#person.first_name)]]\
+            "Projection: #MIN(person.first_name), #person.age + Int64(1)\
+             \n  Aggregate: groupBy=[[#person.age + Int64(1)]], aggr=[[MIN(#person.first_name)]]\
              \n    TableScan: person projection=None",
         );
     }
 
     #[test]
-    fn select_simple_aggregate_with_groupby_non_column_expression_nested_and_resolvable() {
+    fn select_simple_aggregate_with_groupby_non_column_expression_nested_and_resolvable()
+    {
         quick_test(
             "SELECT ((age + 1) / 2) * (age + 1), MIN(first_name) FROM person GROUP BY age + 1",
-            "Projection: #person.age Plus Int64(1) Divide Int64(2) Multiply #person.age Plus Int64(1), #MIN(person.first_name)\
-             \n  Aggregate: groupBy=[[#person.age Plus Int64(1)]], aggr=[[MIN(#person.first_name)]]\
+            "Projection: #person.age + Int64(1) / Int64(2) * #person.age + Int64(1), #MIN(person.first_name)\
+             \n  Aggregate: groupBy=[[#person.age + Int64(1)]], aggr=[[MIN(#person.first_name)]]\
              \n    TableScan: person projection=None",
         );
     }
 
     #[test]
-    fn select_simple_aggregate_with_groupby_non_column_expression_nested_and_not_resolvable() {
+    fn select_simple_aggregate_with_groupby_non_column_expression_nested_and_not_resolvable(
+    ) {
         // The query should fail, because age + 9 is not in the group by.
         let sql =
             "SELECT ((age + 1) / 2) * (age + 9), MIN(first_name) FROM person GROUP BY age + 1";
@@ -2450,7 +2936,8 @@ mod tests {
     }
 
     #[test]
-    fn select_simple_aggregate_with_groupby_non_column_expression_and_its_column_selected() {
+    fn select_simple_aggregate_with_groupby_non_column_expression_and_its_column_selected(
+    ) {
         let sql = "SELECT age, MIN(first_name) FROM person GROUP BY age + 1";
         let err = logical_plan(sql).expect_err("query should have failed");
         assert_eq!(
@@ -2463,7 +2950,7 @@ mod tests {
     fn select_simple_aggregate_nested_in_binary_expr_with_groupby() {
         quick_test(
             "SELECT state, MIN(age) < 10 FROM person GROUP BY state",
-            "Projection: #person.state, #MIN(person.age) Lt Int64(10)\
+            "Projection: #person.state, #MIN(person.age) < Int64(10)\
              \n  Aggregate: groupBy=[[#person.state]], aggr=[[MIN(#person.age)]]\
              \n    TableScan: person projection=None",
         );
@@ -2473,7 +2960,7 @@ mod tests {
     fn select_simple_aggregate_and_nested_groupby_column() {
         quick_test(
             "SELECT age + 1, MAX(first_name) FROM person GROUP BY age",
-            "Projection: #person.age Plus Int64(1), #MAX(person.first_name)\
+            "Projection: #person.age + Int64(1), #MAX(person.first_name)\
              \n  Aggregate: groupBy=[[#person.age]], aggr=[[MAX(#person.first_name)]]\
              \n    TableScan: person projection=None",
         );
@@ -2483,7 +2970,7 @@ mod tests {
     fn select_aggregate_compounded_with_groupby_column() {
         quick_test(
             "SELECT age + MIN(salary) FROM person GROUP BY age",
-            "Projection: #person.age Plus #MIN(person.salary)\
+            "Projection: #person.age + #MIN(person.salary)\
              \n  Aggregate: groupBy=[[#person.age]], aggr=[[MIN(#person.salary)]]\
              \n    TableScan: person projection=None",
         );
@@ -2493,8 +2980,8 @@ mod tests {
     fn select_aggregate_with_non_column_inner_expression_with_groupby() {
         quick_test(
             "SELECT state, MIN(age + 1) FROM person GROUP BY state",
-            "Projection: #person.state, #MIN(person.age Plus Int64(1))\
-            \n  Aggregate: groupBy=[[#person.state]], aggr=[[MIN(#person.age Plus Int64(1))]]\
+            "Projection: #person.state, #MIN(person.age + Int64(1))\
+            \n  Aggregate: groupBy=[[#person.state]], aggr=[[MIN(#person.age + Int64(1))]]\
             \n    TableScan: person projection=None",
         );
     }
@@ -2546,8 +3033,8 @@ mod tests {
     fn select_where_nullif_division() {
         let sql = "SELECT c3/(c4+c5) \
                    FROM aggregate_test_100 WHERE c3/nullif(c4+c5, 0) > 0.1";
-        let expected = "Projection: #aggregate_test_100.c3 Divide #aggregate_test_100.c4 Plus #aggregate_test_100.c5\
-            \n  Filter: #aggregate_test_100.c3 Divide nullif(#aggregate_test_100.c4 Plus #aggregate_test_100.c5, Int64(0)) Gt Float64(0.1)\
+        let expected = "Projection: #aggregate_test_100.c3 / #aggregate_test_100.c4 + #aggregate_test_100.c5\
+            \n  Filter: #aggregate_test_100.c3 / nullif(#aggregate_test_100.c4 + #aggregate_test_100.c5, Int64(0)) > Float64(0.1)\
             \n    TableScan: aggregate_test_100 projection=None";
         quick_test(sql, expected);
     }
@@ -2556,7 +3043,7 @@ mod tests {
     fn select_where_with_negative_operator() {
         let sql = "SELECT c3 FROM aggregate_test_100 WHERE c3 > -0.1 AND -c4 > 0";
         let expected = "Projection: #aggregate_test_100.c3\
-            \n  Filter: #aggregate_test_100.c3 Gt Float64(-0.1) And (- #aggregate_test_100.c4) Gt Int64(0)\
+            \n  Filter: #aggregate_test_100.c3 > Float64(-0.1) AND (- #aggregate_test_100.c4) > Int64(0)\
             \n    TableScan: aggregate_test_100 projection=None";
         quick_test(sql, expected);
     }
@@ -2565,15 +3052,55 @@ mod tests {
     fn select_where_with_positive_operator() {
         let sql = "SELECT c3 FROM aggregate_test_100 WHERE c3 > +0.1 AND +c4 > 0";
         let expected = "Projection: #aggregate_test_100.c3\
-            \n  Filter: #aggregate_test_100.c3 Gt Float64(0.1) And #aggregate_test_100.c4 Gt Int64(0)\
+            \n  Filter: #aggregate_test_100.c3 > Float64(0.1) AND #aggregate_test_100.c4 > Int64(0)\
             \n    TableScan: aggregate_test_100 projection=None";
         quick_test(sql, expected);
     }
 
     #[test]
+    fn select_order_by_index() {
+        let sql = "SELECT id FROM person ORDER BY 1";
+        let expected = "Sort: #person.id ASC NULLS LAST\
+                        \n  Projection: #person.id\
+                        \n    TableScan: person projection=None";
+
+        quick_test(sql, expected);
+    }
+
+    #[test]
+    fn select_order_by_multiple_index() {
+        let sql = "SELECT id, state, age FROM person ORDER BY 1, 3";
+        let expected = "Sort: #person.id ASC NULLS LAST, #person.age ASC NULLS LAST\
+                        \n  Projection: #person.id, #person.state, #person.age\
+                        \n    TableScan: person projection=None";
+
+        quick_test(sql, expected);
+    }
+
+    #[test]
+    fn select_order_by_index_of_0() {
+        let sql = "SELECT id FROM person ORDER BY 0";
+        let err = logical_plan(sql).expect_err("query should have failed");
+        assert_eq!(
+            "Plan(\"Order by index starts at 1 for column indexes\")",
+            format!("{:?}", err)
+        );
+    }
+
+    #[test]
+    fn select_order_by_index_oob() {
+        let sql = "SELECT id FROM person ORDER BY 2";
+        let err = logical_plan(sql).expect_err("query should have failed");
+        assert_eq!(
+            "Plan(\"Order by column out of bounds, specified: 2, max: 1\")",
+            format!("{:?}", err)
+        );
+    }
+
+    #[test]
     fn select_order_by() {
         let sql = "SELECT id FROM person ORDER BY id";
-        let expected = "Sort: #person.id ASC NULLS FIRST\
+        let expected = "Sort: #person.id ASC NULLS LAST\
                         \n  Projection: #person.id\
                         \n    TableScan: person projection=None";
         quick_test(sql, expected);
@@ -2675,16 +3202,14 @@ mod tests {
     #[test]
     fn create_external_table_csv_no_schema() {
         let sql = "CREATE EXTERNAL TABLE t STORED AS CSV LOCATION 'foo.csv'";
-        let err = logical_plan(sql).expect_err("query should have failed");
-        assert_eq!(
-            "Plan(\"Column definitions required for CSV files. None found\")",
-            format!("{:?}", err)
-        );
+        let expected = "CreateExternalTable: \"t\"";
+        quick_test(sql, expected);
     }
 
     #[test]
     fn create_external_table_parquet() {
-        let sql = "CREATE EXTERNAL TABLE t(c1 int) STORED AS PARQUET LOCATION 'foo.parquet'";
+        let sql =
+            "CREATE EXTERNAL TABLE t(c1 int) STORED AS PARQUET LOCATION 'foo.parquet'";
         let err = logical_plan(sql).expect_err("query should have failed");
         assert_eq!(
             "Plan(\"Column definitions can not be specified for PARQUET files.\")",
@@ -2719,10 +3244,38 @@ mod tests {
             JOIN orders \
             ON id = customer_id AND order_id > 1 ";
         let expected = "Projection: #person.id, #orders.order_id\
-        \n  Filter: #orders.order_id Gt Int64(1)\
+        \n  Filter: #orders.order_id > Int64(1)\
         \n    Join: #person.id = #orders.customer_id\
         \n      TableScan: person projection=None\
         \n      TableScan: orders projection=None";
+        quick_test(sql, expected);
+    }
+
+    #[test]
+    fn left_equijoin_unsupported_expression() {
+        let sql = "SELECT id, order_id \
+            FROM person \
+            LEFT JOIN orders \
+            ON id = customer_id AND order_id > 1";
+        let expected = "Projection: #person.id, #orders.order_id\
+        \n  Join: #person.id = #orders.customer_id\
+        \n    TableScan: person projection=None\
+        \n    Filter: #orders.order_id > Int64(1)\
+        \n      TableScan: orders projection=None";
+        quick_test(sql, expected);
+    }
+
+    #[test]
+    fn right_equijoin_unsupported_expression() {
+        let sql = "SELECT id, order_id \
+            FROM person \
+            RIGHT JOIN orders \
+            ON id = customer_id AND id > 1";
+        let expected = "Projection: #person.id, #orders.order_id\
+        \n  Join: #person.id = #orders.customer_id\
+        \n    Filter: #person.id > Int64(1)\
+        \n      TableScan: person projection=None\
+        \n    TableScan: orders projection=None";
         quick_test(sql, expected);
     }
 
@@ -2771,7 +3324,8 @@ mod tests {
             FROM person \
             JOIN orders ON id = customer_id \
             JOIN lineitem ON o_item_id = l_item_id";
-        let expected = "Projection: #person.id, #orders.order_id, #lineitem.l_description\
+        let expected =
+            "Projection: #person.id, #orders.order_id, #lineitem.l_description\
             \n  Join: #orders.o_item_id = #lineitem.l_item_id\
             \n    Join: #person.id = #orders.customer_id\
             \n      TableScan: person projection=None\
@@ -2786,7 +3340,7 @@ mod tests {
         FROM orders \
         WHERE delivered = false OR delivered = true";
         let expected = "Projection: #orders.order_id\
-            \n  Filter: #orders.delivered Eq Boolean(false) Or #orders.delivered Eq Boolean(true)\
+            \n  Filter: #orders.delivered = Boolean(false) OR #orders.delivered = Boolean(true)\
             \n    TableScan: orders projection=None";
         quick_test(sql, expected);
     }
@@ -2864,9 +3418,9 @@ mod tests {
     fn empty_over_dup_with_different_sort() {
         let sql = "SELECT order_id oid, MAX(order_id) OVER (), MAX(order_id) OVER (ORDER BY order_id) from orders";
         let expected = "\
-        Projection: #orders.order_id AS oid, #MAX(orders.order_id), #MAX(orders.order_id) ORDER BY [#orders.order_id ASC NULLS FIRST]\
+        Projection: #orders.order_id AS oid, #MAX(orders.order_id), #MAX(orders.order_id) ORDER BY [#orders.order_id ASC NULLS LAST]\
         \n  WindowAggr: windowExpr=[[MAX(#orders.order_id)]]\
-        \n    WindowAggr: windowExpr=[[MAX(#orders.order_id) ORDER BY [#orders.order_id ASC NULLS FIRST]]]\
+        \n    WindowAggr: windowExpr=[[MAX(#orders.order_id) ORDER BY [#orders.order_id ASC NULLS LAST]]]\
         \n      TableScan: orders projection=None";
         quick_test(sql, expected);
     }
@@ -2875,8 +3429,8 @@ mod tests {
     fn empty_over_plus() {
         let sql = "SELECT order_id, MAX(qty * 1.1) OVER () from orders";
         let expected = "\
-        Projection: #orders.order_id, #MAX(orders.qty Multiply Float64(1.1))\
-        \n  WindowAggr: windowExpr=[[MAX(#orders.qty Multiply Float64(1.1))]]\
+        Projection: #orders.order_id, #MAX(orders.qty * Float64(1.1))\
+        \n  WindowAggr: windowExpr=[[MAX(#orders.qty * Float64(1.1))]]\
         \n    TableScan: orders projection=None";
         quick_test(sql, expected);
     }
@@ -2927,8 +3481,8 @@ mod tests {
     fn over_order_by() {
         let sql = "SELECT order_id, MAX(qty) OVER (ORDER BY order_id), MIN(qty) OVER (ORDER BY order_id DESC) from orders";
         let expected = "\
-        Projection: #orders.order_id, #MAX(orders.qty) ORDER BY [#orders.order_id ASC NULLS FIRST], #MIN(orders.qty) ORDER BY [#orders.order_id DESC NULLS FIRST]\
-        \n  WindowAggr: windowExpr=[[MAX(#orders.qty) ORDER BY [#orders.order_id ASC NULLS FIRST]]]\
+        Projection: #orders.order_id, #MAX(orders.qty) ORDER BY [#orders.order_id ASC NULLS LAST], #MIN(orders.qty) ORDER BY [#orders.order_id DESC NULLS FIRST]\
+        \n  WindowAggr: windowExpr=[[MAX(#orders.qty) ORDER BY [#orders.order_id ASC NULLS LAST]]]\
         \n    WindowAggr: windowExpr=[[MIN(#orders.qty) ORDER BY [#orders.order_id DESC NULLS FIRST]]]\
         \n      TableScan: orders projection=None";
         quick_test(sql, expected);
@@ -2938,8 +3492,8 @@ mod tests {
     fn over_order_by_with_window_frame_double_end() {
         let sql = "SELECT order_id, MAX(qty) OVER (ORDER BY order_id ROWS BETWEEN 3 PRECEDING and 3 FOLLOWING), MIN(qty) OVER (ORDER BY order_id DESC) from orders";
         let expected = "\
-        Projection: #orders.order_id, #MAX(orders.qty) ORDER BY [#orders.order_id ASC NULLS FIRST] ROWS BETWEEN 3 PRECEDING AND 3 FOLLOWING, #MIN(orders.qty) ORDER BY [#orders.order_id DESC NULLS FIRST]\
-        \n  WindowAggr: windowExpr=[[MAX(#orders.qty) ORDER BY [#orders.order_id ASC NULLS FIRST] ROWS BETWEEN 3 PRECEDING AND 3 FOLLOWING]]\
+        Projection: #orders.order_id, #MAX(orders.qty) ORDER BY [#orders.order_id ASC NULLS LAST] ROWS BETWEEN 3 PRECEDING AND 3 FOLLOWING, #MIN(orders.qty) ORDER BY [#orders.order_id DESC NULLS FIRST]\
+        \n  WindowAggr: windowExpr=[[MAX(#orders.qty) ORDER BY [#orders.order_id ASC NULLS LAST] ROWS BETWEEN 3 PRECEDING AND 3 FOLLOWING]]\
         \n    WindowAggr: windowExpr=[[MIN(#orders.qty) ORDER BY [#orders.order_id DESC NULLS FIRST]]]\
         \n      TableScan: orders projection=None";
         quick_test(sql, expected);
@@ -2949,8 +3503,8 @@ mod tests {
     fn over_order_by_with_window_frame_single_end() {
         let sql = "SELECT order_id, MAX(qty) OVER (ORDER BY order_id ROWS 3 PRECEDING), MIN(qty) OVER (ORDER BY order_id DESC) from orders";
         let expected = "\
-        Projection: #orders.order_id, #MAX(orders.qty) ORDER BY [#orders.order_id ASC NULLS FIRST] ROWS BETWEEN 3 PRECEDING AND CURRENT ROW, #MIN(orders.qty) ORDER BY [#orders.order_id DESC NULLS FIRST]\
-        \n  WindowAggr: windowExpr=[[MAX(#orders.qty) ORDER BY [#orders.order_id ASC NULLS FIRST] ROWS BETWEEN 3 PRECEDING AND CURRENT ROW]]\
+        Projection: #orders.order_id, #MAX(orders.qty) ORDER BY [#orders.order_id ASC NULLS LAST] ROWS BETWEEN 3 PRECEDING AND CURRENT ROW, #MIN(orders.qty) ORDER BY [#orders.order_id DESC NULLS FIRST]\
+        \n  WindowAggr: windowExpr=[[MAX(#orders.qty) ORDER BY [#orders.order_id ASC NULLS LAST] ROWS BETWEEN 3 PRECEDING AND CURRENT ROW]]\
         \n    WindowAggr: windowExpr=[[MIN(#orders.qty) ORDER BY [#orders.order_id DESC NULLS FIRST]]]\
         \n      TableScan: orders projection=None";
         quick_test(sql, expected);
@@ -2958,8 +3512,7 @@ mod tests {
 
     #[test]
     fn over_order_by_with_window_frame_range_value_check() {
-        let sql =
-            "SELECT order_id, MAX(qty) OVER (ORDER BY order_id RANGE 3 PRECEDING) from orders";
+        let sql = "SELECT order_id, MAX(qty) OVER (ORDER BY order_id RANGE 3 PRECEDING) from orders";
         let err = logical_plan(sql).expect_err("query should have failed");
         assert_eq!(
             "NotImplemented(\"With WindowFrameUnits=RANGE, the bound cannot be 3 PRECEDING or FOLLOWING at the moment\")",
@@ -2969,7 +3522,8 @@ mod tests {
 
     #[test]
     fn over_order_by_with_window_frame_range_order_by_check() {
-        let sql = "SELECT order_id, MAX(qty) OVER (RANGE UNBOUNDED PRECEDING) from orders";
+        let sql =
+            "SELECT order_id, MAX(qty) OVER (RANGE UNBOUNDED PRECEDING) from orders";
         let err = logical_plan(sql).expect_err("query should have failed");
         assert_eq!(
             "Plan(\"With window frame of type RANGE, the order by expression must be of length 1, got 0\")",
@@ -2992,8 +3546,8 @@ mod tests {
     fn over_order_by_with_window_frame_single_end_groups() {
         let sql = "SELECT order_id, MAX(qty) OVER (ORDER BY order_id GROUPS 3 PRECEDING), MIN(qty) OVER (ORDER BY order_id DESC) from orders";
         let expected = "\
-        Projection: #orders.order_id, #MAX(orders.qty) ORDER BY [#orders.order_id ASC NULLS FIRST] GROUPS BETWEEN 3 PRECEDING AND CURRENT ROW, #MIN(orders.qty) ORDER BY [#orders.order_id DESC NULLS FIRST]\
-        \n  WindowAggr: windowExpr=[[MAX(#orders.qty) ORDER BY [#orders.order_id ASC NULLS FIRST] GROUPS BETWEEN 3 PRECEDING AND CURRENT ROW]]\
+        Projection: #orders.order_id, #MAX(orders.qty) ORDER BY [#orders.order_id ASC NULLS LAST] GROUPS BETWEEN 3 PRECEDING AND CURRENT ROW, #MIN(orders.qty) ORDER BY [#orders.order_id DESC NULLS FIRST]\
+        \n  WindowAggr: windowExpr=[[MAX(#orders.qty) ORDER BY [#orders.order_id ASC NULLS LAST] GROUPS BETWEEN 3 PRECEDING AND CURRENT ROW]]\
         \n    WindowAggr: windowExpr=[[MIN(#orders.qty) ORDER BY [#orders.order_id DESC NULLS FIRST]]]\
         \n      TableScan: orders projection=None";
         quick_test(sql, expected);
@@ -3015,9 +3569,9 @@ mod tests {
     fn over_order_by_two_sort_keys() {
         let sql = "SELECT order_id, MAX(qty) OVER (ORDER BY order_id), MIN(qty) OVER (ORDER BY (order_id + 1)) from orders";
         let expected = "\
-        Projection: #orders.order_id, #MAX(orders.qty) ORDER BY [#orders.order_id ASC NULLS FIRST], #MIN(orders.qty) ORDER BY [#orders.order_id Plus Int64(1) ASC NULLS FIRST]\
-        \n  WindowAggr: windowExpr=[[MAX(#orders.qty) ORDER BY [#orders.order_id ASC NULLS FIRST]]]\
-        \n    WindowAggr: windowExpr=[[MIN(#orders.qty) ORDER BY [#orders.order_id Plus Int64(1) ASC NULLS FIRST]]]\
+        Projection: #orders.order_id, #MAX(orders.qty) ORDER BY [#orders.order_id ASC NULLS LAST], #MIN(orders.qty) ORDER BY [#orders.order_id + Int64(1) ASC NULLS LAST]\
+        \n  WindowAggr: windowExpr=[[MAX(#orders.qty) ORDER BY [#orders.order_id ASC NULLS LAST]]]\
+        \n    WindowAggr: windowExpr=[[MIN(#orders.qty) ORDER BY [#orders.order_id + Int64(1) ASC NULLS LAST]]]\
         \n      TableScan: orders projection=None";
         quick_test(sql, expected);
     }
@@ -3039,10 +3593,10 @@ mod tests {
     fn over_order_by_sort_keys_sorting() {
         let sql = "SELECT order_id, MAX(qty) OVER (ORDER BY qty, order_id), SUM(qty) OVER (), MIN(qty) OVER (ORDER BY order_id, qty) from orders";
         let expected = "\
-        Projection: #orders.order_id, #MAX(orders.qty) ORDER BY [#orders.qty ASC NULLS FIRST, #orders.order_id ASC NULLS FIRST], #SUM(orders.qty), #MIN(orders.qty) ORDER BY [#orders.order_id ASC NULLS FIRST, #orders.qty ASC NULLS FIRST]\
+        Projection: #orders.order_id, #MAX(orders.qty) ORDER BY [#orders.qty ASC NULLS LAST, #orders.order_id ASC NULLS LAST], #SUM(orders.qty), #MIN(orders.qty) ORDER BY [#orders.order_id ASC NULLS LAST, #orders.qty ASC NULLS LAST]\
         \n  WindowAggr: windowExpr=[[SUM(#orders.qty)]]\
-        \n    WindowAggr: windowExpr=[[MAX(#orders.qty) ORDER BY [#orders.qty ASC NULLS FIRST, #orders.order_id ASC NULLS FIRST]]]\
-        \n      WindowAggr: windowExpr=[[MIN(#orders.qty) ORDER BY [#orders.order_id ASC NULLS FIRST, #orders.qty ASC NULLS FIRST]]]\
+        \n    WindowAggr: windowExpr=[[MAX(#orders.qty) ORDER BY [#orders.qty ASC NULLS LAST, #orders.order_id ASC NULLS LAST]]]\
+        \n      WindowAggr: windowExpr=[[MIN(#orders.qty) ORDER BY [#orders.order_id ASC NULLS LAST, #orders.qty ASC NULLS LAST]]]\
         \n        TableScan: orders projection=None";
         quick_test(sql, expected);
     }
@@ -3064,10 +3618,10 @@ mod tests {
     fn over_order_by_sort_keys_sorting_prefix_compacting() {
         let sql = "SELECT order_id, MAX(qty) OVER (ORDER BY order_id), SUM(qty) OVER (), MIN(qty) OVER (ORDER BY order_id, qty) from orders";
         let expected = "\
-        Projection: #orders.order_id, #MAX(orders.qty) ORDER BY [#orders.order_id ASC NULLS FIRST], #SUM(orders.qty), #MIN(orders.qty) ORDER BY [#orders.order_id ASC NULLS FIRST, #orders.qty ASC NULLS FIRST]\
+        Projection: #orders.order_id, #MAX(orders.qty) ORDER BY [#orders.order_id ASC NULLS LAST], #SUM(orders.qty), #MIN(orders.qty) ORDER BY [#orders.order_id ASC NULLS LAST, #orders.qty ASC NULLS LAST]\
         \n  WindowAggr: windowExpr=[[SUM(#orders.qty)]]\
-        \n    WindowAggr: windowExpr=[[MAX(#orders.qty) ORDER BY [#orders.order_id ASC NULLS FIRST]]]\
-        \n      WindowAggr: windowExpr=[[MIN(#orders.qty) ORDER BY [#orders.order_id ASC NULLS FIRST, #orders.qty ASC NULLS FIRST]]]\
+        \n    WindowAggr: windowExpr=[[MAX(#orders.qty) ORDER BY [#orders.order_id ASC NULLS LAST]]]\
+        \n      WindowAggr: windowExpr=[[MIN(#orders.qty) ORDER BY [#orders.order_id ASC NULLS LAST, #orders.qty ASC NULLS LAST]]]\
         \n        TableScan: orders projection=None";
         quick_test(sql, expected);
     }
@@ -3092,11 +3646,11 @@ mod tests {
     fn over_order_by_sort_keys_sorting_global_order_compacting() {
         let sql = "SELECT order_id, MAX(qty) OVER (ORDER BY qty, order_id), SUM(qty) OVER (), MIN(qty) OVER (ORDER BY order_id, qty) from orders ORDER BY order_id";
         let expected = "\
-        Sort: #orders.order_id ASC NULLS FIRST\
-        \n  Projection: #orders.order_id, #MAX(orders.qty) ORDER BY [#orders.qty ASC NULLS FIRST, #orders.order_id ASC NULLS FIRST], #SUM(orders.qty), #MIN(orders.qty) ORDER BY [#orders.order_id ASC NULLS FIRST, #orders.qty ASC NULLS FIRST]\
+        Sort: #orders.order_id ASC NULLS LAST\
+        \n  Projection: #orders.order_id, #MAX(orders.qty) ORDER BY [#orders.qty ASC NULLS LAST, #orders.order_id ASC NULLS LAST], #SUM(orders.qty), #MIN(orders.qty) ORDER BY [#orders.order_id ASC NULLS LAST, #orders.qty ASC NULLS LAST]\
         \n    WindowAggr: windowExpr=[[SUM(#orders.qty)]]\
-        \n      WindowAggr: windowExpr=[[MAX(#orders.qty) ORDER BY [#orders.qty ASC NULLS FIRST, #orders.order_id ASC NULLS FIRST]]]\
-        \n        WindowAggr: windowExpr=[[MIN(#orders.qty) ORDER BY [#orders.order_id ASC NULLS FIRST, #orders.qty ASC NULLS FIRST]]]\
+        \n      WindowAggr: windowExpr=[[MAX(#orders.qty) ORDER BY [#orders.qty ASC NULLS LAST, #orders.order_id ASC NULLS LAST]]]\
+        \n        WindowAggr: windowExpr=[[MIN(#orders.qty) ORDER BY [#orders.order_id ASC NULLS LAST, #orders.qty ASC NULLS LAST]]]\
         \n          TableScan: orders projection=None";
         quick_test(sql, expected);
     }
@@ -3112,10 +3666,11 @@ mod tests {
     /// ```
     #[test]
     fn over_partition_by_order_by() {
-        let sql = "SELECT order_id, MAX(qty) OVER (PARTITION BY order_id ORDER BY qty) from orders";
+        let sql =
+            "SELECT order_id, MAX(qty) OVER (PARTITION BY order_id ORDER BY qty) from orders";
         let expected = "\
-        Projection: #orders.order_id, #MAX(orders.qty) PARTITION BY [#orders.order_id] ORDER BY [#orders.qty ASC NULLS FIRST]\
-        \n  WindowAggr: windowExpr=[[MAX(#orders.qty) PARTITION BY [#orders.order_id] ORDER BY [#orders.qty ASC NULLS FIRST]]]\
+        Projection: #orders.order_id, #MAX(orders.qty) PARTITION BY [#orders.order_id] ORDER BY [#orders.qty ASC NULLS LAST]\
+        \n  WindowAggr: windowExpr=[[MAX(#orders.qty) PARTITION BY [#orders.order_id] ORDER BY [#orders.qty ASC NULLS LAST]]]\
         \n    TableScan: orders projection=None";
         quick_test(sql, expected);
     }
@@ -3134,8 +3689,8 @@ mod tests {
         let sql =
             "SELECT order_id, MAX(qty) OVER (PARTITION BY order_id, qty ORDER BY qty) from orders";
         let expected = "\
-        Projection: #orders.order_id, #MAX(orders.qty) PARTITION BY [#orders.order_id, #orders.qty] ORDER BY [#orders.qty ASC NULLS FIRST]\
-        \n  WindowAggr: windowExpr=[[MAX(#orders.qty) PARTITION BY [#orders.order_id, #orders.qty] ORDER BY [#orders.qty ASC NULLS FIRST]]]\
+        Projection: #orders.order_id, #MAX(orders.qty) PARTITION BY [#orders.order_id, #orders.qty] ORDER BY [#orders.qty ASC NULLS LAST]\
+        \n  WindowAggr: windowExpr=[[MAX(#orders.qty) PARTITION BY [#orders.order_id, #orders.qty] ORDER BY [#orders.qty ASC NULLS LAST]]]\
         \n    TableScan: orders projection=None";
         quick_test(sql, expected);
     }
@@ -3157,9 +3712,9 @@ mod tests {
         let sql =
             "SELECT order_id, MAX(qty) OVER (PARTITION BY order_id, qty ORDER BY qty), MIN(qty) OVER (PARTITION BY qty ORDER BY order_id) from orders";
         let expected = "\
-        Projection: #orders.order_id, #MAX(orders.qty) PARTITION BY [#orders.order_id, #orders.qty] ORDER BY [#orders.qty ASC NULLS FIRST], #MIN(orders.qty) PARTITION BY [#orders.qty] ORDER BY [#orders.order_id ASC NULLS FIRST]\
-        \n  WindowAggr: windowExpr=[[MAX(#orders.qty) PARTITION BY [#orders.order_id, #orders.qty] ORDER BY [#orders.qty ASC NULLS FIRST]]]\
-        \n    WindowAggr: windowExpr=[[MIN(#orders.qty) PARTITION BY [#orders.qty] ORDER BY [#orders.order_id ASC NULLS FIRST]]]\
+        Projection: #orders.order_id, #MAX(orders.qty) PARTITION BY [#orders.order_id, #orders.qty] ORDER BY [#orders.qty ASC NULLS LAST], #MIN(orders.qty) PARTITION BY [#orders.qty] ORDER BY [#orders.order_id ASC NULLS LAST]\
+        \n  WindowAggr: windowExpr=[[MIN(#orders.qty) PARTITION BY [#orders.qty] ORDER BY [#orders.order_id ASC NULLS LAST]]]\
+        \n    WindowAggr: windowExpr=[[MAX(#orders.qty) PARTITION BY [#orders.order_id, #orders.qty] ORDER BY [#orders.qty ASC NULLS LAST]]]\
         \n      TableScan: orders projection=None";
         quick_test(sql, expected);
     }
@@ -3180,21 +3735,11 @@ mod tests {
         let sql =
             "SELECT order_id, MAX(qty) OVER (PARTITION BY order_id ORDER BY qty), MIN(qty) OVER (PARTITION BY order_id, qty ORDER BY price) from orders";
         let expected = "\
-        Projection: #orders.order_id, #MAX(orders.qty) PARTITION BY [#orders.order_id] ORDER BY [#orders.qty ASC NULLS FIRST], #MIN(orders.qty) PARTITION BY [#orders.order_id, #orders.qty] ORDER BY [#orders.price ASC NULLS FIRST]\
-        \n  WindowAggr: windowExpr=[[MAX(#orders.qty) PARTITION BY [#orders.order_id] ORDER BY [#orders.qty ASC NULLS FIRST]]]\
-        \n    WindowAggr: windowExpr=[[MIN(#orders.qty) PARTITION BY [#orders.order_id, #orders.qty] ORDER BY [#orders.price ASC NULLS FIRST]]]\
+        Projection: #orders.order_id, #MAX(orders.qty) PARTITION BY [#orders.order_id] ORDER BY [#orders.qty ASC NULLS LAST], #MIN(orders.qty) PARTITION BY [#orders.order_id, #orders.qty] ORDER BY [#orders.price ASC NULLS LAST]\
+        \n  WindowAggr: windowExpr=[[MAX(#orders.qty) PARTITION BY [#orders.order_id] ORDER BY [#orders.qty ASC NULLS LAST]]]\
+        \n    WindowAggr: windowExpr=[[MIN(#orders.qty) PARTITION BY [#orders.order_id, #orders.qty] ORDER BY [#orders.price ASC NULLS LAST]]]\
         \n      TableScan: orders projection=None";
         quick_test(sql, expected);
-    }
-
-    #[test]
-    fn only_union_all_supported() {
-        let sql = "SELECT order_id from orders EXCEPT SELECT order_id FROM orders";
-        let err = logical_plan(sql).expect_err("query should have failed");
-        assert_eq!(
-            "NotImplemented(\"Only UNION ALL is supported, found EXCEPT\")",
-            format!("{:?}", err)
-        );
     }
 
     #[test]
@@ -3229,7 +3774,10 @@ mod tests {
     struct MockContextProvider {}
 
     impl ContextProvider for MockContextProvider {
-        fn get_table_provider(&self, name: TableReference) -> Option<Arc<dyn TableProvider>> {
+        fn get_table_provider(
+            &self,
+            name: TableReference,
+        ) -> Option<Arc<dyn TableProvider>> {
             let schema = match name.table() {
                 "person" => Some(Schema::new(vec![
                     Field::new("id", DataType::UInt32, false),
@@ -3275,7 +3823,9 @@ mod tests {
                 ])),
                 _ => None,
             };
-            schema.map(|s| -> Arc<dyn TableProvider> { Arc::new(EmptyTable::new(Arc::new(s))) })
+            schema.map(|s| -> Arc<dyn TableProvider> {
+                Arc::new(EmptyTable::new(Arc::new(s)))
+            })
         }
 
         fn get_function_meta(&self, name: &str) -> Option<Arc<ScalarUDF>> {
@@ -3286,6 +3836,7 @@ mod tests {
                     "my_sqrt",
                     vec![DataType::Float64],
                     Arc::new(DataType::Float64),
+                    Volatility::Immutable,
                     f,
                 ))),
                 _ => None,
@@ -3295,5 +3846,20 @@ mod tests {
         fn get_aggregate_meta(&self, _name: &str) -> Option<Arc<AggregateUDF>> {
             unimplemented!()
         }
+    }
+
+    #[test]
+    fn select_partially_qualified_column() {
+        let sql = r#"SELECT person.first_name FROM public.person"#;
+        let expected = "Projection: #public.person.first_name\
+            \n  TableScan: public.person projection=None";
+        quick_test(sql, expected);
+    }
+}
+
+fn parse_sql_number(n: &str) -> Result<Expr> {
+    match n.parse::<i64>() {
+        Ok(n) => Ok(lit(n)),
+        Err(_) => Ok(lit(n.parse::<f64>().unwrap())),
     }
 }

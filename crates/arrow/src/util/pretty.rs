@@ -20,8 +20,7 @@
 
 use crate::{array::ArrayRef, record_batch::RecordBatch};
 
-use prettytable::format;
-use prettytable::{Cell, Row, Table};
+use comfy_table::{Cell, Table};
 
 use crate::error::Result;
 
@@ -39,20 +38,20 @@ pub fn pretty_format_columns(col_name: &str, results: &[ArrayRef]) -> Result<Str
 
 ///! Prints a visual representation of record batches to stdout
 pub fn print_batches(results: &[RecordBatch]) -> Result<()> {
-    create_table(results)?.printstd();
+    println!("{}", create_table(results)?);
     Ok(())
 }
 
 ///! Prints a visual representation of a list of column to stdout
 pub fn print_columns(col_name: &str, results: &[ArrayRef]) -> Result<()> {
-    create_column(col_name, results)?.printstd();
+    println!("{}", create_column(col_name, results)?);
     Ok(())
 }
 
 ///! Convert a series of record batches into a table
 fn create_table(results: &[RecordBatch]) -> Result<Table> {
     let mut table = Table::new();
-    table.set_format(*format::consts::FORMAT_NO_LINESEP_WITH_TITLE);
+    table.load_preset("||--+-++|    ++++++");
 
     if results.is_empty() {
         return Ok(table);
@@ -64,7 +63,7 @@ fn create_table(results: &[RecordBatch]) -> Result<Table> {
     for field in schema.fields() {
         header.push(Cell::new(&field.name()));
     }
-    table.set_titles(Row::new(header));
+    table.set_header(header);
 
     for batch in results {
         for row in 0..batch.num_rows() {
@@ -73,7 +72,7 @@ fn create_table(results: &[RecordBatch]) -> Result<Table> {
                 let column = batch.column(col);
                 cells.push(Cell::new(&array_value_to_string(&column, row)?));
             }
-            table.add_row(Row::new(cells));
+            table.add_row(cells);
         }
     }
 
@@ -82,19 +81,19 @@ fn create_table(results: &[RecordBatch]) -> Result<Table> {
 
 fn create_column(field: &str, columns: &[ArrayRef]) -> Result<Table> {
     let mut table = Table::new();
-    table.set_format(*format::consts::FORMAT_NO_LINESEP_WITH_TITLE);
+    table.load_preset("||--+-++|    ++++++");
 
     if columns.is_empty() {
         return Ok(table);
     }
 
     let header = vec![Cell::new(field)];
-    table.set_titles(Row::new(header));
+    table.set_header(header);
 
     for col in columns {
         for row in 0..col.len() {
             let cells = vec![Cell::new(&array_value_to_string(&col, row)?)];
-            table.add_row(Row::new(cells));
+            table.add_row(cells);
         }
     }
 
@@ -106,16 +105,16 @@ mod tests {
     use crate::{
         array::{
             self, new_null_array, Array, Date32Array, Date64Array, PrimitiveBuilder,
-            StringBuilder, StringDictionaryBuilder, Time32MillisecondArray,
-            Time32SecondArray, Time64MicrosecondArray, Time64NanosecondArray,
-            TimestampMicrosecondArray, TimestampMillisecondArray,
+            StringArray, StringBuilder, StringDictionaryBuilder, StructArray,
+            Time32MillisecondArray, Time32SecondArray, Time64MicrosecondArray,
+            Time64NanosecondArray, TimestampMicrosecondArray, TimestampMillisecondArray,
             TimestampNanosecondArray, TimestampSecondArray,
         },
         datatypes::{DataType, Field, Int32Type, Schema},
     };
 
     use super::*;
-    use crate::array::{DecimalBuilder, Int32Array};
+    use crate::array::{DecimalBuilder, FixedSizeListBuilder, Int32Array};
     use std::sync::Arc;
 
     #[test]
@@ -255,6 +254,46 @@ mod tests {
             "|       |",
             "| three |",
             "+-------+",
+        ];
+
+        let actual: Vec<&str> = table.lines().collect();
+
+        assert_eq!(expected, actual, "Actual result:\n{}", table);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_pretty_format_fixed_size_list() -> Result<()> {
+        // define a schema.
+        let field_type = DataType::FixedSizeList(
+            Box::new(Field::new("item", DataType::Int32, true)),
+            3,
+        );
+        let schema = Arc::new(Schema::new(vec![Field::new("d1", field_type, true)]));
+
+        let keys_builder = Int32Array::builder(3);
+        let mut builder = FixedSizeListBuilder::new(keys_builder, 3);
+
+        builder.values().append_slice(&[1, 2, 3]).unwrap();
+        builder.append(true).unwrap();
+        builder.values().append_slice(&[4, 5, 6]).unwrap();
+        builder.append(false).unwrap();
+        builder.values().append_slice(&[7, 8, 9]).unwrap();
+        builder.append(true).unwrap();
+
+        let array = Arc::new(builder.finish());
+
+        let batch = RecordBatch::try_new(schema, vec![array])?;
+        let table = pretty_format_batches(&[batch])?;
+        let expected = vec![
+            "+-----------+",
+            "| d1        |",
+            "+-----------+",
+            "| [1, 2, 3] |",
+            "|           |",
+            "| [7, 8, 9] |",
+            "+-----------+",
         ];
 
         let actual: Vec<&str> = table.lines().collect();
@@ -500,6 +539,65 @@ mod tests {
         let expected = vec![
             "+------+", "| f    |", "+------+", "| 101  |", "|      |", "| 200  |",
             "| 3040 |", "+------+",
+        ];
+
+        let actual: Vec<&str> = table.lines().collect();
+        assert_eq!(expected, actual, "Actual result:\n{}", table);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_pretty_format_struct() -> Result<()> {
+        let schema = Schema::new(vec![
+            Field::new(
+                "c1",
+                DataType::Struct(vec![
+                    Field::new("c11", DataType::Int32, false),
+                    Field::new(
+                        "c12",
+                        DataType::Struct(vec![Field::new("c121", DataType::Utf8, false)]),
+                        false,
+                    ),
+                ]),
+                false,
+            ),
+            Field::new("c2", DataType::Utf8, false),
+        ]);
+
+        let c1 = StructArray::from(vec![
+            (
+                Field::new("c11", DataType::Int32, false),
+                Arc::new(Int32Array::from(vec![Some(1), None, Some(5)])) as ArrayRef,
+            ),
+            (
+                Field::new(
+                    "c12",
+                    DataType::Struct(vec![Field::new("c121", DataType::Utf8, false)]),
+                    false,
+                ),
+                Arc::new(StructArray::from(vec![(
+                    Field::new("c121", DataType::Utf8, false),
+                    Arc::new(StringArray::from(vec![Some("e"), Some("f"), Some("g")]))
+                        as ArrayRef,
+                )])) as ArrayRef,
+            ),
+        ]);
+        let c2 = StringArray::from(vec![Some("a"), Some("b"), Some("c")]);
+
+        let batch =
+            RecordBatch::try_new(Arc::new(schema), vec![Arc::new(c1), Arc::new(c2)])
+                .unwrap();
+
+        let table = pretty_format_batches(&[batch])?;
+        let expected = vec![
+            r#"+-------------------------------------+----+"#,
+            r#"| c1                                  | c2 |"#,
+            r#"+-------------------------------------+----+"#,
+            r#"| {"c11": 1, "c12": {"c121": "e"}}    | a  |"#,
+            r#"| {"c11": null, "c12": {"c121": "f"}} | b  |"#,
+            r#"| {"c11": 5, "c12": {"c121": "g"}}    | c  |"#,
+            r#"+-------------------------------------+----+"#,
         ];
 
         let actual: Vec<&str> = table.lines().collect();

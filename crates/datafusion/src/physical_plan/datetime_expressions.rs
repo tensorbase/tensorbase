@@ -25,6 +25,7 @@ use crate::{
 };
 use arrow::{
     array::{Array, ArrayRef, GenericStringArray, PrimitiveArray, StringOffsetSizeTrait},
+    compute::kernels::cast_utils::string_to_timestamp_nanos,
     datatypes::*,
 };
 use arrow::{
@@ -35,123 +36,7 @@ use arrow::{
 };
 use chrono::prelude::*;
 use chrono::Duration;
-use chrono::LocalResult;
-
-#[inline]
-/// Accepts a string in RFC3339 / ISO8601 standard format and some
-/// variants and converts it to a nanosecond precision timestamp.
-///
-/// Implements the `to_timestamp` function to convert a string to a
-/// timestamp, following the model of spark SQL’s to_`timestamp`.
-///
-/// In addition to RFC3339 / ISO8601 standard timestamps, it also
-/// accepts strings that use a space ` ` to separate the date and time
-/// as well as strings that have no explicit timezone offset.
-///
-/// Examples of accepted inputs:
-/// * `1997-01-31T09:26:56.123Z`        # RCF3339
-/// * `1997-01-31T09:26:56.123-05:00`   # RCF3339
-/// * `1997-01-31 09:26:56.123-05:00`   # close to RCF3339 but with a space rather than T
-/// * `1997-01-31T09:26:56.123`         # close to RCF3339 but no timezone offset specified
-/// * `1997-01-31 09:26:56.123`         # close to RCF3339 but uses a space and no timezone offset
-/// * `1997-01-31 09:26:56`             # close to RCF3339, no fractional seconds
-//
-/// Internally, this function uses the `chrono` library for the
-/// datetime parsing
-///
-/// We hope to extend this function in the future with a second
-/// parameter to specifying the format string.
-///
-/// ## Timestamp Precision
-///
-/// DataFusion uses the maximum precision timestamps supported by
-/// Arrow (nanoseconds stored as a 64-bit integer) timestamps. This
-/// means the range of dates that timestamps can represent is ~1677 AD
-/// to 2262 AM
-///
-///
-/// ## Timezone / Offset Handling
-///
-/// By using the Arrow format, DataFusion inherits Arrow’s handling of
-/// timestamp values. Specifically, the stored numerical values of
-/// timestamps are stored compared to offset UTC.
-///
-/// This function intertprets strings without an explicit time zone as
-/// timestamps with offsets of the local time on the machine that ran
-/// the datafusion query
-///
-/// For example, `1997-01-31 09:26:56.123Z` is interpreted as UTC, as
-/// it has an explicit timezone specifier (“Z” for Zulu/UTC)
-///
-/// `1997-01-31T09:26:56.123` is interpreted as a local timestamp in
-/// the timezone of the machine that ran DataFusion. For example, if
-/// the system timezone is set to Americas/New_York (UTC-5) the
-/// timestamp will be interpreted as though it were
-/// `1997-01-31T09:26:56.123-05:00`
-fn string_to_timestamp_nanos(s: &str) -> Result<i64> {
-    // Fast path:  RFC3339 timestamp (with a T)
-    // Example: 2020-09-08T13:42:29.190855Z
-    if let Ok(ts) = DateTime::parse_from_rfc3339(s) {
-        return Ok(ts.timestamp_nanos());
-    }
-
-    // Implement quasi-RFC3339 support by trying to parse the
-    // timestamp with various other format specifiers to to support
-    // separating the date and time with a space ' ' rather than 'T' to be
-    // (more) compatible with Apache Spark SQL
-
-    // timezone offset, using ' ' as a separator
-    // Example: 2020-09-08 13:42:29.190855-05:00
-    if let Ok(ts) = DateTime::parse_from_str(s, "%Y-%m-%d %H:%M:%S%.f%:z") {
-        return Ok(ts.timestamp_nanos());
-    }
-
-    // with an explicit Z, using ' ' as a separator
-    // Example: 2020-09-08 13:42:29Z
-    if let Ok(ts) = Utc.datetime_from_str(s, "%Y-%m-%d %H:%M:%S%.fZ") {
-        return Ok(ts.timestamp_nanos());
-    }
-
-    // Support timestamps without an explicit timezone offset, again
-    // to be compatible with what Apache Spark SQL does.
-
-    // without a timezone specifier as a local time, using T as a separator
-    // Example: 2020-09-08T13:42:29.190855
-    if let Ok(ts) = NaiveDateTime::parse_from_str(s, "%Y-%m-%dT%H:%M:%S.%f") {
-        return naive_datetime_to_timestamp(s, ts);
-    }
-
-    // without a timezone specifier as a local time, using T as a
-    // separator, no fractional seconds
-    // Example: 2020-09-08T13:42:29
-    if let Ok(ts) = NaiveDateTime::parse_from_str(s, "%Y-%m-%dT%H:%M:%S") {
-        return naive_datetime_to_timestamp(s, ts);
-    }
-
-    // without a timezone specifier as a local time, using ' ' as a separator
-    // Example: 2020-09-08 13:42:29.190855
-    if let Ok(ts) = NaiveDateTime::parse_from_str(s, "%Y-%m-%d %H:%M:%S.%f") {
-        return naive_datetime_to_timestamp(s, ts);
-    }
-
-    // without a timezone specifier as a local time, using ' ' as a
-    // separator, no fractional seconds
-    // Example: 2020-09-08 13:42:29
-    if let Ok(ts) = NaiveDateTime::parse_from_str(s, "%Y-%m-%d %H:%M:%S") {
-        return naive_datetime_to_timestamp(s, ts);
-    }
-
-    // Note we don't pass along the error message from the underlying
-    // chrono parsing because we tried several different format
-    // strings and we don't know which the user was trying to
-    // match. Ths any of the specific error messages is likely to be
-    // be more confusing than helpful
-    Err(DataFusionError::Execution(format!(
-        "Error parsing '{}' as timestamp",
-        s
-    )))
-}
-
+use std::borrow::Borrow;
 
 /// to_date SQL function
 pub fn to_date(args: &[ColumnarValue]) -> Result<ColumnarValue> {
@@ -161,59 +46,35 @@ pub fn to_date(args: &[ColumnarValue]) -> Result<ColumnarValue> {
         "to_date",
     )
 }
-
+ 
 #[inline]
 fn string_to_date16(s: &str) -> Result<u16> {
-
+ 
     if let Ok(date) = NaiveDate::parse_from_str(s, "%Y-%m-%d") {
-
+ 
         if date.year() > 2148 {
             return Err(DataFusionError::Execution(format!(
                 "Date '{}' Error: Year must be lowwer than 2149.",
                 s
             )))
         }
-
+ 
         let secs = date.and_hms(0, 0, 0)
         .timestamp();
-
+ 
         let days = (secs / 86_400) as u16;
         return Ok(days);
     }
-
+ 
     Err(DataFusionError::Execution(format!(
         "Error parsing '{}' as date",
         s
     )))
 }
 
-/// Converts the naive datetime (which has no specific timezone) to a
-/// nanosecond epoch timestamp relative to UTC.
-fn naive_datetime_to_timestamp(s: &str, datetime: NaiveDateTime) -> Result<i64> {
-    let l = Local {};
-
-    match l.from_local_datetime(&datetime) {
-        LocalResult::None => Err(DataFusionError::Execution(format!(
-            "Error parsing '{}' as timestamp: local time representation is invalid",
-            s
-        ))),
-        LocalResult::Single(local_datetime) => {
-            Ok(local_datetime.with_timezone(&Utc).timestamp_nanos())
-        }
-        // Ambiguous times can happen if the timestamp is exactly when
-        // a daylight savings time transition occurs, for example, and
-        // so the datetime could validly be said to be in two
-        // potential offsets. However, since we are about to convert
-        // to UTC anyways, we can pick one arbitrarily
-        LocalResult::Ambiguous(local_datetime, _) => {
-            Ok(local_datetime.with_timezone(&Utc).timestamp_nanos())
-        }
-    }
-}
-
-// given a function `op` that maps a `&str` to a Result of an arrow native type,
-// returns a `PrimitiveArray` after the application
-// of the function to `args[0]`.
+/// given a function `op` that maps a `&str` to a Result of an arrow native type,
+/// returns a `PrimitiveArray` after the application
+/// of the function to `args[0]`.
 /// # Errors
 /// This function errors iff:
 /// * the number of arguments is not 1 or
@@ -245,7 +106,10 @@ where
         })?;
 
     // first map is the iterator, second is for the `Option<_>`
-    array.iter().map(|x| x.map(|x| op(x)).transpose()).collect()
+    array
+        .iter()
+        .map(|x| x.map(op.borrow()).transpose())
+        .collect()
 }
 
 // given an function that maps a `&str` to a arrow native type,
@@ -291,11 +155,16 @@ where
     }
 }
 
+/// Calls string_to_timestamp_nanos and converts the error type
+fn string_to_timestamp_nanos_shim(s: &str) -> Result<i64> {
+    string_to_timestamp_nanos(s).map_err(|e| e.into())
+}
+
 /// to_timestamp SQL function
 pub fn to_timestamp(args: &[ColumnarValue]) -> Result<ColumnarValue> {
     handle::<TimestampNanosecondType, _, TimestampNanosecondType>(
         args,
-        string_to_timestamp_nanos,
+        string_to_timestamp_nanos_shim,
         "to_timestamp",
     )
 }
@@ -304,7 +173,7 @@ pub fn to_timestamp(args: &[ColumnarValue]) -> Result<ColumnarValue> {
 pub fn to_timestamp_millis(args: &[ColumnarValue]) -> Result<ColumnarValue> {
     handle::<TimestampMillisecondType, _, TimestampMillisecondType>(
         args,
-        |s| string_to_timestamp_nanos(s).map(|n| n / 1_000_000),
+        |s| string_to_timestamp_nanos_shim(s).map(|n| n / 1_000_000),
         "to_timestamp_millis",
     )
 }
@@ -313,7 +182,7 @@ pub fn to_timestamp_millis(args: &[ColumnarValue]) -> Result<ColumnarValue> {
 pub fn to_timestamp_micros(args: &[ColumnarValue]) -> Result<ColumnarValue> {
     handle::<TimestampMicrosecondType, _, TimestampMicrosecondType>(
         args,
-        |s| string_to_timestamp_nanos(s).map(|n| n / 1_000),
+        |s| string_to_timestamp_nanos_shim(s).map(|n| n / 1_000),
         "to_timestamp_micros",
     )
 }
@@ -322,7 +191,7 @@ pub fn to_timestamp_micros(args: &[ColumnarValue]) -> Result<ColumnarValue> {
 pub fn to_timestamp_seconds(args: &[ColumnarValue]) -> Result<ColumnarValue> {
     handle::<TimestampSecondType, _, TimestampSecondType>(
         args,
-        |s| string_to_timestamp_nanos(s).map(|n| n / 1_000_000_000),
+        |s| string_to_timestamp_nanos_shim(s).map(|n| n / 1_000_000_000),
         "to_timestamp_seconds",
     )
 }
@@ -399,14 +268,8 @@ pub fn date_trunc(args: &[ColumnarValue]) -> Result<ColumnarValue> {
     let f = |x: Option<i64>| x.map(|x| date_trunc_single(granularity, x)).transpose();
 
     Ok(match array {
-        ColumnarValue::Scalar(scalar) => {
-            if let ScalarValue::TimestampNanosecond(v) = scalar {
-                ColumnarValue::Scalar(ScalarValue::TimestampNanosecond((f)(*v)?))
-            } else {
-                return Err(DataFusionError::Execution(
-                    "array of `date_trunc` must be non-null scalar Utf8".to_string(),
-                ));
-            }
+        ColumnarValue::Scalar(ScalarValue::TimestampNanosecond(v)) => {
+            ColumnarValue::Scalar(ScalarValue::TimestampNanosecond((f)(*v)?))
         }
         ColumnarValue::Array(array) => {
             let array = array
@@ -420,6 +283,11 @@ pub fn date_trunc(args: &[ColumnarValue]) -> Result<ColumnarValue> {
 
             ColumnarValue::Array(Arc::new(array))
         }
+        _ => {
+            return Err(DataFusionError::Execution(
+                "array of `date_trunc` must be non-null scalar Utf8".to_string(),
+            ));
+        }
     })
 }
 
@@ -430,6 +298,13 @@ macro_rules! extract_date_part {
                 let array = $ARRAY.as_any().downcast_ref::<Date16Array>().unwrap();
                 Ok($FN(array)?)
             }
+            DataType::Timestamp32(None) => {
+                let array = $ARRAY
+                        .as_any()
+                        .downcast_ref::<Timestamp32Array>()
+                        .unwrap();
+                Ok($FN(array)?)
+            },
             DataType::Date32 => {
                 let array = $ARRAY.as_any().downcast_ref::<Date32Array>().unwrap();
                 Ok($FN(array)?)
@@ -438,13 +313,6 @@ macro_rules! extract_date_part {
                 let array = $ARRAY.as_any().downcast_ref::<Date64Array>().unwrap();
                 Ok($FN(array)?)
             }
-            DataType::Timestamp32(None) => {
-                let array = $ARRAY
-                        .as_any()
-                        .downcast_ref::<Timestamp32Array>()
-                        .unwrap();
-                Ok($FN(array)?)
-            },
             DataType::Timestamp(time_unit, None) => match time_unit {
                 TimeUnit::Second => {
                     let array = $ARRAY

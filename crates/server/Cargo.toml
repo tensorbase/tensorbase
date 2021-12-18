@@ -16,7 +16,7 @@ meta = { path = "../meta" }
 runtime = { path = "../runtime" }
 server_mysql = { path = "../server_mysql" }
 baselog = { git = "https://github.com/tensorbase/baselog.git", branch = "main"}
-mysql = "18"
+mysql = "21"
 
 [target.'cfg(not(target_env = "msvc"))'.dependencies]
 tikv-jemallocator = "0.4"

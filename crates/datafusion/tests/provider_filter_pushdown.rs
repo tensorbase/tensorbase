@@ -19,14 +19,14 @@ use arrow::array::{as_primitive_array, Int32Builder, UInt64Array};
 use arrow::datatypes::{DataType, Field, Schema, SchemaRef};
 use arrow::record_batch::RecordBatch;
 use async_trait::async_trait;
-use datafusion::datasource::datasource::{
-    Statistics, TableProvider, TableProviderFilterPushDown,
-};
+use datafusion::datasource::datasource::{TableProvider, TableProviderFilterPushDown};
 use datafusion::error::Result;
 use datafusion::execution::context::ExecutionContext;
 use datafusion::logical_plan::Expr;
 use datafusion::physical_plan::common::SizedRecordBatchStream;
-use datafusion::physical_plan::{ExecutionPlan, Partitioning, SendableRecordBatchStream};
+use datafusion::physical_plan::{
+    DisplayFormatType, ExecutionPlan, Partitioning, SendableRecordBatchStream, Statistics,
+};
 use datafusion::prelude::*;
 use datafusion::scalar::ScalarValue;
 use std::sync::Arc;
@@ -84,6 +84,24 @@ impl ExecutionPlan for CustomPlan {
             self.batches.clone(),
         )))
     }
+
+    fn fmt_as(
+        &self,
+        t: DisplayFormatType,
+        f: &mut std::fmt::Formatter,
+    ) -> std::fmt::Result {
+        match t {
+            DisplayFormatType::Default => {
+                write!(f, "CustomPlan: batch_size={}", self.batches.len(),)
+            }
+        }
+    }
+
+    fn statistics(&self) -> Statistics {
+        // here we could provide more accurate statistics
+        // but we want to test the filter pushdown not the CBOs
+        Statistics::default()
+    }
 }
 
 #[derive(Clone)]
@@ -92,6 +110,7 @@ struct CustomProvider {
     one_batch: RecordBatch,
 }
 
+#[async_trait]
 impl TableProvider for CustomProvider {
     fn as_any(&self) -> &dyn std::any::Any {
         self
@@ -101,7 +120,7 @@ impl TableProvider for CustomProvider {
         self.zero_batch.schema()
     }
 
-    fn scan(
+    async fn scan(
         &self,
         _: &Option<Vec<usize>>,
         _: usize,
@@ -131,10 +150,6 @@ impl TableProvider for CustomProvider {
         }
     }
 
-    fn statistics(&self) -> Statistics {
-        Statistics::default()
-    }
-
     fn supports_filter_pushdown(&self, _: &Expr) -> Result<TableProviderFilterPushDown> {
         Ok(TableProviderFilterPushDown::Exact)
     }
@@ -158,7 +173,8 @@ async fn assert_provider_row_count(value: i64, expected_count: u64) -> Result<()
 
     ctx.register_table("data", Arc::new(provider))?;
     let sql_results = ctx
-        .sql(&format!("select count(*) from data where flag = {}", value))?
+        .sql(&format!("select count(*) from data where flag = {}", value))
+        .await?
         .collect()
         .await?;
 

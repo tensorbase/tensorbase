@@ -20,7 +20,7 @@ use std::{fmt, ops};
 use super::{binary_expr, Expr};
 
 /// Operators applied to expressions
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd)]
 pub enum Operator {
     /// Expressions are equal
     Eq,
@@ -43,7 +43,7 @@ pub enum Operator {
     /// Division operator, like `/`
     Divide,
     /// Remainder operator, like `%`
-    Modulus,
+    Modulo,
     /// Logical AND, like `&&`
     And,
     /// Logical OR, like `||`
@@ -52,6 +52,18 @@ pub enum Operator {
     Like,
     /// Does not match a wildcard pattern
     NotLike,
+    /// IS DISTINCT FROM
+    IsDistinctFrom,
+    /// IS NOT DISTINCT FROM
+    IsNotDistinctFrom,
+    /// Case sensitive regex match
+    RegexMatch,
+    /// Case insensitive regex match
+    RegexIMatch,
+    /// Case sensitive regex not match
+    RegexNotMatch,
+    /// Case insensitive regex not match
+    RegexNotIMatch,
 }
 
 impl fmt::Display for Operator {
@@ -67,11 +79,17 @@ impl fmt::Display for Operator {
             Operator::Minus => "-",
             Operator::Multiply => "*",
             Operator::Divide => "/",
-            Operator::Modulus => "%",
+            Operator::Modulo => "%",
             Operator::And => "AND",
             Operator::Or => "OR",
             Operator::Like => "LIKE",
             Operator::NotLike => "NOT LIKE",
+            Operator::RegexMatch => "~",
+            Operator::RegexIMatch => "~*",
+            Operator::RegexNotMatch => "!~",
+            Operator::RegexNotIMatch => "!~*",
+            Operator::IsDistinctFrom => "IS DISTINCT FROM",
+            Operator::IsNotDistinctFrom => "IS NOT DISTINCT FROM",
         };
         write!(f, "{}", display)
     }
@@ -117,19 +135,19 @@ mod tests {
     fn test_operators() {
         assert_eq!(
             format!("{:?}", lit(1u32) + lit(2u32)),
-            "UInt32(1) Plus UInt32(2)"
+            "UInt32(1) + UInt32(2)"
         );
         assert_eq!(
             format!("{:?}", lit(1u32) - lit(2u32)),
-            "UInt32(1) Minus UInt32(2)"
+            "UInt32(1) - UInt32(2)"
         );
         assert_eq!(
             format!("{:?}", lit(1u32) * lit(2u32)),
-            "UInt32(1) Multiply UInt32(2)"
+            "UInt32(1) * UInt32(2)"
         );
         assert_eq!(
             format!("{:?}", lit(1u32) / lit(2u32)),
-            "UInt32(1) Divide UInt32(2)"
+            "UInt32(1) / UInt32(2)"
         );
     }
 }

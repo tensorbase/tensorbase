@@ -807,7 +807,7 @@ impl<T: DataType> ColumnWriterImpl<T> {
     ) -> Result<Vec<u8>> {
         let size = max_buffer_size(encoding, max_level, levels.len());
         let mut encoder = LevelEncoder::v1(encoding, max_level, vec![0; size]);
-        encoder.put(&levels)?;
+        encoder.put(levels)?;
         encoder.consume()
     }
 
@@ -817,7 +817,7 @@ impl<T: DataType> ColumnWriterImpl<T> {
     fn encode_levels_v2(&self, levels: &[i16], max_level: i16) -> Result<Vec<u8>> {
         let size = max_buffer_size(Encoding::RLE, max_level, levels.len());
         let mut encoder = LevelEncoder::v2(max_level, vec![0; size]);
-        encoder.put(&levels)?;
+        encoder.put(levels)?;
         encoder.consume()
     }
 
@@ -919,37 +919,58 @@ impl<T: DataType> ColumnWriterImpl<T> {
         };
         match self.descr.physical_type() {
             Type::INT32 => gen_stats_section!(i32, int32, min, max, distinct, nulls),
-            Type::BOOLEAN => gen_stats_section!(i32, int32, min, max, distinct, nulls),
+            Type::BOOLEAN => gen_stats_section!(bool, boolean, min, max, distinct, nulls),
             Type::INT64 => gen_stats_section!(i64, int64, min, max, distinct, nulls),
             Type::INT96 => gen_stats_section!(Int96, int96, min, max, distinct, nulls),
             Type::FLOAT => gen_stats_section!(f32, float, min, max, distinct, nulls),
             Type::DOUBLE => gen_stats_section!(f64, double, min, max, distinct, nulls),
-            Type::BYTE_ARRAY | Type::FIXED_LEN_BYTE_ARRAY => {
+            Type::BYTE_ARRAY => {
                 let min = min.as_ref().map(|v| ByteArray::from(v.as_bytes().to_vec()));
                 let max = max.as_ref().map(|v| ByteArray::from(v.as_bytes().to_vec()));
                 Statistics::byte_array(min, max, distinct, nulls, false)
+            }
+            Type::FIXED_LEN_BYTE_ARRAY => {
+                let min = min
+                    .as_ref()
+                    .map(|v| ByteArray::from(v.as_bytes().to_vec()))
+                    .map(|ba| {
+                        let ba: FixedLenByteArray = ba.into();
+                        ba
+                    });
+                let max = max
+                    .as_ref()
+                    .map(|v| ByteArray::from(v.as_bytes().to_vec()))
+                    .map(|ba| {
+                        let ba: FixedLenByteArray = ba.into();
+                        ba
+                    });
+                Statistics::fixed_len_byte_array(min, max, distinct, nulls, false)
             }
         }
     }
 
     #[allow(clippy::eq_op)]
     fn update_page_min_max(&mut self, val: &T::T) {
-        // simple "isNaN" check that works for all types
-        if val == val {
-            if self
-                .min_page_value
-                .as_ref()
-                .map_or(true, |min| self.compare_greater(min, val))
-            {
-                self.min_page_value = Some(val.clone());
+        if let Type::FLOAT | Type::DOUBLE = T::get_physical_type() {
+            // Skip NaN values
+            if val != val {
+                return;
             }
-            if self
-                .max_page_value
-                .as_ref()
-                .map_or(true, |max| self.compare_greater(val, max))
-            {
-                self.max_page_value = Some(val.clone());
-            }
+        }
+
+        if self
+            .min_page_value
+            .as_ref()
+            .map_or(true, |min| self.compare_greater(min, val))
+        {
+            self.min_page_value = Some(val.clone());
+        }
+        if self
+            .max_page_value
+            .as_ref()
+            .map_or(true, |max| self.compare_greater(val, max))
+        {
+            self.max_page_value = Some(val.clone());
         }
     }
 
@@ -1685,6 +1706,126 @@ mod tests {
                 (PageType::DATA_PAGE, 1)
             ]
         );
+    }
+
+    #[test]
+    fn test_bool_statistics() {
+        let stats = statistics_roundtrip::<BoolType>(&[true, false, false, true]);
+        assert!(stats.has_min_max_set());
+        if let Statistics::Boolean(stats) = stats {
+            assert_eq!(stats.min(), &false);
+            assert_eq!(stats.max(), &true);
+        } else {
+            panic!("expecting Statistics::Boolean, got {:?}", stats);
+        }
+    }
+
+    #[test]
+    fn test_int32_statistics() {
+        let stats = statistics_roundtrip::<Int32Type>(&[-1, 3, -2, 2]);
+        assert!(stats.has_min_max_set());
+        if let Statistics::Int32(stats) = stats {
+            assert_eq!(stats.min(), &-2);
+            assert_eq!(stats.max(), &3);
+        } else {
+            panic!("expecting Statistics::Int32, got {:?}", stats);
+        }
+    }
+
+    #[test]
+    fn test_int64_statistics() {
+        let stats = statistics_roundtrip::<Int64Type>(&[-1, 3, -2, 2]);
+        assert!(stats.has_min_max_set());
+        if let Statistics::Int64(stats) = stats {
+            assert_eq!(stats.min(), &-2);
+            assert_eq!(stats.max(), &3);
+        } else {
+            panic!("expecting Statistics::Int64, got {:?}", stats);
+        }
+    }
+
+    #[test]
+    fn test_int96_statistics() {
+        let input = vec![
+            Int96::from(vec![1, 20, 30]),
+            Int96::from(vec![3, 20, 10]),
+            Int96::from(vec![0, 20, 30]),
+            Int96::from(vec![2, 20, 30]),
+        ]
+        .into_iter()
+        .collect::<Vec<Int96>>();
+
+        let stats = statistics_roundtrip::<Int96Type>(&input);
+        assert!(stats.has_min_max_set());
+        if let Statistics::Int96(stats) = stats {
+            assert_eq!(stats.min(), &Int96::from(vec![0, 20, 30]));
+            assert_eq!(stats.max(), &Int96::from(vec![3, 20, 10]));
+        } else {
+            panic!("expecting Statistics::Int96, got {:?}", stats);
+        }
+    }
+
+    #[test]
+    fn test_float_statistics() {
+        let stats = statistics_roundtrip::<FloatType>(&[-1.0, 3.0, -2.0, 2.0]);
+        assert!(stats.has_min_max_set());
+        if let Statistics::Float(stats) = stats {
+            assert_eq!(stats.min(), &-2.0);
+            assert_eq!(stats.max(), &3.0);
+        } else {
+            panic!("expecting Statistics::Float, got {:?}", stats);
+        }
+    }
+
+    #[test]
+    fn test_double_statistics() {
+        let stats = statistics_roundtrip::<DoubleType>(&[-1.0, 3.0, -2.0, 2.0]);
+        assert!(stats.has_min_max_set());
+        if let Statistics::Double(stats) = stats {
+            assert_eq!(stats.min(), &-2.0);
+            assert_eq!(stats.max(), &3.0);
+        } else {
+            panic!("expecting Statistics::Double, got {:?}", stats);
+        }
+    }
+
+    #[test]
+    fn test_byte_array_statistics() {
+        let input = vec!["aawaa", "zz", "aaw", "m", "qrs"]
+            .iter()
+            .map(|&s| s.into())
+            .collect::<Vec<ByteArray>>();
+
+        let stats = statistics_roundtrip::<ByteArrayType>(&input);
+        assert!(stats.has_min_max_set());
+        if let Statistics::ByteArray(stats) = stats {
+            assert_eq!(stats.min(), &ByteArray::from("aaw"));
+            assert_eq!(stats.max(), &ByteArray::from("zz"));
+        } else {
+            panic!("expecting Statistics::ByteArray, got {:?}", stats);
+        }
+    }
+
+    #[test]
+    fn test_fixed_len_byte_array_statistics() {
+        let input = vec!["aawaa", "zz   ", "aaw  ", "m    ", "qrs  "]
+            .iter()
+            .map(|&s| {
+                let b: ByteArray = s.into();
+                b.into()
+            })
+            .collect::<Vec<FixedLenByteArray>>();
+
+        let stats = statistics_roundtrip::<FixedLenByteArrayType>(&input);
+        assert!(stats.has_min_max_set());
+        if let Statistics::FixedLenByteArray(stats) = stats {
+            let expected_min: FixedLenByteArray = ByteArray::from("aaw  ").into();
+            assert_eq!(stats.min(), &expected_min);
+            let expected_max: FixedLenByteArray = ByteArray::from("zz   ").into();
+            assert_eq!(stats.max(), &expected_max);
+        } else {
+            panic!("expecting Statistics::FixedLenByteArray, got {:?}", stats);
+        }
     }
 
     #[test]
