@@ -34,8 +34,8 @@ jobs:
       with:
             toolchain: nightly-2021-12-17
             override: true
-    - name: Cache dependencies
-      uses: Swatinem/rust-cache@v1
+    # - name: Cache dependencies
+    #   uses: Swatinem/rust-cache@v1
     - name: TensorBase Run server
       run: |
            mkdir ${{ github.workspace }}/tb_data
