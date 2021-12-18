@@ -32,7 +32,7 @@ jobs:
     - name: Install latest nightly
       uses: actions-rs/toolchain@v1
       with:
-            toolchain: nightly-2021-09-01
+            toolchain: nightly-2021-12-17
             override: true
     - name: Cache dependencies
       uses: Swatinem/rust-cache@v1
