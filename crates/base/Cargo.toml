@@ -7,7 +7,7 @@ license = "Apache-2.0"
 
 [dependencies]
 base_proc_macro = { path = "./proc_macro" }
-itoa = "0.4"
+itoa = "1.0"
 dtoa = "0.4"
 thiserror = "1.0"
 libc = "0.2"

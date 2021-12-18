@@ -10,7 +10,7 @@ thiserror = "1.0"
 log = "0.4"
 toml = "0.5"
 num-traits = "0.2"
-itoa = "0.4"
+itoa = "1.0"
 btoi = "0.4"
 libc = "0.2"
 base = { path = "../base" }

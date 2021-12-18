@@ -13,7 +13,7 @@ typed-arena = "2.0"
 thiserror = "1.0"
 indexmap = "1.6"
 log = "0.4"
-itoa = "0.4"
+itoa = "1.0"
 libc = "0.2"
 arrow = { path = "../arrow", features = ["simd"] }
 datafusion = { path = "../datafusion", features = ["simd"] }
