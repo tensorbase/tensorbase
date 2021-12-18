@@ -107,6 +107,11 @@ pub fn can_cast_types(from_type: &DataType, to_type: &DataType) -> bool {
             | Dictionary(_, _),
             Null,
         ) => true,
+        //
+        (Utf8, Timestamp32(None)) => true,
+        (LargeUtf8, Date16) => true,
+        (LargeUtf8, Timestamp32(None)) => true,
+
         (Struct(_), _) => false,
         (_, Struct(_)) => false,
         (LargeList(list_from), LargeList(list_to)) => {
@@ -278,10 +283,6 @@ pub fn can_cast_types(from_type: &DataType, to_type: &DataType) -> bool {
         // date64 to timestamp might not make sense,
         (Int64, Duration(_)) => true,
 
-        //
-        (Utf8, Timestamp32(None)) => true,
-        (LargeUtf8, Date16) => true,
-        (LargeUtf8, Timestamp32(None)) => true,
         (Timestamp32(_), Timestamp32(None)) => true,
         (Timestamp32(_), Int32) => true,
         (Int32, Timestamp32(_)) => true,

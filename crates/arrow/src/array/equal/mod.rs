@@ -160,13 +160,13 @@ fn equal_values(
         DataType::UInt8 => primitive_equal::<u8>(
             lhs, rhs, lhs_nulls, rhs_nulls, lhs_start, rhs_start, len,
         ),
-        DataType::UInt16 => primitive_equal::<u16>(
+        DataType::UInt16 | DataType::Date16 => primitive_equal::<u16>(
             lhs, rhs, lhs_nulls, rhs_nulls, lhs_start, rhs_start, len,
         ),
         DataType::UInt32 => primitive_equal::<u32>(
             lhs, rhs, lhs_nulls, rhs_nulls, lhs_start, rhs_start, len,
         ),
-        DataType::UInt16 | DataType::Date16 => primitive_equal::<u64>(
+        DataType::UInt64 => primitive_equal::<u64>(
             lhs, rhs, lhs_nulls, rhs_nulls, lhs_start, rhs_start, len,
         ),
         DataType::Int8 => primitive_equal::<i8>(
@@ -179,9 +179,6 @@ fn equal_values(
             lhs, rhs, lhs_nulls, rhs_nulls, lhs_start, rhs_start, len,
         ),
         DataType::Int64 => primitive_equal::<i64>(
-            lhs, rhs, lhs_nulls, rhs_nulls, lhs_start, rhs_start, len,
-        ),
-        DataType::UInt64 => primitive_equal::<u64>(
             lhs, rhs, lhs_nulls, rhs_nulls, lhs_start, rhs_start, len,
         ),
         DataType::Float32 => primitive_equal::<f32>(
