@@ -51,7 +51,7 @@ avro = ["avro-rs", "num-traits"]
 
 [dependencies]
 ahash = "0.7"
-hashbrown = { version = "0.11", features = ["raw"] }
+hashbrown = { version = "0.12", features = ["raw"] }
 arrow = { path = "../arrow", features = ["prettyprint"] }
 parquet = { path = "../parquet", features = ["arrow"] }
 sqlparser = "0.13"
