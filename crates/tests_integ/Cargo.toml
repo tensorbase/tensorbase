@@ -11,7 +11,7 @@ tokio = { version = "1.0", features = ["full"] }
 rand = { version = "0.8.0", features = ["small_rng"] }
 base = { path = "../base" }
 mysql = "21.0.1"
-mysql_common = "0.27.4"
+mysql_common = "0.28.2"
 
 [dev-dependencies]
 futures-util = { version = "0.3", features = ["sink"] }
