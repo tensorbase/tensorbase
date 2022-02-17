@@ -15,7 +15,7 @@ lzzzz = "0.8"
 thread_local = "1.0"
 dashmap = "5.0"
 clap = "2.34.0"
-mysql = "21.0.1"
+mysql = "22.1.0"
 base = { path = "../base" }
 meta = { path = "../meta" }
 lang = { path = "../lang" }
